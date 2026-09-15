@@ -107,6 +107,56 @@ def test_aperture_radius_matches():
             assert r <= 40.0 + 1e-6
 
 
+def _sphere_hit(o, d, center, R):
+    """First intersection of a ray with a sphere (closed form)."""
+    o = np.asarray(o, float)
+    d = np.asarray(d, float)
+    oc = o - np.asarray(center, float)
+    b = oc @ d
+    c = oc @ oc - R * R
+    t = -b + np.sqrt(max(b * b - c, 0.0))
+    return o + t * d
+
+
+def _refract_dir(d, n, n1, n2):
+    """Vector Snell refraction; ``n`` may point either way."""
+    d = np.asarray(d, float)
+    n = np.asarray(n, float)
+    cos_i = -(n @ d)
+    if cos_i < 0.0:
+        n = -n
+        cos_i = -cos_i
+    eta = n1 / n2
+    sin2 = eta * eta * (1.0 - cos_i * cos_i)
+    cost = np.sqrt(max(1.0 - sin2, 0.0))
+    dr = eta * d + (eta * cos_i - cost) * n
+    return dr / np.linalg.norm(dr)
+
+
+def test_second_surface_hit_continues_from_first():
+    # Regression: the kernel must intersect surface s+1 from the hit point on
+    # surface s, not from the ray's original source position. Verify one
+    # off-axis ray against a closed-form reference (spheres + vector Snell).
+    s1 = ConicSurface("s1", radius=50.0, conicity=0.0, z0=0.0)
+    s2 = ConicSurface("s2", radius=-50.0, conicity=0.0, z0=5.0)
+    origins = np.array([[10.0, 0.0, -20.0]])
+    dirs = np.array([[0.0, 0.0, 1.0]])
+    hits, tir, blocked = accel.trace_numba(origins, dirs, [s1, s2],
+                                           [1.0, 1.5, 1.0])
+    assert not blocked[0]
+    assert not tir[0, 0] and not tir[1, 0]
+
+    o = np.array([10.0, 0.0, -20.0])
+    d = np.array([0.0, 0.0, 1.0])
+    h1 = _sphere_hit(o, d, (0.0, 0.0, 50.0), 50.0)
+    n1 = (h1 - np.array([0.0, 0.0, 50.0])) / 50.0
+    d1 = _refract_dir(d, n1, 1.0, 1.5)
+    h2 = _sphere_hit(h1, d1, (0.0, 0.0, -45.0), 50.0)
+
+    assert np.allclose(hits[0, 0], h1, atol=1e-6)
+    assert np.allclose(hits[1, 0], h2, atol=1e-6)
+
+
 def test_ray_origin_recorded():
     stack = _lens_stack()
     src = _gaussian_source(grid=16, origin=(0, 0, -20.0))

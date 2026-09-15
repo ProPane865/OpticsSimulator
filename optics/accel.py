@@ -219,8 +219,10 @@ def _trace_kernel(origins, dirs, kinds, flat_coeffs, offsets, media):
             if dnorm > 0:
                 d = d / dnorm
 
-            origins[r] = hit
-            dirs[r] = d
+            o = hit
+
+        origins[r] = o
+        dirs[r] = d
 
     return hits, tir_all, blocked
 

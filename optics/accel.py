@@ -14,7 +14,7 @@ from numba import njit, prange
 
 HAVE_NUMBA = True
 
-from .surfaces import CONIC, PLANE, POLY
+from .surfaces import CONIC, PLANE
 
 
 @njit(cache=True)
@@ -159,11 +159,11 @@ def _normal(kind, c0, p):
 
 @njit(cache=True)
 def _aperture(kind, c0):
-    if kind == POLY:
-        return -1.0
-    if c0.shape[0] <= 3:
-        return -1.0
-    return c0[3]
+    if kind == PLANE:
+        return c0[1]
+    if kind == CONIC:
+        return c0[3]
+    return -1.0
 
 
 @njit(parallel=True, cache=True)

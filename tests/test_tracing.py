@@ -126,6 +126,22 @@ def test_plane_surface_traces_straight():
     assert np.allclose(tr.hits[0][:, 2], 10.0)
 
 
+def test_plane_aperture_blocks_outer_rays():
+    stack = OpticalStack("plane")
+    stack.add_surface(Plane("p", z0=10.0, aperture=3.0), medium_index=1.5)
+    stack.add_media(1.0)
+    tr = stack.trace(_gaussian_source(grid=80))
+    hits = tr.hits[0]
+    blocked = tr.blocked
+    n_blocked = int(blocked.sum())
+    assert n_blocked > 0
+    assert n_blocked < tr.n_rays
+    for i in range(hits.shape[0]):
+        if not blocked[i]:
+            r = np.sqrt(hits[i, 0] ** 2 + hits[i, 1] ** 2)
+            assert r <= 3.0 + 1e-6
+
+
 def test_poly_surface_traces():
     P = PolySagSurface("poly", order=2)
     P.coeffs[2, 0] = 0.001  # weak focusing term

@@ -89,10 +89,10 @@ class Scene:
     def add_sphere(self, radius, z0=0.0, n=1.0, aperture=None):
         return self.add_conic(radius=radius, conicity=0.0, z0=z0, n=n, aperture=aperture)
 
-    def add_plane(self, n=1.0, z0=0.0):
+    def add_plane(self, n=1.0, z0=0.0, aperture=None):
         self.surfaces.append({
             "kind": "plane", "name": f"plane{len(self.surfaces)}",
-            "z0": float(z0), "n": float(n), "aperture": None,
+            "z0": float(z0), "n": float(n), "aperture": aperture,
         })
         return self
 
@@ -123,7 +123,7 @@ class Scene:
                     z0=s["z0"], aperture=s["aperture"],
                 )
             else:
-                surf = Plane(s["name"], z0=s["z0"])
+                surf = Plane(s["name"], z0=s["z0"], aperture=s["aperture"])
             stack.add_surface(surf, medium_index=s["n"])
         if stack.media[-1] != 1.0 and self.surfaces:
             stack.add_media(1.0)

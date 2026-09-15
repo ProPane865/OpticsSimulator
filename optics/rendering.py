@@ -6,7 +6,12 @@ import numpy as np
 
 
 def surface_mesh(surface, rmax, n=64):
-    """Triangular mesh of a sag surface over ``[-rmax, rmax]`` squared.
+    """Triangular mesh of a sag surface over ``[-rmax, rmax]`` squared,
+    clipped to the circular aperture of radius ``rmax``.
+
+    Faces with any vertex outside the circle are discarded, so sag values
+    outside the surface's valid domain (e.g. conic corners beyond the
+    radius of curvature) are never rendered.
 
     Returns ``(vertices (M, 3), faces (K, 3))``.
     """
@@ -25,6 +30,12 @@ def surface_mesh(surface, rmax, n=64):
         np.stack([a, b, d], axis=-1).reshape(-1, 3),
         np.stack([a, d, c], axis=-1).reshape(-1, 3),
     ])
+
+    # Clip mesh to the circular aperture.
+    r2 = verts[:, 0] ** 2 + verts[:, 1] ** 2
+    inside = r2 <= rmax ** 2
+    faces = faces[np.all(inside[faces], axis=1)]
+
     return verts.astype(np.float32), faces.astype(np.int32)
 
 
@@ -47,9 +58,11 @@ def source_quad(source):
 
 
 def ray_polylines(trace, detector_z=None):
-    """Ray paths as line segments ``(segs, 2, 3)`` from source through surfaces.
+    """Ray paths as line segments from source through surfaces to the detector.
 
-    Returns ``(segments (S*2*... ), detector_hits (N,3))``.
+    Returns ``(segments, detector_hits)`` where ``segments`` has shape
+    ``(n_rays * (n_surfaces + 1), 2, 3)`` — one ``(start, end)`` pair per
+    segment, grouped per ray — and ``detector_hits`` has shape ``(n_rays, 3)``.
     """
     base = [trace.source_points]
     for s in range(trace.n_surfaces):
@@ -60,5 +73,5 @@ def ray_polylines(trace, detector_z=None):
     base.append(det_pts)
 
     path = np.stack(base, axis=1)          # (N, n_seg+1, 3)
-    segments = np.stack([path[:, :-1], path[:, 1:]], axis=1)  # (N, segs, 2, 3)
+    segments = np.stack([path[:, :-1], path[:, 1:]], axis=2)  # (N, segs, 2, 3)
     return segments.reshape(-1, 2, 3).astype(np.float32), det_pts

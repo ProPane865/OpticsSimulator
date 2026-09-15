@@ -170,6 +170,11 @@ class SurfacePanel(QWidget):
             n.setValue(s["n"]); n.valueChanged.connect(lambda _v, i=i: self._edit(i, "n", _v))
             grid.addWidget(QLabel("n"), i, 3)
             grid.addWidget(n, i, 4)
+            ap = QDoubleSpinBox(); ap.setRange(0, 1e4)
+            ap.setValue(s["aperture"] if s["aperture"] is not None else -1)
+            ap.valueChanged.connect(lambda _v, i=i: self._edit_aperture(i, _v))
+            grid.addWidget(QLabel("aperture"), i, 7)
+            grid.addWidget(ap, i, 8)
 
         rm = QPushButton("X")
         rm.setFixedWidth(28)

@@ -112,7 +112,7 @@ class Viewport:
                     s["name"], radius=s["radius"], conicity=s["conicity"],
                     z0=s["z0"], aperture=s["aperture"])
             else:
-                surf = Plane(s["name"], z0=s["z0"])
+                surf = Plane(s["name"], z0=s["z0"], aperture=s["aperture"])
             ap = s.get("aperture") or 60.0
             verts, faces = rendering.surface_mesh(surf, min(ap, 60.0), n=48)
             color = np.broadcast_to(

@@ -55,7 +55,7 @@ pip install -e ".[dev]"   # + pytest
 ```bash
 optics-simulator            # console entry point
 # or
-python -m gui.app
+python -m gui
 ```
 
 Presets live under **System** in the menu. Use the Source panel to change the

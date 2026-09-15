@@ -121,8 +121,7 @@ class Viewport:
             mesh = visuals.Mesh(
                 vertices=verts, faces=faces, vertex_colors=color,
                 parent=self._view.scene)
-            mesh.set_gl_state(translucent=True, depth_write=False,
-                              depth_testing=True)
+            mesh.set_gl_state(preset='translucent', depth_mask=False)
             self._meshes.append(mesh)
 
         self._build_axes()
@@ -179,8 +178,7 @@ class Viewport:
             parent=self._view.scene)
         self._src_img.transform = self.MatrixTransform(
             self._plane_transform(src_corner0, src_span, src_shape))
-        self._src_img.set_gl_state(translucent=True, depth_write=False,
-                                   depth_testing=True)
+        self._src_img.set_gl_state(preset='translucent', depth_mask=False)
 
         det = self._detector_corners()
         if det is not None:
@@ -190,8 +188,7 @@ class Viewport:
                 parent=self._view.scene)
             self._det_img.transform = self.MatrixTransform(
                 self._plane_transform(corner0, span, shape))
-            self._det_img.set_gl_state(translucent=True, depth_write=False,
-                                       depth_testing=True)
+            self._det_img.set_gl_state(preset='translucent', depth_mask=False)
 
     @staticmethod
     def _plane_transform(corner0, span, shape):

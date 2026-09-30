@@ -7,6 +7,23 @@ class Ray:
         self.origin = origin
         self.direction = direction / np.linalg.norm(direction)
 
+class Surface:
+    def implicit(self, p):
+        """Return F(x,y,z)."""
+        raise NotImplementedError
+
+    def normal(self, p):
+        """Return surface normal at p."""
+        raise NotImplementedError
+
+    def parameterize(self, u, v):
+        """Return points for visualization."""
+        raise NotImplementedError
+
+    @property
+    def parameter_range(self):
+        raise NotImplementedError
+
 class RefractiveElement:
     def __init__(self, schema: str, orientation=np.array([0, 0, 1])):
         self.sch = json.loads(schema)
@@ -155,7 +172,7 @@ def check_on_axis(label, element, orientation):
 
 
 if __name__ == "__main__":
-    with open("test_geometry.json", "r") as f:
+    with open("tests/test_geometry.json", "r") as f:
         schema = f.read()
 
     check_on_axis("default orientation", RefractiveElement(schema), np.array([0.0, 0.0, 1.0]))

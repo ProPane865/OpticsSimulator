@@ -1,0 +1,209 @@
+from pathlib import Path
+
+import numpy as np
+import vispy
+from vispy import scene
+from vispy.scene import visuals
+
+SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
+SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.25)
+INCIDENT_COLOR = (0.9, 0.2, 0.2, 1.0)
+INTERNAL_COLOR = (1.0, 0.6, 0.1, 1.0)
+EXIT_COLOR = (0.2, 0.75, 0.3, 1.0)
+AXIS_COLORS = {
+    "x": (0.85, 0.15, 0.15, 1.0),
+    "y": (0.15, 0.65, 0.2, 1.0),
+    "z": (0.15, 0.3, 0.85, 1.0),
+}
+
+
+def surface_positions(element, surface, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), n=128):
+    xs = np.linspace(x_range[0], x_range[1], n)
+    ys = np.linspace(y_range[0], y_range[1], n)
+    X, Y = np.meshgrid(xs, ys)
+    f = surface[0]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        Z = np.asarray(f(X, Y), dtype=float)
+    Z = np.broadcast_to(Z, (n, n))
+
+    ok = np.isfinite(Z)
+    idmap = np.full((n, n), -1, dtype=np.int64)
+    idmap[ok] = np.arange(np.count_nonzero(ok))
+
+    verts = np.empty((np.count_nonzero(ok), 3), dtype=float)
+    verts[:, 0] = X[ok].ravel()
+    verts[:, 1] = Y[ok].ravel()
+    verts[:, 2] = Z[ok].ravel()
+
+    if idmap.shape[0] < 2 or idmap.shape[1] < 2:
+        return verts, np.empty((0, 3), dtype=np.int64)
+
+    i = np.repeat(np.arange(n - 1), n - 1)
+    j = np.tile(np.arange(n - 1), n - 1)
+    a = idmap[i, j]
+    b = idmap[i + 1, j]
+    c = idmap[i + 1, j + 1]
+    d = idmap[i, j + 1]
+    valid = np.minimum.reduce([a, b, c, d]) >= 0
+    a, b, c, d = a[valid], b[valid], c[valid], d[valid]
+    faces = np.vstack([
+        np.column_stack([a, d, c]),
+        np.column_stack([a, c, b]),
+    ])
+
+    if faces.shape[0] > 0:
+        cx = float(np.mean(X[ok]))
+        cy = float(np.mean(Y[ok]))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            z_center = float(f(cx, cy))
+        if np.isfinite(z_center):
+            z_ref = float(np.median(Z[ok]))
+            if z_center < z_ref - 1e-12:
+                faces = faces[:, ::-1]
+
+    verts = (element.r_matrix @ verts.T).T
+    return verts, faces
+
+
+def make_surface_visual(element, surface, color=SURFACE1_COLOR, **mesh_kwargs):
+    verts, faces = surface_positions(element, surface)
+    kwargs = dict(
+        color=color,
+        shading="smooth",
+    )
+    kwargs.update(mesh_kwargs)
+    return visuals.Mesh(verts, faces, **kwargs)
+
+
+def _marker_positions(pos, radius=0.03, n_phi=16, n_theta=8):
+    v = np.linspace(0.0, np.pi, n_theta)
+    u = np.linspace(0.0, 2.0 * np.pi, n_phi, endpoint=False)
+    V, U = np.meshgrid(v, u)
+    x = radius * np.sin(V) * np.cos(U)
+    y = radius * np.sin(V) * np.sin(U)
+    z = radius * np.cos(V)
+    verts = np.column_stack([x.ravel(), y.ravel(), z.ravel()]) + np.asarray(pos, dtype=float)
+
+    i = np.repeat(np.arange(n_theta - 1), n_phi)
+    j = np.tile(np.arange(n_phi), n_theta - 1)
+    a = i * n_phi + j
+    b = (i + 1) * n_phi + j
+    c = (i + 1) * n_phi + (j + 1) % n_phi
+    d = i * n_phi + (j + 1) % n_phi
+    faces = np.vstack([
+        np.column_stack([a, b, c]),
+        np.column_stack([a, c, d]),
+    ])
+    return verts, faces
+
+
+def trace_ray(element, ray):
+    p1 = element._intersect(element.surface1, ray)
+    if p1 is not None and not np.all(np.isfinite(p1)):
+        p1 = None
+    if p1 is None:
+        return None, None
+    try:
+        out = element.refract(ray)
+    except (TypeError, ValueError):
+        return p1, None
+    return p1, out
+
+
+def _attach(view, visual):
+    view.add(visual)
+    return visual
+
+
+def _add_marker(view, pos, color, radius=0.03):
+    verts, faces = _marker_positions(pos, radius=radius)
+    return _attach(view, visuals.Mesh(verts, faces, color=color, shading="flat"))
+
+
+def _add_segment(view, a, b, color, width=3):
+    if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
+        return None
+    return _attach(
+        view,
+        visuals.Line(pos=np.array([a, b]), color=color, width=width),
+    )
+
+
+def _add_axes(view, length=2.0, width=2):
+    origin = np.zeros(3)
+    for name, ix in (("x", 0), ("y", 1), ("z", 2)):
+        end = np.zeros(3)
+        end[ix] = length
+        _add_segment(view, origin, end, AXIS_COLORS[name], width=width)
+
+
+def draw_ray(view, element, ray, ray_length=3.0):
+    origin = np.asarray(ray.origin, dtype=float)
+    direction = np.asarray(ray.direction, dtype=float)
+    if not (np.all(np.isfinite(origin)) and np.all(np.isfinite(direction))):
+        return
+
+    p1, out = trace_ray(element, ray)
+
+    if p1 is not None:
+        _add_segment(view, origin, p1, INCIDENT_COLOR)
+        _add_marker(view, p1, INCIDENT_COLOR)
+    else:
+        _add_segment(view, origin, origin + ray_length * direction, INCIDENT_COLOR)
+
+    if out is None:
+        return
+    if out.origin is not None and np.all(np.isfinite(out.origin)):
+        p2 = np.asarray(out.origin, dtype=float)
+        if p1 is not None:
+            _add_segment(view, p1, p2, INTERNAL_COLOR)
+        _add_marker(view, p2, EXIT_COLOR)
+        if np.all(np.isfinite(out.direction)):
+            _add_segment(view, p2, p2 + ray_length * np.asarray(out.direction, dtype=float), EXIT_COLOR)
+
+
+def visualize(element, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=3.0, show=True):
+    canvas = scene.SceneCanvas(
+        keys="interactive",
+        size=(900, 700),
+        show=False,
+        bgcolor=(1.0, 1.0, 1.0, 1.0),
+        title="OpticsSimulator",
+    )
+    view = canvas.central_widget.add_view(camera="turntable")
+
+    axis_len = max(abs(x_range[0]), abs(x_range[1]), abs(y_range[0]), abs(y_range[1]))
+    _add_axes(view, length=axis_len)
+    _attach(view, make_surface_visual(element, element.surface1, SURFACE1_COLOR))
+    _attach(view, make_surface_visual(element, element.surface2, SURFACE2_COLOR))
+
+    if isinstance(rays, (list, tuple)):
+        ray_list = list(rays)
+    else:
+        ray_list = [rays]
+    for ray in ray_list:
+        draw_ray(view, element, ray, ray_length=ray_length)
+
+    if show:
+        canvas.show(run=True)
+    return canvas
+
+
+def main():
+    from main import Ray, RefractiveElement
+
+    schema_path = Path(__file__).resolve().parent / "tests" / "test_geometry.json"
+    with open(schema_path, "r") as f:
+        schema = f.read()
+
+    element = RefractiveElement(schema)
+    rays = [
+        Ray(np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),
+        Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),
+        Ray(np.array([0.0, 0.4, 3.0]), np.array([0.0, 0.0, -1.0])),
+    ]
+    visualize(element, rays)
+
+
+if __name__ == "__main__":
+    main()

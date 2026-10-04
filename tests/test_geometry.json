@@ -1,9 +1,13 @@
 {
     "surface1": {
-        "equation": "sqrt(1 - (x**2) - (y**2))"
+        "x": "u",
+        "y": "v",
+        "z": "sqrt(1 - (u**2) - (v**2))"
     },
     "surface2": {
-        "equation": "-sqrt(1 - (x**2) - (y**2))"
+        "x": "u",
+        "y": "v",
+        "z": "-sqrt(1 - (u**2) - (v**2))"
     },
     "material": {
         "refractive_index": 1.5

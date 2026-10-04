@@ -60,12 +60,14 @@ def test_sphere_off_axis_matches_reference(sphere):
     ray = main.Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
     out = sphere.refract(ray)
 
-    p1 = sphere._intersect(sphere.surface1, ray)
-    n1 = -sphere.get_normal(sphere.surface1, p1)
+    hit1 = sphere.surface1.intersect(ray)
+    p1, u1, v1 = hit1
+    n1 = -sphere.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / sphere.n)
 
-    p2 = sphere._intersect(sphere.surface2, main.Ray(p1, d1))
-    n2 = -sphere.get_normal(sphere.surface2, p2)
+    hit2 = sphere.surface2.intersect(main.Ray(p1, d1))
+    p2, u2, v2 = hit2
+    n2 = -sphere.surface2.normal(u2, v2)
     d2 = _refract_direction(d1, n2, sphere.n)
 
     np.testing.assert_allclose(out.direction, d2, atol=1e-9)
@@ -99,12 +101,14 @@ def test_bicone_launch_is_supercritical(make_element):
     elem = make_element(BICONE_S1, BICONE_S2, n=1.5)
     ray = main.Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
 
-    p1 = elem._intersect(elem.surface1, ray)
-    n1 = -elem.get_normal(elem.surface1, p1)
+    hit1 = elem.surface1.intersect(ray)
+    p1, u1, v1 = hit1
+    n1 = -elem.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
-    p2 = elem._intersect(elem.surface2, main.Ray(p1, d1))
-    n2 = -elem.get_normal(elem.surface2, p2)
+    hit2 = elem.surface2.intersect(main.Ray(p1, d1))
+    p2, u2, v2 = hit2
+    n2 = -elem.surface2.normal(u2, v2)
     cos_i2 = -float(np.dot(n2, d1))
 
     assert cos_i2 < 1.0 / 1.5
@@ -119,12 +123,14 @@ def test_total_internal_reflection_returns_reflected_ray(make_element):
     elem = make_element(BICONE_S1, BICONE_S2, n=1.5)
     ray = main.Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
 
-    p1 = elem._intersect(elem.surface1, ray)
-    n1 = -elem.get_normal(elem.surface1, p1)
+    hit1 = elem.surface1.intersect(ray)
+    p1, u1, v1 = hit1
+    n1 = -elem.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
-    p2 = elem._intersect(elem.surface2, main.Ray(p1, d1))
-    n2 = -elem.get_normal(elem.surface2, p2)
+    hit2 = elem.surface2.intersect(main.Ray(p1, d1))
+    p2, u2, v2 = hit2
+    n2 = -elem.surface2.normal(u2, v2)
     expected = d1 - 2.0 * float(np.dot(n2, d1)) * n2
 
     out = elem.refract(ray)

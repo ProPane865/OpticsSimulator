@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import numpy as np
-import vispy
 from vispy import scene
 from vispy.scene import visuals
 
@@ -17,56 +16,13 @@ AXIS_COLORS = {
 }
 
 
-def surface_positions(element, surface, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), n=128):
-    xs = np.linspace(x_range[0], x_range[1], n)
-    ys = np.linspace(y_range[0], y_range[1], n)
-    X, Y = np.meshgrid(xs, ys)
-    f = surface[0]
-    with np.errstate(invalid="ignore", divide="ignore"):
-        Z = np.asarray(f(X, Y), dtype=float)
-    Z = np.broadcast_to(Z, (n, n))
-
-    ok = np.isfinite(Z)
-    idmap = np.full((n, n), -1, dtype=np.int64)
-    idmap[ok] = np.arange(np.count_nonzero(ok))
-
-    verts = np.empty((np.count_nonzero(ok), 3), dtype=float)
-    verts[:, 0] = X[ok].ravel()
-    verts[:, 1] = Y[ok].ravel()
-    verts[:, 2] = Z[ok].ravel()
-
-    if idmap.shape[0] < 2 or idmap.shape[1] < 2:
-        return verts, np.empty((0, 3), dtype=np.int64)
-
-    i = np.repeat(np.arange(n - 1), n - 1)
-    j = np.tile(np.arange(n - 1), n - 1)
-    a = idmap[i, j]
-    b = idmap[i + 1, j]
-    c = idmap[i + 1, j + 1]
-    d = idmap[i, j + 1]
-    valid = np.minimum.reduce([a, b, c, d]) >= 0
-    a, b, c, d = a[valid], b[valid], c[valid], d[valid]
-    faces = np.vstack([
-        np.column_stack([a, d, c]),
-        np.column_stack([a, c, b]),
-    ])
-
-    if faces.shape[0] > 0:
-        cx = float(np.mean(X[ok]))
-        cy = float(np.mean(Y[ok]))
-        with np.errstate(invalid="ignore", divide="ignore"):
-            z_center = float(f(cx, cy))
-        if np.isfinite(z_center):
-            z_ref = float(np.median(Z[ok]))
-            if z_center < z_ref - 1e-12:
-                faces = faces[:, ::-1]
-
-    verts = (element.r_matrix @ verts.T).T
-    return verts, faces
+def surface_positions(surface, n=128):
+    return surface.mesh(n)
 
 
-def make_surface_visual(element, surface, color=SURFACE1_COLOR, **mesh_kwargs):
-    verts, faces = surface_positions(element, surface)
+def make_surface_visual(surface, color=SURFACE1_COLOR, **mesh_kwargs):
+    n = mesh_kwargs.pop("n", 128)
+    verts, faces = surface_positions(surface, n=n)
     kwargs = dict(
         color=color,
         shading="smooth",
@@ -98,7 +54,8 @@ def _marker_positions(pos, radius=0.03, n_phi=16, n_theta=8):
 
 
 def trace_ray(element, ray):
-    p1 = element._intersect(element.surface1, ray)
+    hit = element.surface1.intersect(ray)
+    p1 = hit[0] if hit is not None else None
     if p1 is not None and not np.all(np.isfinite(p1)):
         p1 = None
     if p1 is None:
@@ -174,8 +131,8 @@ def visualize(element, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_lengt
 
     axis_len = max(abs(x_range[0]), abs(x_range[1]), abs(y_range[0]), abs(y_range[1]))
     _add_axes(view, length=axis_len)
-    _attach(view, make_surface_visual(element, element.surface1, SURFACE1_COLOR))
-    _attach(view, make_surface_visual(element, element.surface2, SURFACE2_COLOR))
+    _attach(view, make_surface_visual(element.surface1, SURFACE1_COLOR))
+    _attach(view, make_surface_visual(element.surface2, SURFACE2_COLOR))
 
     if isinstance(rays, (list, tuple)):
         ray_list = list(rays)

@@ -3,8 +3,16 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import sympy as sp
 
 import main
+
+
+def _parametric_equation(equation: str) -> str:
+    x, y = sp.symbols("x y")
+    u, v = sp.symbols("u v")
+    expr = sp.parse_expr(equation)
+    return str(expr.subs({x: u, y: v}))
 
 
 @pytest.fixture
@@ -32,8 +40,20 @@ def make_element():
         )
         schema = json.dumps(
             {
-                "surface1": {"equation": surface1},
-                "surface2": {"equation": surface2},
+                "surface1": {
+                    "x": "u",
+                    "y": "v",
+                    "z": _parametric_equation(surface1),
+                    "u_range": [-10.0, 10.0],
+                    "v_range": [-10.0, 10.0],
+                },
+                "surface2": {
+                    "x": "u",
+                    "y": "v",
+                    "z": _parametric_equation(surface2),
+                    "u_range": [-10.0, 10.0],
+                    "v_range": [-10.0, 10.0],
+                },
                 "material": {"refractive_index": n},
             }
         )

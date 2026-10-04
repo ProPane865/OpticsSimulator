@@ -72,18 +72,30 @@ def _attach(view, visual):
     return visual
 
 
-def _add_marker(view, pos, color, radius=0.03):
+def _make_marker(pos, color, radius=0.03):
     verts, faces = _marker_positions(pos, radius=radius)
-    return _attach(view, visuals.Mesh(verts, faces, color=color, shading="flat"))
+    marker = visuals.Mesh(verts, faces, color=color, shading="flat")
+    marker.update_gl_state(depth_test=False)
+    return marker
+
+
+def _add_marker(view, pos, color, radius=0.03):
+    return _attach(view, _make_marker(pos, color, radius=radius))
+
+
+def _make_segment(a, b, color, width=3):
+    if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
+        return None
+    segment = visuals.Line(pos=np.array([a, b]), color=color, width=width)
+    segment.update_gl_state(depth_test=False)
+    return segment
 
 
 def _add_segment(view, a, b, color, width=3):
-    if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
+    segment = _make_segment(a, b, color, width=width)
+    if segment is None:
         return None
-    return _attach(
-        view,
-        visuals.Line(pos=np.array([a, b]), color=color, width=width),
-    )
+    return _attach(view, segment)
 
 
 def _add_axes(view, length=2.0, width=2):

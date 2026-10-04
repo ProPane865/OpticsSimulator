@@ -105,6 +105,27 @@ def test_surface_mesh_reaches_domain_boundary_sphere(make_element):
     assert np.all(faces < len(verts))
 
 
+def test_ray_segment_rendered_above_surfaces():
+    line = visualize._make_segment(
+        np.array([0.0, 0.0, 3.0]),
+        np.array([0.0, 0.0, 0.5]),
+        (1.0, 0.0, 0.0, 1.0),
+    )
+    assert line is not None
+    subvisual = line._subvisuals[0]
+    assert subvisual._vshare.gl_state["preset"] == "translucent"
+    assert subvisual._vshare.gl_state["depth_test"] is False
+
+
+def test_ray_marker_rendered_above_surfaces():
+    marker = visualize._make_marker(np.array([0.0, 0.0, 1.0]), (1.0, 0.0, 0.0, 1.0))
+    assert marker._vshare.gl_state["depth_test"] is False
+
+
+def test_make_segment_rejects_non_finite_points():
+    assert visualize._make_segment(np.array([np.nan, 0.0, 0.0]), np.zeros(3), (1.0, 0.0, 0.0, 1.0)) is None
+
+
 def test_surface_mesh_reaches_vertical_wall_boundary():
     s = main.Surface("sqrt(1 - v**2)", "u", "v", u_range=(-10.0, 10.0), v_range=(-10.0, 10.0))
     verts, faces = s.mesh(128)

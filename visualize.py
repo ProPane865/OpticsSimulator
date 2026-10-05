@@ -28,7 +28,16 @@ def make_surface_visual(surface, color=SURFACE1_COLOR, **mesh_kwargs):
         shading="smooth",
     )
     kwargs.update(mesh_kwargs)
-    return visuals.Mesh(verts, faces, **kwargs)
+
+    mesh =  visuals.Mesh(verts, faces, **kwargs)
+    mesh.set_gl_state(
+        blend=True,
+        depth_test=True,
+        depth_mask=False,
+        blend_func=("src_alpha", "one_minus_src_alpha")
+    )
+    
+    return mesh
 
 
 def _marker_positions(pos, radius=0.03, n_phi=16, n_theta=8):

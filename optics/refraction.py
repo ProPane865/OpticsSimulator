@@ -3,6 +3,8 @@ import json
 
 from .surface import *
 
+_SIDEWALL_UNSET = object()
+
 class Ray:
     def __init__(self, origin: np.ndarray, direction: np.ndarray):
         self.origin = origin
@@ -31,6 +33,35 @@ class RefractiveElement:
             self.r_matrix = np.eye(3, 3) + axis_mat + np.matmul(axis_mat, axis_mat) * ((1 - np.inner(original, new)) / axis_norm**2)
         self.surface1 = self._make_surface(self.sch["surface1"], self.r_matrix)
         self.surface2 = self._make_surface(self.sch["surface2"], self.r_matrix)
+        self._sidewall = _SIDEWALL_UNSET
+
+    @property
+    def sidewall(self):
+        if self._sidewall is _SIDEWALL_UNSET:
+            if (
+                self.surface1.aperture is None
+                or self.surface2.aperture is None
+            ):
+                self._sidewall = None
+            else:
+                front = rear = None
+
+                try:
+                    front = self.surface1.aperture.boundary(self.surface1)
+                    rear = self.surface2.aperture.boundary(self.surface2)
+                except ValueError:
+                    front = rear = None
+
+                if (
+                    front is not None
+                    and rear is not None
+                    and front.shape == rear.shape
+                    and not np.allclose(front, rear)
+                ):
+                    self._sidewall = LensSidewall(front, rear)
+                else:
+                    self._sidewall = None
+        return self._sidewall
 
     @staticmethod
     def _make_surface(entry, transform):

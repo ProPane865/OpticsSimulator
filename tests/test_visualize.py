@@ -1,3 +1,5 @@
+import types
+
 import numpy as np
 
 import optics.refraction as refraction
@@ -136,3 +138,47 @@ def test_surface_mesh_reaches_vertical_wall_boundary():
     assert np.all(faces < len(verts))
     assert verts[:, 2].max() > 0.9999
     assert verts[:, 2].min() < -0.9999
+
+
+def test_make_wall_visual(make_element):
+    elem = make_element("sqrt(1 - (x**2) - (y**2))", "-sqrt(1 - (x**2) - (y**2))", aperture_radius=0.5)
+    wall = elem.sidewall
+    assert wall is not None
+    mesh = visualize.make_wall_visual(wall)
+    assert mesh is not None
+    assert mesh._vshare.gl_state["blend"] is True
+    assert mesh._vshare.gl_state["depth_mask"] is False
+
+
+def test_visualize_attaches_sidewall_when_aperture(make_element, monkeypatch):
+    elem = make_element("sqrt(1 - (x**2) - (y**2))", "-sqrt(1 - (x**2) - (y**2))", aperture_radius=0.5)
+    assert elem.sidewall is not None
+
+    attached = []
+
+    class _FakeView:
+        def add(self, visual):
+            attached.append(("view", visual))
+
+    class _FakeCanvas:
+        def __init__(self, **kwargs):
+            self.central_widget = _FakeCentralWidget()
+
+        def show(self, run=False):
+            pass
+
+    class _FakeCentralWidget:
+        def add_view(self, **kwargs):
+            return _FakeView()
+
+    monkeypatch.setattr(visualize, "scene", types.SimpleNamespace(SceneCanvas=_FakeCanvas))
+    monkeypatch.setattr(visualize, "make_surface_visual", lambda surface, color: ("surface", surface))
+    monkeypatch.setattr(visualize, "make_wall_visual", lambda wall, color: ("wall", wall))
+    monkeypatch.setattr(visualize, "draw_ray", lambda view, element, ray, ray_length=3.0: None)
+
+    canvas = visualize.visualize(elem, [], show=False)
+
+    kinds = [payload[0] for _, payload in attached if isinstance(payload, tuple)]
+    assert kinds.count("surface") == 2
+    assert "wall" in kinds
+    assert canvas is not None

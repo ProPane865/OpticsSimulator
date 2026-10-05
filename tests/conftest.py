@@ -32,28 +32,34 @@ def sphere(sphere_schema) -> refraction.RefractiveElement:
 
 @pytest.fixture
 def make_element():
-    def _make(surface1: str, surface2: str, n: float = 1.5, orientation=None) -> refraction.RefractiveElement:
+    def _make(surface1: str, surface2: str, n: float = 1.5, orientation=None, aperture_radius=None) -> refraction.RefractiveElement:
         orientation = (
             np.array([0.0, 0.0, 1.0])
             if orientation is None
             else np.asarray(orientation, dtype=float)
         )
+        aperture = (
+            None
+            if aperture_radius is None
+            else {"radius": float(aperture_radius)}
+        )
+
+        def _surface(z_eq: str) -> dict:
+            entry = {
+                "x": "u",
+                "y": "v",
+                "z": _parametric_equation(z_eq),
+                "u_range": [-10.0, 10.0],
+                "v_range": [-10.0, 10.0],
+            }
+            if aperture is not None:
+                entry["aperture"] = aperture
+            return entry
+
         schema = json.dumps(
             {
-                "surface1": {
-                    "x": "u",
-                    "y": "v",
-                    "z": _parametric_equation(surface1),
-                    "u_range": [-10.0, 10.0],
-                    "v_range": [-10.0, 10.0],
-                },
-                "surface2": {
-                    "x": "u",
-                    "y": "v",
-                    "z": _parametric_equation(surface2),
-                    "u_range": [-10.0, 10.0],
-                    "v_range": [-10.0, 10.0],
-                },
+                "surface1": _surface(surface1),
+                "surface2": _surface(surface2),
                 "material": {"refractive_index": n},
             }
         )

@@ -1,6 +1,178 @@
 import numpy as np
 import sympy as sp
 
+class Aperture:
+    @staticmethod
+    def from_spec(spec):
+        if spec is None:
+            return None
+        if isinstance(spec, Aperture):
+            return spec
+        if isinstance(spec, dict):
+            kind = str(spec.get("type", "circular")).lower()
+            if kind == "circular":
+                return CircularAperture(
+                    spec["radius"],
+                    spec.get("center", (0.0, 0.0)),
+                )
+            raise ValueError(f"Unknown aperture type: {kind}")
+        raise TypeError(f"Unsupported aperture spec: {spec!r}")
+
+    def contains(self, surface, u, v) -> bool:
+        raise NotImplementedError
+
+    def mask(self, surface, U, V, X, Y, Z):
+        raise NotImplementedError
+
+    def boundary(self, surface, n=128) -> np.ndarray:
+        raise NotImplementedError
+
+class CircularAperture(Aperture):
+    def __init__(self, radius, center=(0.0, 0.0)):
+        self.radius = float(radius)
+        self.center = np.array(center, dtype=float)
+
+    def contains(self, surface, u, v) -> bool:
+        p = surface._point_local(u, v)
+
+        if not np.all(np.isfinite(p)):
+            return False
+
+        dx = p[0] - self.center[0]
+        dy = p[1] - self.center[1]
+
+        return dx ** 2 + dy ** 2 <= self.radius ** 2 + 1e-12
+
+    def mask(self, surface, U, V, X, Y, Z):
+        finite = (
+            np.isfinite(X)
+            & np.isfinite(Y)
+            & np.isfinite(Z)
+        )
+
+        dx = X - self.center[0]
+        dy = Y - self.center[1]
+
+        return (
+            finite
+            & (dx ** 2 + dy ** 2 <= self.radius ** 2)
+        )
+
+    def boundary(self, surface, n=128):
+        theta = np.linspace(0, 2.0 * np.pi, n, endpoint=False)
+        targets = np.column_stack([
+            self.center[0] + self.radius * np.cos(theta),
+            self.center[1] + self.radius * np.sin(theta)
+        ])
+
+        points = []
+
+        for x, y in targets:
+            uv = surface.parameters_at_xy(x, y)
+
+            if uv is None:
+                raise ValueError(f"Aperture boundary point ({x}, {y}) does not lie on the surface")
+
+            u, v = uv
+            p = surface.point(u, v)
+
+            if not np.all(np.isfinite(p)):
+                raise ValueError("Non-finite point on aperture boundary")
+
+            points.append(p)
+        
+        return np.array(points, dtype=float)
+
+class LensSidewall:
+    def __init__(self, front, rear):
+        self.front = np.array(front, dtype=float)
+        self.rear = np.array(rear, dtype=float)
+
+        if self.front.shape != self.rear.shape:
+            raise ValueError("Front and rear rims must correspond")
+
+        if self.front.ndim != 2 or self.front.shape[1] != 3:
+            raise ValueError("Rims must have shape (N, 3)")
+
+        if len(self.front) < 3:
+            raise ValueError("Rims must have at least 3 points")
+
+        if not (
+            np.all(np.isfinite(self.front))
+            and np.all(np.isfinite(self.rear))
+        ):
+            raise ValueError("Rim points must be finite")
+
+        n = len(self.front)
+        self._verts = np.vstack([self.front, self.rear])
+
+        i = np.arange(n)
+        j = (i + 1) % n
+        f0, f1 = i, j
+        r0, r1 = n + i, n + j
+
+        self._faces = np.empty((2 * n, 3), dtype=np.int64)
+        self._faces[0::2] = np.column_stack([f0, r0, r1])
+        self._faces[1::2] = np.column_stack([f0, r1, f1])
+
+    def mesh(self):
+        return self._verts, self._faces
+
+    def intersect(self, ray):
+        o = np.asarray(ray.origin, dtype=float)
+        d = np.asarray(ray.direction, dtype=float)
+
+        if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
+            return None
+
+        d_norm = float(np.linalg.norm(d))
+
+        if not np.isfinite(d_norm) or d_norm <= 0.0:
+            return None
+
+        d = d / d_norm
+
+        tri = self._verts[self._faces]
+        a = tri[:, 0]
+        e1 = tri[:, 1] - a
+        e2 = tri[:, 2] - a
+
+        h = np.cross(d, e2)
+        det = np.einsum("ij,ij->i", e1, h)
+
+        candidate = np.abs(det) > 1e-14
+
+        inv_det = np.zeros_like(det)
+        inv_det[candidate] = 1.0 / det[candidate]
+
+        s = o - a
+        u = np.einsum("ij,ij->i", s, h) * inv_det
+        q = np.cross(s, e1)
+        v = (q @ d) * inv_det
+        t = np.einsum("ij,ij->i", e2, q) * inv_det
+
+        tol = 1e-12
+
+        hit = (
+            candidate
+            & (t > 1e-9)
+            & (u >= -tol)
+            & (v >= -tol)
+            & (u + v <= 1.0 + tol)
+        )
+
+        if not hit.any():
+            return None
+
+        k = int(np.argmin(np.where(hit, t, np.inf)))
+
+        u_k = min(max(float(u[k]), 0.0), 1.0)
+        v_k = min(max(float(v[k]), 0.0), 1.0 - u_k)
+
+        p = o + float(t[k]) * d
+
+        return p, u_k, v_k
+
 class Surface:
     def __init__(
         self,
@@ -20,7 +192,7 @@ class Surface:
         self.transform = np.eye(3, 3) if transform is None else np.asarray(transform, dtype=float)
         self.u_range = (float(u_range[0]), float(u_range[1]))
         self.v_range = (float(v_range[0]), float(v_range[1]))
-        self.aperture = aperture
+        self.aperture = Aperture.from_spec(aperture)
         self._x = sp.lambdify((self.u, self.v), self.x_expr, modules=["numpy"])
         self._y = sp.lambdify((self.u, self.v), self.y_expr, modules=["numpy"])
         self._z = sp.lambdify((self.u, self.v), self.z_expr, modules=["numpy"])
@@ -114,19 +286,7 @@ class Surface:
         if self.aperture is None:
             return True
 
-        p = self._point_local(u, v)
-
-        if not np.all(np.isfinite(p)):
-            return False
-
-        radius = float(self.aperture["radius"])
-
-        cx, cy = self.aperture.get("center", (0.0, 0.0))
-
-        dx = p[0] - cx
-        dy = p[1] - cy
-
-        return dx * dx + dy * dy <= radius * radius + 1e-12
+        return self.aperture.contains(self, u, v)
 
     def _solve_parameters_point(self, p, u, v):
         for _ in range(50):
@@ -174,6 +334,87 @@ class Surface:
             return float(u), float(v)
         return None
 
+    def _solve_parameters_xy(self, x_target, y_target, u, v):
+        for _ in range(50):
+            p = self._point_local(u, v)
+
+            if not np.all(np.isfinite(p)):
+                return None
+
+            F = np.array([
+                p[0] - x_target,
+                p[1] - y_target
+            ])
+
+            f_norm = float(np.linalg.norm(F))
+
+            if f_norm < 1e-11:
+                if self._parameters_in_domain(u, v):
+                    return float(u), float(v)
+                return None
+
+            ru, rv = self._tangent_local(u, v)
+
+            if not (
+                np.all(np.isfinite(ru))
+                and np.all(np.isfinite(rv))
+            ):
+                return None
+
+            J = np.array([
+                [ru[0], rv[0]],
+                [ru[1], rv[1]]
+            ])
+
+            try:
+                delta = np.linalg.solve(J, -F)
+            except np.linalg.LinAlgError:
+                return None
+
+            if not np.all(np.isfinite(delta)):
+                return None
+
+            u += float(delta[0])
+            v += float(delta[1])
+
+            if not (np.isfinite(u) and np.isfinite(v)):
+                return None
+
+            step_norm = float(np.linalg.norm(delta))
+
+            if step_norm < 1e-14 * max(1.0, abs(u), abs(v)):
+                p = self._point_local(u, v)
+                F = np.array([
+                    p[0] - x_target,
+                    p[1] - y_target
+                ])
+                if (
+                    np.all(np.isfinite(F))
+                    and float(np.linalg.norm(F)) < 1e-9
+                    and self._parameters_in_domain(u, v)
+                ):
+                    return float(u), float(v)
+                return None
+
+        p = self._point_local(u, v)
+
+        if not np.all(np.isfinite(p)):
+            return None
+
+        F = np.array([
+            p[0] - x_target,
+            p[1] - y_target
+        ])
+
+        if (
+            np.all(np.isfinite(F))
+            and float(np.linalg.norm(F)) < 1e-8
+            and self._parameters_in_domain(u, v)
+        ):
+            return float(u), float(v)
+
+        return None
+
     def parameters_at(self, pos):
         p = self.transform.T @ np.asarray(pos, dtype=float)
         if not np.all(np.isfinite(p)):
@@ -191,7 +432,7 @@ class Surface:
         pts = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
         dist = np.linalg.norm(pts - p, axis=1)
         valid = (
-            self._aperture_mask(X, Y, Z).ravel()
+            self._aperture_mask(U, V, X, Y, Z).ravel()
             & np.isfinite(dist)
         )
         if not valid.any():
@@ -201,13 +442,45 @@ class Surface:
         v = float(V.ravel()[idx])
         return self._solve_parameters_point(p, u, v)
 
+    def parameters_at_xy(self, x, y):
+        x = float(x)
+        y = float(y)
+
+        us = np.linspace(self.u_range[0], self.u_range[1], 64)
+        vs = np.linspace(self.v_range[0], self.v_range[1], 64)
+
+        U, V = np.meshgrid(us, vs)
+        X, Y, Z = self._point_local_array(U, V)
+
+        finite = (
+            np.isfinite(X)
+            & np.isfinite(Y)
+            & np.isfinite(Z)
+        )
+
+        if not finite.any():
+            return None
+
+        distance2 = np.where(finite, ((X - x)**2 + (Y - y)**2), np.inf)
+        order = np.argsort(distance2.ravel())
+
+        for idx in order[:12]:
+            i, j = np.unravel_index(idx, U.shape)
+
+            result = self._solve_parameters_xy(x, y, float(U[i, j]), float(V[i, j]))
+
+            if result is not None:
+                return result
+
+        return None
+
     def normal_at(self, pos):
         uv = self.parameters_at(pos)
         if uv is None:
             return None
         return self.normal(uv[0], uv[1])
 
-    def _aperture_mask(self, X, Y, Z):
+    def _aperture_mask(self, U, V, X, Y, Z):
         finite = (
             np.isfinite(X)
             & np.isfinite(Y)
@@ -217,13 +490,7 @@ class Surface:
         if self.aperture is None:
             return finite
 
-        radius = float(self.aperture["radius"])
-        cx, cy = self.aperture.get("center", (0.0, 0.0))
-
-        return (
-            finite
-            & ((X - cx) ** 2 + (Y - cy) ** 2 <= radius ** 2)
-        )
+        return self.aperture.mask(self, U, V, X, Y, Z)
 
 
     def _intersection_seeds(self, o, d, grid_n=64, seed_tol=0.75, max_seeds=12):
@@ -232,7 +499,7 @@ class Surface:
         U, V = np.meshgrid(us, vs)
         X, Y, Z = self._point_local_array(U, V)
         pts = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
-        valid = self._aperture_mask(X, Y, Z)
+        valid = self._aperture_mask(U, V, X, Y, Z)
         valid_flat = valid.ravel()
         if not valid_flat.any():
             return []
@@ -397,7 +664,7 @@ class Surface:
         vs = np.linspace(self.v_range[0], self.v_range[1], n)
         U, V = np.meshgrid(us, vs)
         X, Y, Z = self._point_local_array(U, V)
-        ok = self._aperture_mask(X, Y, Z)
+        ok = self._aperture_mask(U, V, X, Y, Z)
         idmap = np.full((n, n), -1, dtype=np.int64)
         idmap[ok] = np.arange(np.count_nonzero(ok))
         verts = np.empty((np.count_nonzero(ok), 3), dtype=float)

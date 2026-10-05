@@ -6,6 +6,7 @@ from vispy.scene import visuals
 
 SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
 SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.25)
+SIDEWALL_COLOR = (0.55, 0.55, 0.65, 0.3)
 INCIDENT_COLOR = (0.9, 0.2, 0.2, 1.0)
 INTERNAL_COLOR = (1.0, 0.6, 0.1, 1.0)
 EXIT_COLOR = (0.2, 0.75, 0.3, 1.0)
@@ -37,6 +38,20 @@ def make_surface_visual(surface, color=SURFACE1_COLOR, **mesh_kwargs):
         blend_func=("src_alpha", "one_minus_src_alpha")
     )
     
+    return mesh
+
+
+def make_wall_visual(sidewall, color=SIDEWALL_COLOR):
+    verts, faces = sidewall.mesh()
+
+    mesh = visuals.Mesh(verts, faces, color=color, shading="smooth")
+    mesh.set_gl_state(
+        blend=True,
+        depth_test=True,
+        depth_mask=False,
+        blend_func=("src_alpha", "one_minus_src_alpha")
+    )
+
     return mesh
 
 
@@ -154,6 +169,10 @@ def visualize(element, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_lengt
     _add_axes(view, length=axis_len)
     _attach(view, make_surface_visual(element.surface1, SURFACE1_COLOR))
     _attach(view, make_surface_visual(element.surface2, SURFACE2_COLOR))
+
+    sidewall = getattr(element, "sidewall", None)
+    if sidewall is not None:
+        _attach(view, make_wall_visual(sidewall, SIDEWALL_COLOR))
 
     if isinstance(rays, (list, tuple)):
         ray_list = list(rays)

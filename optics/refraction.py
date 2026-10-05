@@ -1,7 +1,8 @@
 import numpy as np
 import json
 
-from .surface import *
+from .surface import Surface
+from .sidewall import LensSidewall
 
 _SIDEWALL_UNSET = object()
 

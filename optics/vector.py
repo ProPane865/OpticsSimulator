@@ -11,10 +11,13 @@ def normalize(vector):
 
 def rotation_from_z(direction):
     original = np.array([0, 0, 1])
-    axis = np.cross(original, direction)
+    direction_norm = normalize(direction)
+    axis = np.cross(original, direction_norm)
     axis_norm = np.linalg.norm(axis)
+    axis_inner = np.inner(original, direction_norm)
+
     if axis_norm < 1e-12:
-        if np.inner(original, direction) < 0:
+        if axis_inner < 0:
             r_matrix = np.array([
                 [1.0, 0.0, 0.0],
                 [0.0, -1.0, 0.0],
@@ -29,6 +32,6 @@ def rotation_from_z(direction):
             [-axis[1], axis[0], 0]
         ])
 
-        r_matrix = np.eye(3, 3) + axis_mat + np.matmul(axis_mat, axis_mat) * ((1 - np.inner(original, direction)) / axis_norm**2)
+        r_matrix = np.eye(3, 3) + axis_mat + np.matmul(axis_mat, axis_mat) * ((1 - axis_inner) / axis_norm**2)
 
     return r_matrix

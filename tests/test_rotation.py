@@ -1,8 +1,6 @@
 import numpy as np
 import pytest
 
-import optics.refraction as refraction
-
 from optics.vector import rotation_from_z
 
 DIRECTIONS = [

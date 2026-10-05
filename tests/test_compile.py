@@ -1,6 +1,5 @@
 import numpy as np
 
-
 def test_plane_equation_constant(make_element):
     elem = make_element("2", "-2")
     assert np.isclose(elem.surface1.point(0.0, 0.0)[2], 2.0)

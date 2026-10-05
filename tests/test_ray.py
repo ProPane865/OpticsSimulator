@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from optics.refraction import Ray
+from optics.ray import Ray
 
 
 def test_direction_normalized_to_unit():

@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-import optics.refraction as refraction
+from optics.ray import Ray
+from optics.refraction import refract_direction
 
 BICONE_S1 = "3 - 0.3*sqrt(x**2 + y**2)"
 BICONE_S2 = "-1 + 2*sqrt(x**2 + y**2)"
@@ -23,7 +24,7 @@ def _refract_direction(d_in: np.ndarray, n_face: np.ndarray, eta: float) -> np.n
 
 
 def test_sphere_on_axis_no_deflection(sphere):
-    ray = refraction.Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
     out = sphere.refract(ray)
     np.testing.assert_allclose(out.direction, [0.0, 0.0, -1.0], atol=1e-9)
     assert np.isclose(np.linalg.norm(out.origin), 1.0, atol=1e-8)
@@ -32,7 +33,7 @@ def test_sphere_on_axis_no_deflection(sphere):
 def test_slab_exit_parallel_to_incident(make_element):
     elem = make_element("0", "-2", n=1.5)
     d = np.array([0.4, -0.2, -1.0])
-    ray = refraction.Ray(np.array([0.5, 0.0, 2.5]), d)
+    ray = Ray(np.array([0.5, 0.0, 2.5]), d)
     out = elem.refract(ray)
     np.testing.assert_allclose(out.direction, d / np.linalg.norm(d), atol=1e-9)
     assert np.isclose(out.origin[2], -2.0, atol=1e-8)
@@ -42,7 +43,7 @@ def test_slab_lateral_shift_matches_analytic(make_element):
     elem = make_element("0", "-2", n=1.5)
     d = np.array([0.4, -0.2, -1.0])
     d = d / np.linalg.norm(d)
-    ray = refraction.Ray(np.array([0.5, 0.0, 2.5]), d)
+    ray = Ray(np.array([0.5, 0.0, 2.5]), d)
     out = elem.refract(ray)
 
     t = (2.5 - (-2.0)) / (-d[2])
@@ -57,7 +58,7 @@ def test_slab_lateral_shift_matches_analytic(make_element):
 
 
 def test_sphere_off_axis_matches_reference(sphere):
-    ray = refraction.Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
     out = sphere.refract(ray)
 
     hit1 = sphere.surface1.intersect(ray)
@@ -65,7 +66,7 @@ def test_sphere_off_axis_matches_reference(sphere):
     n1 = -sphere.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / sphere.n)
 
-    hit2 = sphere.surface2.intersect(refraction.Ray(p1, d1))
+    hit2 = sphere.surface2.intersect(Ray(p1, d1))
     p2, u2, v2 = hit2
     n2 = -sphere.surface2.normal(u2, v2)
     d2 = _refract_direction(d1, n2, sphere.n)
@@ -81,7 +82,7 @@ def test_tilted_sphere_on_axis_no_deflection(make_element):
         "-sqrt(1 - (x**2) - (y**2))",
         orientation=s,
     )
-    ray = refraction.Ray(2.0 * s, -s)
+    ray = Ray(2.0 * s, -s)
     out = elem.refract(ray)
     np.testing.assert_allclose(out.direction, -s, atol=1e-9)
     assert np.isclose(np.linalg.norm(out.origin), 1.0, atol=1e-8)
@@ -89,7 +90,7 @@ def test_tilted_sphere_on_axis_no_deflection(make_element):
 
 def test_unit_index_plane_slab_is_straight(make_element):
     elem = make_element("0", "-2", n=1.0)
-    ray = refraction.Ray(np.array([1.0, 0.0, 4.0]), np.array([1.0, 0.0, -2.0]))
+    ray = Ray(np.array([1.0, 0.0, 4.0]), np.array([1.0, 0.0, -2.0]))
     out = elem.refract(ray)
     np.testing.assert_allclose(out.direction, ray.direction, atol=1e-9)
     t = (4.0 - (-2.0)) / (-ray.direction[2])
@@ -99,14 +100,14 @@ def test_unit_index_plane_slab_is_straight(make_element):
 
 def test_bicone_launch_is_supercritical(make_element):
     elem = make_element(BICONE_S1, BICONE_S2, n=1.5)
-    ray = refraction.Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
 
     hit1 = elem.surface1.intersect(ray)
     p1, u1, v1 = hit1
     n1 = -elem.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
-    hit2 = elem.surface2.intersect(refraction.Ray(p1, d1))
+    hit2 = elem.surface2.intersect(Ray(p1, d1))
     p2, u2, v2 = hit2
     n2 = -elem.surface2.normal(u2, v2)
     cos_i2 = -float(np.dot(n2, d1))
@@ -117,14 +118,14 @@ def test_bicone_launch_is_supercritical(make_element):
 
 def test_total_internal_reflection_returns_reflected_ray(make_element):
     elem = make_element(BICONE_S1, BICONE_S2, n=1.5)
-    ray = refraction.Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
 
     hit1 = elem.surface1.intersect(ray)
     p1, u1, v1 = hit1
     n1 = -elem.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
-    hit2 = elem.surface2.intersect(refraction.Ray(p1, d1))
+    hit2 = elem.surface2.intersect(Ray(p1, d1))
     p2, u2, v2 = hit2
     n2 = -elem.surface2.normal(u2, v2)
     expected = d1 - 2.0 * float(np.dot(n2, d1)) * n2
@@ -138,7 +139,7 @@ def test_total_internal_reflection_returns_reflected_ray(make_element):
     reason="grazing entry makes the intersection/normal undefined and refract raises TypeError",
 )
 def test_grazing_ray_does_not_crash(sphere):
-    ray = refraction.Ray(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]))
+    ray = Ray(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]))
     out = sphere.refract(ray)
     assert np.all(np.isfinite(out.direction))
 
@@ -146,21 +147,21 @@ def test_grazing_ray_does_not_crash(sphere):
 def test_refract_direction_on_axis_no_deflection():
     d = np.array([0.0, 0.0, -1.0])
     n = np.array([0.0, 0.0, -1.0])
-    out = refraction.refract_direction(d, n, n_from=1.0, n_to=1.5)
+    out = refract_direction(d, n, n_from=1.0, n_to=1.5)
     np.testing.assert_allclose(out, d, atol=1e-12)
 
 
 def test_refract_direction_preserves_unit_length():
     d = np.array([0.6, 0.0, -0.8])
     n = np.array([0.0, 0.0, -1.0])
-    out = refraction.refract_direction(d, n, n_from=1.0, n_to=1.5)
+    out = refract_direction(d, n, n_from=1.0, n_to=1.5)
     assert np.isclose(np.linalg.norm(out), 1.0, atol=1e-12)
 
 
 def test_refract_direction_satisfies_snells_law():
     d = np.array([0.6, 0.0, -0.8])
     n = np.array([0.0, 0.0, -1.0])
-    out = refraction.refract_direction(d, n, n_from=1.0, n_to=1.5)
+    out = refract_direction(d, n, n_from=1.0, n_to=1.5)
     sin_i = float(np.linalg.norm(d[:2]))
     sin_t = float(np.linalg.norm(out[:2]))
     np.testing.assert_allclose(sin_t, (1.0 / 1.5) * sin_i, atol=1e-12)
@@ -169,7 +170,7 @@ def test_refract_direction_satisfies_snells_law():
 def test_refract_direction_total_internal_reflection_reflects():
     d = np.array([np.sqrt(3.0) / 2.0, 0.0, -0.5])
     n = np.array([0.0, 0.0, -1.0])
-    out = refraction.refract_direction(d, n, n_from=1.5, n_to=1.0)
+    out = refract_direction(d, n, n_from=1.5, n_to=1.0)
     expected = d - 2.0 * float(np.dot(n, d)) * n
     np.testing.assert_allclose(out, expected, atol=1e-12)
     assert np.isclose(np.linalg.norm(out), 1.0, atol=1e-12)
@@ -186,6 +187,6 @@ def test_refract_direction_matches_reference():
             n = -n
         n_from = 1.0 + rng.random()
         n_to = 1.0 + rng.random()
-        out = refraction.refract_direction(d, n, n_from=n_from, n_to=n_to)
+        out = refract_direction(d, n, n_from=n_from, n_to=n_to)
         expected = _refract_direction(d, -n, n_from / n_to)
         np.testing.assert_allclose(out, expected, atol=1e-12)

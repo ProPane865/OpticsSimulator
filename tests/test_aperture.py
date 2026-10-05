@@ -3,7 +3,8 @@ import json
 import numpy as np
 import pytest
 
-from optics.refraction import Ray, RefractiveElement
+from optics.ray import Ray
+from optics.refraction import RefractiveElement
 from optics.surface import Surface
 from optics.aperture import CircularAperture, Aperture
 from optics.sidewall import LensSidewall

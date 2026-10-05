@@ -11,6 +11,14 @@ class Ray:
         self.origin = origin
         self.direction = direction / np.linalg.norm(direction)
 
+def refract_direction(incident, normal, n_from, n_to):
+    eta = n_from / n_to
+    cos_i = float(np.dot(normal, incident))
+    k = 1.0 - eta**2 * (1.0 - cos_i**2)
+    if k < 0.0:
+        return incident - 2.0 * cos_i * normal
+    return eta * incident + (np.sqrt(k) - eta * cos_i) * normal
+
 class RefractiveElement:
     def __init__(self, schema: str, orientation=np.array([0, 0, 1])):
         self.sch = json.loads(schema)
@@ -88,9 +96,7 @@ class RefractiveElement:
         if n1 is None:
             return None
 
-        eta1 = 1 / self.n
-        transfer1 = eta1 * np.eye(3, 3) + ((np.sqrt(1 - eta1**2 * (1 - np.inner(n1, ray.direction)**2)) / np.inner(n1, ray.direction)) - eta1) * np.outer(n1, n1)
-        d1 = transfer1 @ ray.direction
+        d1 = refract_direction(ray.direction, n1, n_from=1.0, n_to=self.n)
         r1 = Ray(p1, d1)
 
         hit2 = self.surface2.intersect(r1)
@@ -104,14 +110,7 @@ class RefractiveElement:
         if n2 is None:
             return None
 
-        eta2 = self.n
-        cos_i2 = float(np.inner(n2, d1))
-        arg = 1 - eta2**2 * (1 - cos_i2**2)
-        if arg < 0:
-            d2 = d1 - 2.0 * cos_i2 * n2
-        else:
-            transfer2 = eta2 * np.eye(3, 3) + ((np.sqrt(arg) / cos_i2) - eta2) * np.outer(n2, n2)
-            d2 = transfer2 @ d1
+        d2 = refract_direction(d1, n2, n_from=self.n, n_to=1.0)
 
         return Ray(p2, d2)
 

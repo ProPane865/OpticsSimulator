@@ -141,3 +141,51 @@ def test_grazing_ray_does_not_crash(sphere):
     ray = refraction.Ray(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]))
     out = sphere.refract(ray)
     assert np.all(np.isfinite(out.direction))
+
+
+def test_refract_direction_on_axis_no_deflection():
+    d = np.array([0.0, 0.0, -1.0])
+    n = np.array([0.0, 0.0, -1.0])
+    out = refraction.refract_direction(d, n, n_from=1.0, n_to=1.5)
+    np.testing.assert_allclose(out, d, atol=1e-12)
+
+
+def test_refract_direction_preserves_unit_length():
+    d = np.array([0.6, 0.0, -0.8])
+    n = np.array([0.0, 0.0, -1.0])
+    out = refraction.refract_direction(d, n, n_from=1.0, n_to=1.5)
+    assert np.isclose(np.linalg.norm(out), 1.0, atol=1e-12)
+
+
+def test_refract_direction_satisfies_snells_law():
+    d = np.array([0.6, 0.0, -0.8])
+    n = np.array([0.0, 0.0, -1.0])
+    out = refraction.refract_direction(d, n, n_from=1.0, n_to=1.5)
+    sin_i = float(np.linalg.norm(d[:2]))
+    sin_t = float(np.linalg.norm(out[:2]))
+    np.testing.assert_allclose(sin_t, (1.0 / 1.5) * sin_i, atol=1e-12)
+
+
+def test_refract_direction_total_internal_reflection_reflects():
+    d = np.array([np.sqrt(3.0) / 2.0, 0.0, -0.5])
+    n = np.array([0.0, 0.0, -1.0])
+    out = refraction.refract_direction(d, n, n_from=1.5, n_to=1.0)
+    expected = d - 2.0 * float(np.dot(n, d)) * n
+    np.testing.assert_allclose(out, expected, atol=1e-12)
+    assert np.isclose(np.linalg.norm(out), 1.0, atol=1e-12)
+
+
+def test_refract_direction_matches_reference():
+    rng = np.random.default_rng(0)
+    for _ in range(20):
+        d = rng.normal(size=3)
+        d = d / np.linalg.norm(d)
+        n = rng.normal(size=3)
+        n = n / np.linalg.norm(n)
+        if float(np.dot(n, d)) < 0.0:
+            n = -n
+        n_from = 1.0 + rng.random()
+        n_to = 1.0 + rng.random()
+        out = refraction.refract_direction(d, n, n_from=n_from, n_to=n_to)
+        expected = _refract_direction(d, -n, n_from / n_to)
+        np.testing.assert_allclose(out, expected, atol=1e-12)

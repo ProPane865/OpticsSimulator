@@ -5,6 +5,7 @@ import pytest
 
 from optics.refraction import Ray, RefractiveElement
 from optics.surface import Surface, CircularAperture, Aperture, LensSidewall
+from rendering.meshing import SurfaceMesher
 
 
 APERTURE_RADIUS = 0.5
@@ -239,7 +240,7 @@ def test_mesh_vertices_are_inside_aperture():
     """No regular mesh vertex may lie outside the clear aperture."""
     surface = make_surface()
 
-    verts, faces = surface.mesh(128)
+    verts, faces = SurfaceMesher(surface).mesh(128)
 
     assert len(verts) > 0
     assert len(faces) > 0
@@ -258,7 +259,7 @@ def test_mesh_reaches_aperture_boundary():
     """
     surface = make_surface()
 
-    verts, _ = surface.mesh(64)
+    verts, _ = SurfaceMesher(surface).mesh(64)
 
     r = np.sqrt(
         verts[:, 0] ** 2

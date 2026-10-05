@@ -4,6 +4,8 @@ import numpy as np
 from vispy import scene
 from vispy.scene import visuals
 
+from rendering.meshing import SurfaceMesher
+
 SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
 SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.25)
 SIDEWALL_COLOR = (0.55, 0.55, 0.65, 0.3)
@@ -18,7 +20,7 @@ AXIS_COLORS = {
 
 
 def surface_positions(surface, n=128):
-    return surface.mesh(n)
+    return SurfaceMesher(surface).mesh(n)
 
 
 def make_surface_visual(surface, color=SURFACE1_COLOR, **mesh_kwargs):

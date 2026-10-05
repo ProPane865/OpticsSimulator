@@ -1,7 +1,7 @@
 import numpy as np
 
 def normalize(vector):
-    v = np.array(vector)
+    v = np.array(vector, dtype=float)
     norm = np.linalg.norm(v)
 
     if not np.isfinite(norm) or norm == 0:

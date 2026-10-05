@@ -95,28 +95,3 @@ class RefractiveElement:
         d2 = refract_direction(d1, n2, n_from=self.n, n_to=1.0)
 
         return Ray(p2, d2)
-
-def check_on_axis(label, element, orientation):
-    s = orientation / np.linalg.norm(orientation)
-    ray = Ray(2.0 * s, -s)
-
-    hit = element.surface1.intersect(ray)
-    p1 = hit[0] if hit is not None else None
-    assert p1 is not None, f"{label}: no entry intersection"
-    assert np.isclose(np.linalg.norm(p1), 1.0, atol=1e-6), f"{label}: entry point not on sphere: {p1}"
-    assert (element.r_matrix.T @ p1)[2] > 0.0, f"{label}: entry point not on surface1 hemisphere: {p1}"
-
-    out = element.refract(ray)
-    assert out.origin is not None, f"{label}: no exit point"
-    assert np.allclose(out.direction, -s, atol=1e-6), f"{label}: on-axis ray deflected: {out.direction}"
-    assert np.isclose(np.linalg.norm(out.origin), 1.0, atol=1e-6), f"{label}: exit point not on sphere: {out.origin}"
-
-    print(f"{label}: origin={out.origin}, direction={out.direction}")
-
-
-if __name__ == "__main__":
-    with open("tests/test_geometry.json", "r") as f:
-        schema = f.read()
-
-    check_on_axis("default orientation", RefractiveElement(schema), np.array([0.0, 0.0, 1.0]))
-    check_on_axis("tilted orientation", RefractiveElement(schema, np.array([1.0, 0.5, 1.0])), np.array([1.0, 0.5, 1.0]))

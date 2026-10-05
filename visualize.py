@@ -5,6 +5,8 @@ from vispy import scene
 from vispy.scene import visuals
 
 from rendering.meshing import SurfaceMesher
+from optics.ray import Ray
+from optics.refraction import RefractiveElement
 
 SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
 SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.25)
@@ -189,8 +191,6 @@ def visualize(element, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_lengt
 
 
 def main():
-    from optics.refraction import Ray, RefractiveElement
-
     schema_path = Path(__file__).resolve().parent / "tests" / "offset_geometry.json"
     with open(schema_path, "r") as f:
         schema = f.read()

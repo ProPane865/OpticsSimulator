@@ -20,7 +20,7 @@ class RefractiveElement:
     def __init__(self, schema: str, orientation=np.array([0, 0, 1])):
         self.sch = json.loads(schema)
         self.n = self.sch["material"]["refractive_index"]
-        self.r_matrix = rotation_from_z(normalize(orientation))
+        self.r_matrix = rotation_from_z(orientation)
         
         self.surface1 = self._make_surface(self.sch["surface1"], self.r_matrix)
         self.surface2 = self._make_surface(self.sch["surface2"], self.r_matrix)

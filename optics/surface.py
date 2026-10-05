@@ -2,7 +2,7 @@ import numpy as np
 import sympy as sp
 
 from .aperture import Aperture
-from .intersection import SurfaceIntersect
+from .solver import SurfaceSolver
 
 def _clamp_sqrt_arguments(expr):
     replacements = {}
@@ -48,7 +48,7 @@ class Surface:
         self._sx = sp.lambdify((self.u, self.v), sp.diff(self.x_expr, self.v), modules=["numpy"])
         self._sy = sp.lambdify((self.u, self.v), sp.diff(self.y_expr, self.v), modules=["numpy"])
         self._sz = sp.lambdify((self.u, self.v), sp.diff(self.z_expr, self.v), modules=["numpy"])
-        self.intersector = SurfaceIntersect(self)
+        self.solver = SurfaceSolver(self)
 
     @property
     def parameter_range(self):
@@ -136,63 +136,10 @@ class Surface:
         return self.aperture.contains(self, u, v)
 
     def parameters_at(self, pos):
-        p = self.transform.T @ np.asarray(pos, dtype=float)
-        if not np.all(np.isfinite(p)):
-            return None
-        u0 = float(p[0])
-        v0 = float(p[1])
-        if self._parameters_in_domain(u0, v0):
-            puv = self._point_local(u0, v0)
-            if np.all(np.isfinite(puv)) and float(np.linalg.norm(puv - p)) < 1e-8:
-                return u0, v0
-        us = np.linspace(self.u_range[0], self.u_range[1], 64)
-        vs = np.linspace(self.v_range[0], self.v_range[1], 64)
-        U, V = np.meshgrid(us, vs)
-        X, Y, Z = self._point_local_array(U, V)
-        pts = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
-        dist = np.linalg.norm(pts - p, axis=1)
-        valid = (
-            self._aperture_mask(U, V, X, Y, Z).ravel()
-            & np.isfinite(dist)
-        )
-        if not valid.any():
-            return None
-        idx = int(np.argmin(np.where(valid, dist, np.inf)))
-        u = float(U.ravel()[idx])
-        v = float(V.ravel()[idx])
-        return self.intersector._solve_parameters_point(p, u, v)
+        return self.solver.parameters_at(pos)
 
     def parameters_at_xy(self, x, y):
-        x = float(x)
-        y = float(y)
-
-        us = np.linspace(self.u_range[0], self.u_range[1], 64)
-        vs = np.linspace(self.v_range[0], self.v_range[1], 64)
-
-        U, V = np.meshgrid(us, vs)
-        X, Y, Z = self._point_local_array(U, V)
-
-        finite = (
-            np.isfinite(X)
-            & np.isfinite(Y)
-            & np.isfinite(Z)
-        )
-
-        if not finite.any():
-            return None
-
-        distance2 = np.where(finite, ((X - x)**2 + (Y - y)**2), np.inf)
-        order = np.argsort(distance2.ravel())
-
-        for idx in order[:12]:
-            i, j = np.unravel_index(idx, U.shape)
-
-            result = self.intersector._solve_parameters_xy(x, y, float(U[i, j]), float(V[i, j]))
-
-            if result is not None:
-                return result
-
-        return None
+        return self.solver.parameters_at_xy(x, y)
 
     def normal_at(self, pos):
         uv = self.parameters_at(pos)
@@ -214,4 +161,4 @@ class Surface:
 
 
     def intersect(self, ray):
-        return self.intersector.intersect(ray)
+        return self.solver.intersect(ray)

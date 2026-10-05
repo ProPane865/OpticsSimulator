@@ -115,10 +115,6 @@ def test_bicone_launch_is_supercritical(make_element):
     assert 1.0 - 1.5**2 * (1.0 - cos_i2**2) < 0.0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TIR currently propagates an all-NaN direction; expected behavior is the specular reflection",
-)
 def test_total_internal_reflection_returns_reflected_ray(make_element):
     elem = make_element(BICONE_S1, BICONE_S2, n=1.5)
     ray = refraction.Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))

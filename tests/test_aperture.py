@@ -556,6 +556,31 @@ def test_element_sidewall_present():
     )
 
 
+def test_default_geometry_sidewall(offset_lens):
+    wall = offset_lens.sidewall
+    assert wall is not None
+
+    # Rim values follow from the offset-lens surfaces at the aperture edge:
+    # surface1 z = -0.8 + sqrt(1 - r^2), surface2 z = 0.8 - sqrt(1 - r^2).
+    radius = offset_lens.surface1.aperture.radius
+    sqrt_term = np.sqrt(1.0 - radius**2)
+    front_rim_z = -0.8 + sqrt_term
+    rear_rim_z = 0.8 - sqrt_term
+
+    assert np.allclose(wall.front[:, 2], front_rim_z, atol=1e-6)
+    assert np.allclose(wall.rear[:, 2], rear_rim_z, atol=1e-6)
+
+    assert np.allclose(
+        np.linalg.norm(wall.front[:, :2], axis=1), radius, atol=1e-6
+    )
+    assert np.allclose(
+        np.linalg.norm(wall.rear[:, :2], axis=1), radius, atol=1e-6
+    )
+
+    # Front and rear rims sit at different heights -> a real wall.
+    assert not np.allclose(wall.front[:, 2], wall.rear[:, 2], atol=1e-6)
+
+
 def test_element_sidewall_absent_without_aperture():
     schema = {
         "surface1": {

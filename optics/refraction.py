@@ -56,7 +56,7 @@ class RefractiveElement:
                     front is not None
                     and rear is not None
                     and front.shape == rear.shape
-                    and not np.allclose(front, rear)
+                    and not np.allclose(front, rear, atol=1e-6)
                 ):
                     self._sidewall = LensSidewall(front, rear)
                 else:
@@ -104,8 +104,13 @@ class RefractiveElement:
             return None
 
         eta2 = self.n
-        transfer2 = eta2 * np.eye(3, 3) + ((np.sqrt(1 - eta2**2 * (1 - np.inner(n2, d1)**2)) / np.inner(n2, d1)) - eta2) * np.outer(n2, n2)
-        d2 = transfer2 @ d1
+        cos_i2 = float(np.inner(n2, d1))
+        arg = 1 - eta2**2 * (1 - cos_i2**2)
+        if arg < 0:
+            d2 = d1 - 2.0 * cos_i2 * n2
+        else:
+            transfer2 = eta2 * np.eye(3, 3) + ((np.sqrt(arg) / cos_i2) - eta2) * np.outer(n2, n2)
+            d2 = transfer2 @ d1
 
         return Ray(p2, d2)
 

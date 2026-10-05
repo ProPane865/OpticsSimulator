@@ -1,6 +1,13 @@
 import numpy as np
 import sympy as sp
 
+def _clamp_sqrt_arguments(expr):
+    replacements = {}
+    for node in expr.atoms(sp.Pow):
+        if node.exp == sp.Rational(1, 2):
+            replacements[node] = sp.sqrt(sp.Max(node.base, 0))
+    return expr.xreplace(replacements)
+
 class Aperture:
     @staticmethod
     def from_spec(spec):
@@ -196,6 +203,14 @@ class Surface:
         self._x = sp.lambdify((self.u, self.v), self.x_expr, modules=["numpy"])
         self._y = sp.lambdify((self.u, self.v), self.y_expr, modules=["numpy"])
         self._z = sp.lambdify((self.u, self.v), self.z_expr, modules=["numpy"])
+        if self.aperture is not None:
+            self._z_eval = sp.lambdify(
+                (self.u, self.v),
+                _clamp_sqrt_arguments(self.z_expr),
+                modules=["numpy"],
+            )
+        else:
+            self._z_eval = self._z
         self._rx = sp.lambdify((self.u, self.v), sp.diff(self.x_expr, self.u), modules=["numpy"])
         self._ry = sp.lambdify((self.u, self.v), sp.diff(self.y_expr, self.u), modules=["numpy"])
         self._rz = sp.lambdify((self.u, self.v), sp.diff(self.z_expr, self.u), modules=["numpy"])
@@ -213,7 +228,7 @@ class Surface:
         with np.errstate(invalid="ignore", divide="ignore"):
             x = float(self._x(u, v))
             y = float(self._y(u, v))
-            z = float(self._z(u, v))
+            z = float(self._z_eval(u, v))
         return np.array([x, y, z], dtype=float)
 
     def _point_local_array(self, U, V):
@@ -221,7 +236,7 @@ class Surface:
         with np.errstate(invalid="ignore", divide="ignore"):
             X = np.asarray(self._x(U, V), dtype=float)
             Y = np.asarray(self._y(U, V), dtype=float)
-            Z = np.asarray(self._z(U, V), dtype=float)
+            Z = np.asarray(self._z_eval(U, V), dtype=float)
         return (
             np.broadcast_to(X, shape),
             np.broadcast_to(Y, shape),

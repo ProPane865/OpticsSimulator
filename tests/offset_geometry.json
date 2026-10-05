@@ -1,0 +1,25 @@
+{
+    "surface1": {
+        "x": "u",
+        "y": "v",
+        "z": "-0.8 + sqrt(1 - (u**2) - (v**2))",
+        "u_range": [-2.0, 2.0],
+        "v_range": [-2.0, 2.0],
+        "aperture": {
+            "radius": 0.5
+        }
+    },
+    "surface2": {
+        "x": "u",
+        "y": "v",
+        "z": "0.8 - sqrt(1 - (u**2) - (v**2))",
+        "u_range": [-2.0, 2.0],
+        "v_range": [-2.0, 2.0],
+        "aperture": {
+            "radius": 0.5
+        }
+    },
+    "material": {
+        "refractive_index": 1.5
+    }
+}

@@ -31,6 +31,16 @@ def sphere(sphere_schema) -> refraction.RefractiveElement:
 
 
 @pytest.fixture
+def offset_lens_schema(repo_root) -> str:
+    return (repo_root / "tests/offset_geometry.json").read_text()
+
+
+@pytest.fixture
+def offset_lens(offset_lens_schema) -> refraction.RefractiveElement:
+    return refraction.RefractiveElement(offset_lens_schema)
+
+
+@pytest.fixture
 def make_element():
     def _make(surface1: str, surface2: str, n: float = 1.5, orientation=None, aperture_radius=None) -> refraction.RefractiveElement:
         orientation = (

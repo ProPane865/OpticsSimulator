@@ -16,6 +16,7 @@ class Surface:
         transform=None,
         u_range=(-2.0, 2.0),
         v_range=(-2.0, 2.0),
+        aperture=None
     ):
         self.u = sp.symbols("u")
         self.v = sp.symbols("v")
@@ -25,6 +26,7 @@ class Surface:
         self.transform = np.eye(3, 3) if transform is None else np.asarray(transform, dtype=float)
         self.u_range = (float(u_range[0]), float(u_range[1]))
         self.v_range = (float(v_range[0]), float(v_range[1]))
+        self.aperture = aperture
         self._x = sp.lambdify((self.u, self.v), self.x_expr, modules=["numpy"])
         self._y = sp.lambdify((self.u, self.v), self.y_expr, modules=["numpy"])
         self._z = sp.lambdify((self.u, self.v), self.z_expr, modules=["numpy"])
@@ -90,6 +92,9 @@ class Surface:
         return self.transform @ ru, self.transform @ rv
 
     def normal(self, u, v):
+        if not self._parameters_in_domain(u, v):
+            return None
+
         ru, rv = self._tangent_local(u, v)
         n = -np.cross(ru, rv)
         norm = np.linalg.norm(n)
@@ -97,13 +102,37 @@ class Surface:
             return None
         return self.transform @ (n / norm)
 
-    def _parameters_in_range(self, u, v):
+    def _parameters_in_domain(self, u, v):
         tu = 1e-9 * max(1.0, abs(self.u_range[1] - self.u_range[0]))
         tv = 1e-9 * max(1.0, abs(self.v_range[1] - self.v_range[0]))
-        return (
+
+        in_parameter_range = (
             self.u_range[0] - tu <= u <= self.u_range[1] + tu
             and self.v_range[0] - tv <= v <= self.v_range[1] + tv
         )
+
+        if not in_parameter_range:
+            return False
+
+        return self._inside_aperture(u, v)
+
+    def _inside_aperture(self, u, v):
+        if self.aperture is None:
+            return True
+
+        p = self._point_local(u, v)
+
+        if not np.all(np.isfinite(p)):
+            return False
+
+        radius = float(self.aperture["radius"])
+
+        cx, cy = self.aperture.get("center", (0.0, 0.0))
+
+        dx = p[0] - cx
+        dy = p[1] - cy
+
+        return dx * dx + dy * dy <= radius * radius + 1e-12
 
     def _solve_parameters_point(self, p, u, v):
         for _ in range(50):
@@ -113,7 +142,7 @@ class Surface:
                 return None
             f_norm = float(np.linalg.norm(F))
             if f_norm < 1e-11:
-                if self._parameters_in_range(u, v):
+                if self._parameters_in_domain(u, v):
                     return float(u), float(v)
                 return None
             ru, rv = self._tangent_local(u, v)
@@ -137,7 +166,7 @@ class Surface:
                 if (
                     np.all(np.isfinite(F))
                     and float(np.linalg.norm(F)) < 1e-9
-                    and self._parameters_in_range(u, v)
+                    and self._parameters_in_domain(u, v)
                 ):
                     return float(u), float(v)
                 return None
@@ -146,7 +175,7 @@ class Surface:
         if (
             np.all(np.isfinite(F))
             and float(np.linalg.norm(F)) < 1e-8
-            and self._parameters_in_range(u, v)
+            and self._parameters_in_domain(u, v)
         ):
             return float(u), float(v)
         return None
@@ -157,7 +186,7 @@ class Surface:
             return None
         u0 = float(p[0])
         v0 = float(p[1])
-        if self._parameters_in_range(u0, v0):
+        if self._parameters_in_domain(u0, v0):
             puv = self._point_local(u0, v0)
             if np.all(np.isfinite(puv)) and float(np.linalg.norm(puv - p)) < 1e-8:
                 return u0, v0
@@ -167,10 +196,13 @@ class Surface:
         X, Y, Z = self._point_local_array(U, V)
         pts = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
         dist = np.linalg.norm(pts - p, axis=1)
-        finite = np.isfinite(dist)
-        if not finite.any():
+        valid = (
+            self._aperture_mask(X, Y, Z).ravel()
+            & np.isfinite(dist)
+        )
+        if not valid.any():
             return None
-        idx = int(np.argmin(np.where(finite, dist, np.inf)))
+        idx = int(np.argmin(np.where(valid, dist, np.inf)))
         u = float(U.ravel()[idx])
         v = float(V.ravel()[idx])
         return self._solve_parameters_point(p, u, v)
@@ -181,18 +213,38 @@ class Surface:
             return None
         return self.normal(uv[0], uv[1])
 
+    def _aperture_mask(self, X, Y, Z):
+        finite = (
+            np.isfinite(X)
+            & np.isfinite(Y)
+            & np.isfinite(Z)
+        )
+
+        if self.aperture is None:
+            return finite
+
+        radius = float(self.aperture["radius"])
+        cx, cy = self.aperture.get("center", (0.0, 0.0))
+
+        return (
+            finite
+            & ((X - cx) ** 2 + (Y - cy) ** 2 <= radius ** 2)
+        )
+
+
     def _intersection_seeds(self, o, d, grid_n=64, seed_tol=0.75, max_seeds=12):
         us = np.linspace(self.u_range[0], self.u_range[1], grid_n)
         vs = np.linspace(self.v_range[0], self.v_range[1], grid_n)
         U, V = np.meshgrid(us, vs)
         X, Y, Z = self._point_local_array(U, V)
         pts = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
-        finite = np.isfinite(pts).all(axis=1)
-        if not finite.any():
+        valid = self._aperture_mask(X, Y, Z)
+        valid_flat = valid.ravel()
+        if not valid_flat.any():
             return []
-        Uf = U.ravel()[finite]
-        Vf = V.ravel()[finite]
-        P = pts[finite]
+        Uf = U.ravel()[valid_flat]
+        Vf = V.ravel()[valid_flat]
+        P = pts[valid_flat]
         rel = P - o
         t = rel @ d
         forward = t > 0.0
@@ -219,7 +271,7 @@ class Surface:
             np.all(np.isfinite(F))
             and float(np.linalg.norm(F)) < tol
             and t > 0.0
-            and self._parameters_in_range(u, v)
+            and self._parameters_in_domain(u, v)
         ):
             return self.transform @ (o + t * d), float(u), float(v)
         return None
@@ -270,8 +322,13 @@ class Surface:
                 return hit
         return None
 
-    def _finite_uv(self, u, v):
-        return bool(np.all(np.isfinite(self._point_local(u, v))))
+    def _valid_uv(self, u, v):
+        if not self._parameters_in_domain(u, v):
+            return False
+
+        return bool(
+            np.all(np.isfinite(self._point_local(u, v)))
+        )
 
     def _boundary_point(self, u0, v0, u1, v1):
         lo_u, lo_v = float(u0), float(v0)
@@ -281,7 +338,7 @@ class Surface:
             mid_v = 0.5 * (lo_v + hi_v)
             if mid_u == lo_u and mid_v == lo_v:
                 break
-            if self._finite_uv(mid_u, mid_v):
+            if self._valid_uv(mid_u, mid_v):
                 lo_u, lo_v = mid_u, mid_v
             else:
                 hi_u, hi_v = mid_u, mid_v
@@ -346,7 +403,7 @@ class Surface:
         vs = np.linspace(self.v_range[0], self.v_range[1], n)
         U, V = np.meshgrid(us, vs)
         X, Y, Z = self._point_local_array(U, V)
-        ok = np.isfinite(X) & np.isfinite(Y) & np.isfinite(Z)
+        ok = self._aperture_mask(X, Y, Z)
         idmap = np.full((n, n), -1, dtype=np.int64)
         idmap[ok] = np.arange(np.count_nonzero(ok))
         verts = np.empty((np.count_nonzero(ok), 3), dtype=float)
@@ -423,20 +480,37 @@ class RefractiveElement:
             transform=transform,
             u_range=entry.get("u_range", (-2.0, 2.0)),
             v_range=entry.get("v_range", (-2.0, 2.0)),
+            aperture=entry.get("aperture")
         )
 
     def refract(self, ray: Ray) -> Ray:
         hit1 = self.surface1.intersect(ray)
+
+        if hit1 is None:
+            return None
+
         p1, u1, v1 = hit1
         n1 = self.surface1.normal(u1, v1)
+
+        if n1 is None:
+            return None
+
         eta1 = 1 / self.n
         transfer1 = eta1 * np.eye(3, 3) + ((np.sqrt(1 - eta1**2 * (1 - np.inner(n1, ray.direction)**2)) / np.inner(n1, ray.direction)) - eta1) * np.outer(n1, n1)
         d1 = transfer1 @ ray.direction
         r1 = Ray(p1, d1)
 
         hit2 = self.surface2.intersect(r1)
+
+        if hit2 is None:
+            return None
+
         p2, u2, v2 = hit2
         n2 = self.surface2.normal(u2, v2)
+
+        if n2 is None:
+            return None
+
         eta2 = self.n
         transfer2 = eta2 * np.eye(3, 3) + ((np.sqrt(1 - eta2**2 * (1 - np.inner(n2, d1)**2)) / np.inner(n2, d1)) - eta2) * np.outer(n2, n2)
         d2 = transfer2 @ d1

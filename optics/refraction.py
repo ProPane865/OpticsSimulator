@@ -3,13 +3,10 @@ import json
 
 from .surface import Surface
 from .sidewall import LensSidewall
+from .vector import normalize, rotation_from_z
+from .ray import Ray
 
 _SIDEWALL_UNSET = object()
-
-class Ray:
-    def __init__(self, origin: np.ndarray, direction: np.ndarray):
-        self.origin = origin
-        self.direction = direction / np.linalg.norm(direction)
 
 def refract_direction(incident, normal, n_from, n_to):
     eta = n_from / n_to
@@ -23,23 +20,8 @@ class RefractiveElement:
     def __init__(self, schema: str, orientation=np.array([0, 0, 1])):
         self.sch = json.loads(schema)
         self.n = self.sch["material"]["refractive_index"]
-        self.orientation = orientation / np.linalg.norm(orientation)
-        original = np.array([0, 0, 1])
-        new = self.orientation
-        axis = np.cross(original, new)
-        axis_norm = np.linalg.norm(axis)
-        if axis_norm < 1e-12:
-            if np.inner(original, new) < 0:
-                self.r_matrix = np.array([[1.0, 0.0, 0.0],
-                                          [0.0, -1.0, 0.0],
-                                          [0.0, 0.0, -1.0]])
-            else:
-                self.r_matrix = np.eye(3, 3)
-        else:
-            axis_mat = np.array([[0, -axis[2], axis[1]],
-                                  [axis[2], 0, -axis[0]],
-                                  [-axis[1], axis[0], 0]])
-            self.r_matrix = np.eye(3, 3) + axis_mat + np.matmul(axis_mat, axis_mat) * ((1 - np.inner(original, new)) / axis_norm**2)
+        self.r_matrix = rotation_from_z(normalize(orientation))
+        
         self.surface1 = self._make_surface(self.sch["surface1"], self.r_matrix)
         self.surface2 = self._make_surface(self.sch["surface2"], self.r_matrix)
         self._sidewall = _SIDEWALL_UNSET

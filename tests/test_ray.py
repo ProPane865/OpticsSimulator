@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from optics.refraction import Ray
 
@@ -18,3 +19,7 @@ def test_origin_preserved_verbatim():
 def test_scalar_multiple_direction_normalized():
     ray = Ray(np.zeros(3), 7.0 * np.array([0.0, 0.0, -1.0]))
     np.testing.assert_allclose(ray.direction, [0.0, 0.0, -1.0], atol=1e-12)
+
+def test_zero_direction_rejected():
+    with pytest.raises(ValueError):
+        Ray(np.zeros(3), np.zeros(3))

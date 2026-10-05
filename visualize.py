@@ -168,7 +168,7 @@ def visualize(element, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_lengt
 
 
 def main():
-    from main import Ray, RefractiveElement
+    from optics.refraction import Ray, RefractiveElement
 
     schema_path = Path(__file__).resolve().parent / "tests" / "test_geometry.json"
     with open(schema_path, "r") as f:

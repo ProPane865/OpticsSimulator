@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-import main
+import optics.refraction as refraction
 
 DIRECTIONS = [
     [0, 0, 1],

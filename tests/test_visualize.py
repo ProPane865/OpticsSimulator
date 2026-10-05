@@ -1,6 +1,6 @@
 import numpy as np
 
-import main
+import optics.refraction as refraction
 import visualize
 
 
@@ -44,7 +44,7 @@ def test_surface_positions_tilted_matches_rotation(make_element):
 
 
 def test_trace_ray_on_axis(sphere):
-    ray = main.Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
+    ray = refraction.Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
     p1, out = visualize.trace_ray(sphere, ray)
     assert p1 is not None
     assert np.all(np.isfinite(p1))
@@ -55,7 +55,7 @@ def test_trace_ray_on_axis(sphere):
 
 
 def test_trace_ray_off_axis_finite(sphere):
-    ray = main.Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
+    ray = refraction.Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
     p1, out = visualize.trace_ray(sphere, ray)
     assert p1 is not None
     assert np.all(np.isfinite(p1))
@@ -65,7 +65,7 @@ def test_trace_ray_off_axis_finite(sphere):
 
 
 def test_trace_ray_miss_returns_none(sphere):
-    ray = main.Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, 1.0]))
+    ray = refraction.Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, 1.0]))
     p1, out = visualize.trace_ray(sphere, ray)
     assert p1 is None
     assert out is None
@@ -127,7 +127,7 @@ def test_make_segment_rejects_non_finite_points():
 
 
 def test_surface_mesh_reaches_vertical_wall_boundary():
-    s = main.Surface("sqrt(1 - v**2)", "u", "v", u_range=(-10.0, 10.0), v_range=(-10.0, 10.0))
+    s = refraction.Surface("sqrt(1 - v**2)", "u", "v", u_range=(-10.0, 10.0), v_range=(-10.0, 10.0))
     verts, faces = s.mesh(128)
     assert len(verts) > 0
     assert np.all(np.isfinite(verts))

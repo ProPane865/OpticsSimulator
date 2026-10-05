@@ -3,7 +3,8 @@ import json
 import numpy as np
 import pytest
 
-from main import Ray, Surface, RefractiveElement
+from optics.refraction import Ray, RefractiveElement
+from optics.surface import Surface
 
 
 APERTURE_RADIUS = 0.5

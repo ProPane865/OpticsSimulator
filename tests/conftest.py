@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import sympy as sp
 
-import main
+import optics.refraction as refraction
 
 
 def _parametric_equation(equation: str) -> str:
@@ -26,13 +26,13 @@ def sphere_schema(repo_root) -> str:
 
 
 @pytest.fixture
-def sphere(sphere_schema) -> main.RefractiveElement:
-    return main.RefractiveElement(sphere_schema)
+def sphere(sphere_schema) -> refraction.RefractiveElement:
+    return refraction.RefractiveElement(sphere_schema)
 
 
 @pytest.fixture
 def make_element():
-    def _make(surface1: str, surface2: str, n: float = 1.5, orientation=None) -> main.RefractiveElement:
+    def _make(surface1: str, surface2: str, n: float = 1.5, orientation=None) -> refraction.RefractiveElement:
         orientation = (
             np.array([0.0, 0.0, 1.0])
             if orientation is None
@@ -57,6 +57,6 @@ def make_element():
                 "material": {"refractive_index": n},
             }
         )
-        return main.RefractiveElement(schema, orientation)
+        return refraction.RefractiveElement(schema, orientation)
 
     return _make

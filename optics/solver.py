@@ -13,20 +13,16 @@ class SurfaceSolver:
             return None
         u0 = float(p[0])
         v0 = float(p[1])
-        if self.surface._parameters_in_domain(u0, v0):
-            puv = self.surface._point_local(u0, v0)
+        if self.surface.contains_point(u0, v0):
+            puv = self.surface.evaluate_local(u0, v0)
             if np.all(np.isfinite(puv)) and float(np.linalg.norm(puv - p)) < 1e-8:
                 return u0, v0
         us = np.linspace(self.surface.u_range[0], self.surface.u_range[1], 64)
         vs = np.linspace(self.surface.v_range[0], self.surface.v_range[1], 64)
         U, V = np.meshgrid(us, vs)
-        X, Y, Z = self.surface._point_local_array(U, V)
-        pts = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
+        pts = self.surface.evaluate_local(U, V).reshape(-1, 3)
         dist = np.linalg.norm(pts - p, axis=1)
-        valid = (
-            self.surface._aperture_mask(U, V, X, Y, Z).ravel()
-            & np.isfinite(dist)
-        )
+        valid = self._grid_mask(U, V, pts) & np.isfinite(dist)
         if not valid.any():
             return None
         idx = int(np.argmin(np.where(valid, dist, np.inf)))
@@ -42,18 +38,14 @@ class SurfaceSolver:
         vs = np.linspace(self.surface.v_range[0], self.surface.v_range[1], 64)
 
         U, V = np.meshgrid(us, vs)
-        X, Y, Z = self.surface._point_local_array(U, V)
+        pts = self.surface.evaluate_local(U, V)
 
-        finite = (
-            np.isfinite(X)
-            & np.isfinite(Y)
-            & np.isfinite(Z)
-        )
+        finite = np.all(np.isfinite(pts), axis=-1)
 
         if not finite.any():
             return None
 
-        distance2 = np.where(finite, ((X - x)**2 + (Y - y)**2), np.inf)
+        distance2 = np.where(finite, ((pts[..., 0] - x)**2 + (pts[..., 1] - y)**2), np.inf)
         order = np.argsort(distance2.ravel())
 
         for idx in order[:12]:
@@ -83,16 +75,16 @@ class SurfaceSolver:
 
     def _solve_parameters_point(self, p, u, v):
         for _ in range(50):
-            puv = self.surface._point_local(u, v)
+            puv = self.surface.evaluate_local(u, v)
             F = puv - p
             if not np.all(np.isfinite(F)):
                 return None
             f_norm = float(np.linalg.norm(F))
             if f_norm < 1e-11:
-                if self.surface._parameters_in_domain(u, v):
+                if self.surface.contains_point(u, v):
                     return float(u), float(v)
                 return None
-            ru, rv = self.surface._tangent_local(u, v)
+            ru, rv = self.surface.derivatives_local(u, v)
             if not (np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))):
                 return None
             J = np.column_stack((ru, rv))
@@ -108,28 +100,28 @@ class SurfaceSolver:
                 return None
             step_norm = float(np.linalg.norm(delta))
             if step_norm < 1e-14 * max(1.0, abs(u), abs(v)):
-                puv = self.surface._point_local(u, v)
+                puv = self.surface.evaluate_local(u, v)
                 F = puv - p
                 if (
                     np.all(np.isfinite(F))
                     and float(np.linalg.norm(F)) < 1e-9
-                    and self.surface._parameters_in_domain(u, v)
+                    and self.surface.contains_point(u, v)
                 ):
                     return float(u), float(v)
                 return None
-        puv = self.surface._point_local(u, v)
+        puv = self.surface.evaluate_local(u, v)
         F = puv - p
         if (
             np.all(np.isfinite(F))
             and float(np.linalg.norm(F)) < 1e-8
-            and self.surface._parameters_in_domain(u, v)
+            and self.surface.contains_point(u, v)
         ):
             return float(u), float(v)
         return None
 
     def _solve_parameters_xy(self, x_target, y_target, u, v):
         for _ in range(50):
-            p = self.surface._point_local(u, v)
+            p = self.surface.evaluate_local(u, v)
 
             if not np.all(np.isfinite(p)):
                 return None
@@ -142,11 +134,11 @@ class SurfaceSolver:
             f_norm = float(np.linalg.norm(F))
 
             if f_norm < 1e-11:
-                if self.surface._parameters_in_domain(u, v):
+                if self.surface.contains_point(u, v):
                     return float(u), float(v)
                 return None
 
-            ru, rv = self.surface._tangent_local(u, v)
+            ru, rv = self.surface.derivatives_local(u, v)
 
             if not (
                 np.all(np.isfinite(ru))
@@ -176,7 +168,7 @@ class SurfaceSolver:
             step_norm = float(np.linalg.norm(delta))
 
             if step_norm < 1e-14 * max(1.0, abs(u), abs(v)):
-                p = self.surface._point_local(u, v)
+                p = self.surface.evaluate_local(u, v)
                 F = np.array([
                     p[0] - x_target,
                     p[1] - y_target
@@ -184,12 +176,12 @@ class SurfaceSolver:
                 if (
                     np.all(np.isfinite(F))
                     and float(np.linalg.norm(F)) < 1e-9
-                    and self.surface._parameters_in_domain(u, v)
+                    and self.surface.contains_point(u, v)
                 ):
                     return float(u), float(v)
                 return None
 
-        p = self.surface._point_local(u, v)
+        p = self.surface.evaluate_local(u, v)
 
         if not np.all(np.isfinite(p)):
             return None
@@ -202,20 +194,26 @@ class SurfaceSolver:
         if (
             np.all(np.isfinite(F))
             and float(np.linalg.norm(F)) < 1e-8
-            and self.surface._parameters_in_domain(u, v)
+            and self.surface.contains_point(u, v)
         ):
             return float(u), float(v)
 
         return None
 
+    def _grid_mask(self, U, V, pts):
+        finite = np.all(np.isfinite(pts), axis=1)
+        domain = np.array([
+            bool(self.surface.contains_point(u, v))
+            for u, v in zip(U.ravel(), V.ravel())
+        ])
+        return finite & domain
+
     def _intersection_seeds(self, ray, grid_n=64, seed_tol=0.75, max_seeds=12):
         us = np.linspace(self.surface.u_range[0], self.surface.u_range[1], grid_n)
         vs = np.linspace(self.surface.v_range[0], self.surface.v_range[1], grid_n)
         U, V = np.meshgrid(us, vs)
-        X, Y, Z = self.surface._point_local_array(U, V)
-        pts = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
-        valid = self.surface._aperture_mask(U, V, X, Y, Z)
-        valid_flat = valid.ravel()
+        pts = self.surface.evaluate_local(U, V).reshape(-1, 3)
+        valid_flat = self._grid_mask(U, V, pts)
         if not valid_flat.any():
             return []
         Uf = U.ravel()[valid_flat]
@@ -247,7 +245,7 @@ class SurfaceSolver:
             np.all(np.isfinite(F))
             and float(np.linalg.norm(F)) < tol
             and t > 0.0
-            and self.surface._parameters_in_domain(u, v)
+            and self.surface.contains_point(u, v)
         ):
             return Hit(ray.at(t), float(t), float(u), float(v))
         return None

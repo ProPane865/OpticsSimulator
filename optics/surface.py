@@ -61,13 +61,7 @@ class Surface:
         return (self.u_range, self.v_range)
 
     def _point_local(self, u, v):
-        u = float(u)
-        v = float(v)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            x = float(self._x(u, v))
-            y = float(self._y(u, v))
-            z = float(self._z_eval(u, v))
-        return np.array([x, y, z], dtype=float)
+        return self.evaluate_local(u, v)
 
     def _point_local_array(self, U, V):
         shape = np.shape(U)
@@ -110,30 +104,8 @@ class Surface:
         ru, rv = self._tangent_local(u, v)
         return self.transform.vector_to_world(ru), self.transform.vector_to_world(rv)
 
-    def normal(self, u, v):
-        if not self._parameters_in_domain(u, v):
-            return None
-
-        ru, rv = self._tangent_local(u, v)
-        n = -np.cross(ru, rv)
-        norm = np.linalg.norm(n)
-        if not np.isfinite(norm) or norm <= 0.0:
-            return None
-        return self.transform.vector_to_world(n / norm)
-
     def _parameters_in_domain(self, u, v):
-        tu = 1e-9 * max(1.0, abs(self.u_range[1] - self.u_range[0]))
-        tv = 1e-9 * max(1.0, abs(self.v_range[1] - self.v_range[0]))
-
-        in_parameter_range = (
-            self.u_range[0] - tu <= u <= self.u_range[1] + tu
-            and self.v_range[0] - tv <= v <= self.v_range[1] + tv
-        )
-
-        if not in_parameter_range:
-            return False
-
-        return self._inside_aperture(u, v)
+        return self.contains_point(u, v)
 
     def _inside_aperture(self, u, v):
         if self.aperture is None:
@@ -168,3 +140,49 @@ class Surface:
 
     def intersect(self, ray):
         return self.solver.intersect(ray)
+
+    def evaluate(self, u, v):
+        """World-space point."""
+        return self.transform.point_to_world(self.evaluate_local(u, v))
+
+    def evaluate_local(self, u, v):
+        """Local-space point."""
+        with np.errstate(invalid="ignore", divide="ignore"):
+            x = np.asarray(self._x(u, v), dtype=float)
+            y = np.asarray(self._y(u, v), dtype=float)
+            z = np.asarray(self._z_eval(u, v), dtype=float)
+        x, y, z = np.broadcast_arrays(x, y, z)
+        return np.stack((x, y, z), axis=-1)
+
+    def derivatives_local(self, u, v):
+        """Return du and dv tangent vectors."""
+        return self._tangent_local(u, v)
+
+    def normal(self, u, v):
+        """World-space unit normal."""
+        if not self.contains_point(u, v):
+            return None
+
+        ru, rv = self.derivatives_local(u, v)
+        n = -np.cross(ru, rv)
+        norm = np.linalg.norm(n)
+        if not np.isfinite(norm) or norm <= 0.0:
+            return None
+        return self.transform.vector_to_world(n / norm)
+
+    def contains_parameters(self, u, v):
+        """Whether (u,v) is in the surface domain."""
+        tu = 1e-9 * max(1.0, abs(self.u_range[1] - self.u_range[0]))
+        tv = 1e-9 * max(1.0, abs(self.v_range[1] - self.v_range[0]))
+
+        return (
+            self.u_range[0] - tu <= u <= self.u_range[1] + tu
+            and self.v_range[0] - tv <= v <= self.v_range[1] + tv
+        )
+
+    def contains_point(self, u, v):
+        """Includes aperture restrictions."""
+        if not self.contains_parameters(u, v):
+            return False
+
+        return self._inside_aperture(u, v)

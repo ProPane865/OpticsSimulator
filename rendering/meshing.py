@@ -96,7 +96,7 @@ class SurfaceMesher:
             verts[:, 1] = Y[ok].ravel()
             verts[:, 2] = Z[ok].ravel()
         if idmap.shape[0] < 2 or idmap.shape[1] < 2:
-            verts = (surface.transform @ verts.T).T
+            verts = surface.transform.points_to_world(verts)
             return verts, np.empty((0, 3), dtype=np.int64)
         i = np.repeat(np.arange(n - 1), n - 1)
         j = np.tile(np.arange(n - 1), n - 1)
@@ -117,7 +117,7 @@ class SurfaceMesher:
         if boundary_faces.shape[0] > 0:
             face_chunks.append(boundary_faces)
         if not face_chunks:
-            verts = (surface.transform @ verts.T).T
+            verts = surface.transform.points_to_world(verts)
             return verts, np.empty((0, 3), dtype=np.int64)
         faces = np.vstack(face_chunks)
         cx = float(np.mean(U[ok]))
@@ -128,5 +128,5 @@ class SurfaceMesher:
             z_ref = float(np.median(Z[ok]))
             if z_center < z_ref - 1e-12:
                 faces = faces[:, ::-1]
-        verts = (surface.transform @ verts.T).T
+        verts = surface.transform.points_to_world(verts)
         return verts, faces

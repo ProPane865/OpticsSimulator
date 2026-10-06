@@ -8,7 +8,7 @@ class SurfaceSolver:
         self.surface = surface
 
     def parameters_at(self, pos):
-        p = self.surface.transform.T @ np.asarray(pos, dtype=float)
+        p = self.surface.transform.point_to_local(np.asarray(pos, dtype=float))
         if not np.all(np.isfinite(p)):
             return None
         u0 = float(p[0])
@@ -220,7 +220,7 @@ class SurfaceSolver:
             return []
         Uf = U.ravel()[valid_flat]
         Vf = V.ravel()[valid_flat]
-        P = (self.surface.transform @ pts[valid_flat].T).T
+        P = self.surface.transform.points_to_world(pts[valid_flat])
         rel = P - ray.origin
         t = rel @ ray.direction
         forward = t > 0.0

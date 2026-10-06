@@ -42,7 +42,7 @@ def test_surface_positions_tilted_matches_rotation(make_element):
     v0, f0 = visualize.surface_positions(default.surface1, n=32)
     v1, f1 = visualize.surface_positions(tilted.surface1, n=32)
     assert f0.shape == f1.shape
-    np.testing.assert_allclose(v1, (tilted.r_matrix @ v0.T).T, atol=1e-12)
+    np.testing.assert_allclose(v1, tilted.transform.points_to_world(v0), atol=1e-12)
 
 
 def test_trace_ray_on_axis(sphere):

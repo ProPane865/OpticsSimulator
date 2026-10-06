@@ -3,6 +3,7 @@ import json
 
 from .surface import Surface
 from .sidewall import LensSidewall
+from .transform import Transform
 from .vector import normalize, rotation_from_z
 from .ray import Ray
 
@@ -17,13 +18,14 @@ def refract_direction(incident, normal, n_from, n_to):
     return eta * incident + (np.sqrt(k) - eta * cos_i) * normal
 
 class RefractiveElement:
-    def __init__(self, schema: str, orientation=np.array([0, 0, 1])):
+    def __init__(self, schema: str, orientation=np.array([0, 0, 1]), position=None):
         self.sch = json.loads(schema)
         self.n = self.sch["material"]["refractive_index"]
-        self.r_matrix = rotation_from_z(orientation)
-        
-        self.surface1 = self._make_surface(self.sch["surface1"], self.r_matrix)
-        self.surface2 = self._make_surface(self.sch["surface2"], self.r_matrix)
+        position = np.zeros(3) if position is None else np.asarray(position, dtype=float)
+        self.transform = Transform(rotation_from_z(orientation), position)
+
+        self.surface1 = self._make_surface(self.sch["surface1"], self.transform)
+        self.surface2 = self._make_surface(self.sch["surface2"], self.transform)
         self._sidewall = _SIDEWALL_UNSET
 
     @property

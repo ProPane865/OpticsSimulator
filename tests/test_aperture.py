@@ -347,8 +347,8 @@ def test_rotated_element_rejects_ray_outside_local_aperture():
     local_origin = np.array([0.75, 0.0, 2.0])
     local_direction = np.array([0.0, 0.0, -1.0])
 
-    world_origin = element.r_matrix @ local_origin
-    world_direction = element.r_matrix @ local_direction
+    world_origin = element.transform.point_to_world(local_origin)
+    world_direction = element.transform.vector_to_world(local_direction)
 
     ray = Ray(
         world_origin,
@@ -636,9 +636,9 @@ def test_element_sidewall_rotated_world_frame():
 
     assert wall is not None
 
-    radial_world = element.r_matrix @ np.array([1.0, 0.0, 0.0])
+    radial_world = element.transform.vector_to_world(np.array([1.0, 0.0, 0.0]))
     local = np.array([APERTURE_RADIUS, 0.0, 0.4])
-    p = element.r_matrix @ local
+    p = element.transform.point_to_world(local)
 
     ray = Ray(p + 0.5 * radial_world, -radial_world)
     hit = wall.intersect(ray)

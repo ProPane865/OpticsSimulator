@@ -3,6 +3,7 @@ import sympy as sp
 
 from .aperture import Aperture
 from .solver import SurfaceSolver
+from .transform import Transform
 
 def _clamp_sqrt_arguments(expr):
     replacements = {}
@@ -27,7 +28,12 @@ class Surface:
         self.x_expr = sp.parse_expr(str(x_expr))
         self.y_expr = sp.parse_expr(str(y_expr))
         self.z_expr = sp.parse_expr(str(z_expr))
-        self.transform = np.eye(3, 3) if transform is None else np.asarray(transform, dtype=float)
+        if transform is None:
+            self.transform = Transform(np.eye(3, 3), np.zeros(3))
+        elif isinstance(transform, Transform):
+            self.transform = transform
+        else:
+            self.transform = Transform(np.asarray(transform, dtype=float), np.zeros(3))
         self.u_range = (float(u_range[0]), float(u_range[1]))
         self.v_range = (float(v_range[0]), float(v_range[1]))
         self.aperture = Aperture.from_spec(aperture)
@@ -98,11 +104,11 @@ class Surface:
         return ru, rv
 
     def point(self, u, v):
-        return self.transform @ self._point_local(u, v)
+        return self.transform.point_to_world(self._point_local(u, v))
 
     def tangents(self, u, v):
         ru, rv = self._tangent_local(u, v)
-        return self.transform @ ru, self.transform @ rv
+        return self.transform.vector_to_world(ru), self.transform.vector_to_world(rv)
 
     def normal(self, u, v):
         if not self._parameters_in_domain(u, v):
@@ -113,7 +119,7 @@ class Surface:
         norm = np.linalg.norm(n)
         if not np.isfinite(norm) or norm <= 0.0:
             return None
-        return self.transform @ (n / norm)
+        return self.transform.vector_to_world(n / norm)
 
     def _parameters_in_domain(self, u, v):
         tu = 1e-9 * max(1.0, abs(self.u_range[1] - self.u_range[0]))

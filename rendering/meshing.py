@@ -83,8 +83,9 @@ class SurfaceMesher:
         n = int(n)
         if n < 2:
             return np.empty((0, 3), dtype=float), np.empty((0, 3), dtype=np.int64)
-        us = np.linspace(surface.u_range[0], surface.u_range[1], n)
-        vs = np.linspace(surface.v_range[0], surface.v_range[1], n)
+        (u_min, u_max), (v_min, v_max) = surface.parameter_range
+        us = np.linspace(u_min, u_max, n)
+        vs = np.linspace(v_min, v_max, n)
         U, V = np.meshgrid(us, vs)
         pts = surface.evaluate_local(U, V)
         X, Y, Z = pts[..., 0], pts[..., 1], pts[..., 2]
@@ -124,10 +125,12 @@ class SurfaceMesher:
         cx = float(np.mean(U[ok]))
         cy = float(np.mean(V[ok]))
         with np.errstate(invalid="ignore", divide="ignore"):
-            z_center = float(surface._z(cx, cy))
-        if np.isfinite(z_center):
-            z_ref = float(np.median(Z[ok]))
-            if z_center < z_ref - 1e-12:
-                faces = faces[:, ::-1]
+            center = surface.evaluate_local(cx, cy)
+            if np.all(np.isfinite(center)):
+                z_center = center[2]
+                z_ref = float(np.median(Z[ok]))
+
+                if z_center < z_ref - 1e-12:
+                    faces = faces[:, ::-1]
         verts = surface.transform.points_to_world(verts)
         return verts, faces

@@ -47,7 +47,7 @@ def test_slab_lateral_shift_matches_analytic(make_element):
     out = elem.refract(ray)
 
     t = (2.5 - (-2.0)) / (-d[2])
-    straight = ray.origin + t * d
+    straight = ray.at(t)
     shift = np.linalg.norm(np.cross(out.origin - straight, out.direction))
 
     sin_i = float(np.linalg.norm(d[:2]))
@@ -62,12 +62,12 @@ def test_sphere_off_axis_matches_reference(sphere):
     out = sphere.refract(ray)
 
     hit1 = sphere.surface1.intersect(ray)
-    p1, u1, v1 = hit1
+    p1, u1, v1 = hit1.point, hit1.u, hit1.v
     n1 = -sphere.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / sphere.n)
 
     hit2 = sphere.surface2.intersect(Ray(p1, d1))
-    p2, u2, v2 = hit2
+    p2, u2, v2 = hit2.point, hit2.u, hit2.v
     n2 = -sphere.surface2.normal(u2, v2)
     d2 = _refract_direction(d1, n2, sphere.n)
 
@@ -94,7 +94,7 @@ def test_unit_index_plane_slab_is_straight(make_element):
     out = elem.refract(ray)
     np.testing.assert_allclose(out.direction, ray.direction, atol=1e-9)
     t = (4.0 - (-2.0)) / (-ray.direction[2])
-    expected = ray.origin + t * ray.direction
+    expected = ray.at(t)
     np.testing.assert_allclose(out.origin, expected, atol=1e-8)
 
 
@@ -103,12 +103,12 @@ def test_bicone_launch_is_supercritical(make_element):
     ray = Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
 
     hit1 = elem.surface1.intersect(ray)
-    p1, u1, v1 = hit1
+    p1, u1, v1 = hit1.point, hit1.u, hit1.v
     n1 = -elem.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
     hit2 = elem.surface2.intersect(Ray(p1, d1))
-    p2, u2, v2 = hit2
+    p2, u2, v2 = hit2.point, hit2.u, hit2.v
     n2 = -elem.surface2.normal(u2, v2)
     cos_i2 = -float(np.dot(n2, d1))
 
@@ -121,12 +121,12 @@ def test_total_internal_reflection_returns_reflected_ray(make_element):
     ray = Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
 
     hit1 = elem.surface1.intersect(ray)
-    p1, u1, v1 = hit1
+    p1, u1, v1 = hit1.point, hit1.u, hit1.v
     n1 = -elem.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
     hit2 = elem.surface2.intersect(Ray(p1, d1))
-    p2, u2, v2 = hit2
+    p2, u2, v2 = hit2.point, hit2.u, hit2.v
     n2 = -elem.surface2.normal(u2, v2)
     expected = d1 - 2.0 * float(np.dot(n2, d1)) * n2
 

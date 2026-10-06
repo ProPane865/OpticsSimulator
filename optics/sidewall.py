@@ -1,5 +1,8 @@
 import numpy as np
 
+from .ray import Ray
+from .hit import Hit
+
 class LensSidewall:
     def __init__(self, front, rear):
         self.front = np.array(front, dtype=float)
@@ -49,6 +52,8 @@ class LensSidewall:
 
         d = d / d_norm
 
+        ray = Ray(o, d)
+
         tri = self._verts[self._faces]
         a = tri[:, 0]
         e1 = tri[:, 1] - a
@@ -86,6 +91,4 @@ class LensSidewall:
         u_k = min(max(float(u[k]), 0.0), 1.0)
         v_k = min(max(float(v[k]), 0.0), 1.0 - u_k)
 
-        p = o + float(t[k]) * d
-
-        return p, u_k, v_k
+        return Hit(ray.at(float(t[k])), float(t[k]), u_k, v_k)

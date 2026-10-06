@@ -72,7 +72,7 @@ class RefractiveElement:
         if hit1 is None:
             return None
 
-        p1, u1, v1 = hit1
+        p1, u1, v1 = hit1.point, hit1.u, hit1.v
         n1 = self.surface1.normal(u1, v1)
 
         if n1 is None:
@@ -86,7 +86,7 @@ class RefractiveElement:
         if hit2 is None:
             return None
 
-        p2, u2, v2 = hit2
+        p2, u2, v2 = hit2.point, hit2.u, hit2.v
         n2 = self.surface2.normal(u2, v2)
 
         if n2 is None:

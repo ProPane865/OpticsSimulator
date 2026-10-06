@@ -82,7 +82,7 @@ def test_center_ray_intersects():
 
     assert hit is not None
 
-    p, u, v = hit
+    p, u, v = hit.point, hit.u, hit.v
 
     assert np.allclose(p, [0.0, 0.0, 1.0], atol=1e-8)
     assert np.isclose(u, 0.0, atol=1e-8)
@@ -102,7 +102,7 @@ def test_ray_inside_aperture_intersects():
 
     assert hit is not None
 
-    p, _, _ = hit
+    p = hit.point
 
     assert np.isclose(p[0], 0.25, atol=1e-8)
     assert np.isclose(p[1], 0.0, atol=1e-8)
@@ -164,7 +164,7 @@ def test_ray_on_aperture_boundary_intersects():
 
     assert hit is not None
 
-    p, _, _ = hit
+    p = hit.point
 
     assert np.isclose(
         p[0] ** 2 + p[1] ** 2,
@@ -508,7 +508,7 @@ def test_sidewall_intersect_hit_outside():
     hit = wall.intersect(ray)
 
     assert hit is not None
-    p, u, v = hit
+    p, u, v = hit.point, hit.u, hit.v
 
     assert np.allclose(p, [1.0, 0.0, 0.0], atol=1e-9)
     assert 0.0 <= u <= 1.0
@@ -523,7 +523,7 @@ def test_sidewall_intersect_hit_from_inside():
     hit = wall.intersect(ray)
 
     assert hit is not None
-    assert np.allclose(hit[0], [1.0, 0.0, 0.0], atol=1e-9)
+    assert np.allclose(hit.point, [1.0, 0.0, 0.0], atol=1e-9)
 
 
 def test_sidewall_intersect_miss_above_wall():
@@ -621,7 +621,7 @@ def test_element_sidewall_intersect_edge_hit():
     hit = wall.intersect(ray)
 
     assert hit is not None
-    p, u, v = hit
+    p, u, v = hit.point, hit.u, hit.v
 
     assert np.isclose(np.linalg.norm(p[:2]), APERTURE_RADIUS, atol=1e-8)
     rim_z = np.sqrt(1.0 - APERTURE_RADIUS ** 2)
@@ -644,4 +644,4 @@ def test_element_sidewall_rotated_world_frame():
     hit = wall.intersect(ray)
 
     assert hit is not None
-    assert np.allclose(hit[0], p, atol=1e-9)
+    assert np.allclose(hit.point, p, atol=1e-9)

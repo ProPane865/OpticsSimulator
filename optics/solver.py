@@ -1,5 +1,8 @@
 import numpy as np
 
+from .ray import Ray
+from .hit import Hit
+
 class SurfaceSolver:
     def __init__(self, surface):
         self.surface = surface
@@ -64,16 +67,16 @@ class SurfaceSolver:
         return None
 
     def intersect(self, ray):
-        o = self.surface.transform.T @ np.asarray(ray.origin, dtype=float)
-        d = self.surface.transform.T @ np.asarray(ray.direction, dtype=float)
+        o = np.asarray(ray.origin, dtype=float)
+        d = np.asarray(ray.direction, dtype=float)
         if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
             return None
         d_norm = float(np.linalg.norm(d))
         if not np.isfinite(d_norm) or d_norm <= 0.0:
             return None
-        d = d / d_norm
-        for u0, v0, t0 in self._intersection_seeds(o, d):
-            hit = self._newton_intersection(o, d, u0, v0, t0)
+        ray = Ray(o, d / d_norm)
+        for u0, v0, t0 in self._intersection_seeds(ray):
+            hit = self._newton_intersection(ray, u0, v0, t0)
             if hit is not None:
                 return hit
         return None
@@ -205,7 +208,7 @@ class SurfaceSolver:
 
         return None
 
-    def _intersection_seeds(self, o, d, grid_n=64, seed_tol=0.75, max_seeds=12):
+    def _intersection_seeds(self, ray, grid_n=64, seed_tol=0.75, max_seeds=12):
         us = np.linspace(self.surface.u_range[0], self.surface.u_range[1], grid_n)
         vs = np.linspace(self.surface.v_range[0], self.surface.v_range[1], grid_n)
         U, V = np.meshgrid(us, vs)
@@ -217,13 +220,13 @@ class SurfaceSolver:
             return []
         Uf = U.ravel()[valid_flat]
         Vf = V.ravel()[valid_flat]
-        P = pts[valid_flat]
-        rel = P - o
-        t = rel @ d
+        P = (self.surface.transform @ pts[valid_flat].T).T
+        rel = P - ray.origin
+        t = rel @ ray.direction
         forward = t > 0.0
         if not forward.any():
             return []
-        proj = o + t[:, None] * d
+        proj = ray.at(t[:, None])
         residual = np.linalg.norm(P - proj, axis=1)
         mask = forward & np.isfinite(residual) & (residual <= seed_tol)
         if not mask.any():
@@ -237,30 +240,30 @@ class SurfaceSolver:
             for idx in order[:max_seeds]
         ]
 
-    def _accept_intersection(self, o, d, t, u, v, tol):
-        p = self.surface._point_local(u, v)
-        F = p - (o + t * d)
+    def _accept_intersection(self, ray, t, u, v, tol):
+        p = self.surface.point(u, v)
+        F = p - ray.at(t)
         if (
             np.all(np.isfinite(F))
             and float(np.linalg.norm(F)) < tol
             and t > 0.0
             and self.surface._parameters_in_domain(u, v)
         ):
-            return self.surface.transform @ (o + t * d), float(u), float(v)
+            return Hit(ray.at(t), float(t), float(u), float(v))
         return None
 
-    def _newton_intersection(self, o, d, u, v, t):
+    def _newton_intersection(self, ray, u, v, t):
         for _ in range(50):
-            p = self.surface._point_local(u, v)
-            F = p - (o + t * d)
+            p = self.surface.point(u, v)
+            F = p - ray.at(t)
             if not np.all(np.isfinite(F)):
                 return None
             if float(np.linalg.norm(F)) < 1e-12:
-                return self._accept_intersection(o, d, t, u, v, 1e-11)
-            ru, rv = self.surface._tangent_local(u, v)
+                return self._accept_intersection(ray, t, u, v, 1e-11)
+            ru, rv = self.surface.tangents(u, v)
             if not (np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))):
                 return None
-            A = np.column_stack((-d, ru, rv))
+            A = np.column_stack((-ray.direction, ru, rv))
             try:
                 delta = np.linalg.solve(A, -F)
             except np.linalg.LinAlgError:
@@ -277,5 +280,5 @@ class SurfaceSolver:
             if not (np.isfinite(t) and np.isfinite(u) and np.isfinite(v)):
                 return None
             if step_norm < 1e-14 * scale:
-                return self._accept_intersection(o, d, t, u, v, 1e-10)
-        return self._accept_intersection(o, d, t, u, v, 1e-10)
+                return self._accept_intersection(ray, t, u, v, 1e-10)
+        return self._accept_intersection(ray, t, u, v, 1e-10)

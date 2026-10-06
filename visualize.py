@@ -84,7 +84,7 @@ def _marker_positions(pos, radius=0.03, n_phi=16, n_theta=8):
 
 def trace_ray(element, ray):
     hit = element.surface1.intersect(ray)
-    p1 = hit[0] if hit is not None else None
+    p1 = hit.point if hit is not None else None
     if p1 is not None and not np.all(np.isfinite(p1)):
         p1 = None
     if p1 is None:

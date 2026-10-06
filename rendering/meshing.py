@@ -92,9 +92,7 @@ class SurfaceMesher:
         ok = surface.aperture_mask(U, V, X, Y, Z)
         idmap = np.full((n, n), -1, dtype=np.int64)
         idmap[ok] = np.arange(np.count_nonzero(ok))
-        verts = np.empty((np.count_nonzero(ok), 3), dtype=float)
-        if np.count_nonzero(ok) > 0:
-            verts = pts[ok]
+        verts = pts[ok]
         if idmap.shape[0] < 2 or idmap.shape[1] < 2:
             verts = surface.transform.points_to_world(verts)
             return verts, np.empty((0, 3), dtype=np.int64)

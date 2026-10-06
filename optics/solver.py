@@ -13,7 +13,7 @@ class SurfaceSolver:
             return None
         u0 = float(p[0])
         v0 = float(p[1])
-        if self.surface.contains_point(u0, v0):
+        if self.surface.accepts_parameters(u0, v0):
             puv = self.surface.evaluate_local(u0, v0)
             if np.all(np.isfinite(puv)) and float(np.linalg.norm(puv - p)) < 1e-8:
                 return u0, v0
@@ -63,10 +63,7 @@ class SurfaceSolver:
         d = np.asarray(ray.direction, dtype=float)
         if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
             return None
-        d_norm = float(np.linalg.norm(d))
-        if not np.isfinite(d_norm) or d_norm <= 0.0:
-            return None
-        ray = Ray(o, d / d_norm)
+        ray = Ray(o, d)
         for u0, v0, t0 in self._intersection_seeds(ray):
             hit = self._newton_intersection(ray, u0, v0, t0)
             if hit is not None:
@@ -81,7 +78,7 @@ class SurfaceSolver:
                 return None
             f_norm = float(np.linalg.norm(F))
             if f_norm < 1e-11:
-                if self.surface.contains_point(u, v):
+                if self.surface.accepts_parameters(u, v):
                     return float(u), float(v)
                 return None
             ru, rv = self.surface.derivatives_local(u, v)
@@ -105,7 +102,7 @@ class SurfaceSolver:
                 if (
                     np.all(np.isfinite(F))
                     and float(np.linalg.norm(F)) < 1e-9
-                    and self.surface.contains_point(u, v)
+                    and self.surface.accepts_parameters(u, v)
                 ):
                     return float(u), float(v)
                 return None
@@ -114,7 +111,7 @@ class SurfaceSolver:
         if (
             np.all(np.isfinite(F))
             and float(np.linalg.norm(F)) < 1e-8
-            and self.surface.contains_point(u, v)
+            and self.surface.accepts_parameters(u, v)
         ):
             return float(u), float(v)
         return None
@@ -134,7 +131,7 @@ class SurfaceSolver:
             f_norm = float(np.linalg.norm(F))
 
             if f_norm < 1e-11:
-                if self.surface.contains_point(u, v):
+                if self.surface.accepts_parameters(u, v):
                     return float(u), float(v)
                 return None
 
@@ -176,7 +173,7 @@ class SurfaceSolver:
                 if (
                     np.all(np.isfinite(F))
                     and float(np.linalg.norm(F)) < 1e-9
-                    and self.surface.contains_point(u, v)
+                    and self.surface.accepts_parameters(u, v)
                 ):
                     return float(u), float(v)
                 return None
@@ -194,7 +191,7 @@ class SurfaceSolver:
         if (
             np.all(np.isfinite(F))
             and float(np.linalg.norm(F)) < 1e-8
-            and self.surface.contains_point(u, v)
+            and self.surface.accepts_parameters(u, v)
         ):
             return float(u), float(v)
 
@@ -203,7 +200,7 @@ class SurfaceSolver:
     def _grid_mask(self, U, V, pts):
         finite = np.all(np.isfinite(pts), axis=1)
         domain = np.array([
-            bool(self.surface.contains_point(u, v))
+            bool(self.surface.accepts_parameters(u, v))
             for u, v in zip(U.ravel(), V.ravel())
         ])
         return finite & domain
@@ -245,7 +242,7 @@ class SurfaceSolver:
             np.all(np.isfinite(F))
             and float(np.linalg.norm(F)) < tol
             and t > 0.0
-            and self.surface.contains_point(u, v)
+            and self.surface.accepts_parameters(u, v)
         ):
             return Hit(ray.at(t), float(t), float(u), float(v))
         return None

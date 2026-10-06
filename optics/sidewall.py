@@ -45,13 +45,6 @@ class LensSidewall:
         if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
             return None
 
-        d_norm = float(np.linalg.norm(d))
-
-        if not np.isfinite(d_norm) or d_norm <= 0.0:
-            return None
-
-        d = d / d_norm
-
         ray = Ray(o, d)
 
         tri = self._verts[self._faces]

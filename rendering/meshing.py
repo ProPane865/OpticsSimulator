@@ -6,11 +6,11 @@ class SurfaceMesher:
         self.surface = surface
 
     def _valid_uv(self, u, v):
-        if not self.surface._parameters_in_domain(u, v):
+        if not self.surface.accepts_parameters(u, v):
             return False
 
         return bool(
-            np.all(np.isfinite(self.surface._point_local(u, v)))
+            np.all(np.isfinite(self.surface.evaluate_local(u, v)))
         )
 
     def _boundary_point(self, u0, v0, u1, v1):
@@ -25,7 +25,7 @@ class SurfaceMesher:
                 lo_u, lo_v = mid_u, mid_v
             else:
                 hi_u, hi_v = mid_u, mid_v
-        return self.surface._point_local(lo_u, lo_v)
+        return self.surface.evaluate_local(lo_u, lo_v)
 
     def _boundary_faces(self, n, U, V, idmap, a, b, c, d, n_interior):
         counts = (
@@ -86,8 +86,9 @@ class SurfaceMesher:
         us = np.linspace(surface.u_range[0], surface.u_range[1], n)
         vs = np.linspace(surface.v_range[0], surface.v_range[1], n)
         U, V = np.meshgrid(us, vs)
-        X, Y, Z = surface._point_local_array(U, V)
-        ok = surface._aperture_mask(U, V, X, Y, Z)
+        pts = surface.evaluate_local(U, V)
+        X, Y, Z = pts[..., 0], pts[..., 1], pts[..., 2]
+        ok = surface.aperture_mask(U, V, X, Y, Z)
         idmap = np.full((n, n), -1, dtype=np.int64)
         idmap[ok] = np.arange(np.count_nonzero(ok))
         verts = np.empty((np.count_nonzero(ok), 3), dtype=float)

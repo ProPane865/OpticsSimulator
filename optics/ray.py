@@ -4,13 +4,16 @@ from dataclasses import dataclass
 
 from .vector import normalize
 
-@dataclass(frozen=True)
 class Ray:
-    origin: np.ndarray
-    direction: np.ndarray
+    def __init__(self, origin: np.ndarray, direction: np.ndarray):
+        self.origin = origin
+        self.direction = normalize(direction)
 
-    def __post_init__(self):
-        object.__setattr__(self, "direction", normalize(self.direction))
+        if self.origin.shape != (3,):
+            raise ValueError("Origin must be array of shape (3,)")
+
+        if self.direction.shape != (3,):
+            raise ValueError("Direction must be array of shape (3,)")
 
     def at(self, t):
         return self.origin + t * self.direction

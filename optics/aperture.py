@@ -32,7 +32,7 @@ class CircularAperture(Aperture):
         self.center = np.array(center, dtype=float)
 
     def contains(self, surface, u, v) -> bool:
-        p = surface._point_local(u, v)
+        p = surface.evaluate_local(u, v)
 
         if not np.all(np.isfinite(p)):
             return False

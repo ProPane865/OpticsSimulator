@@ -97,7 +97,6 @@ class Surface:
 
         return self.aperture.mask(self, U, V, X, Y, Z)
 
-
     def intersect(self, ray):
         return self.solver.intersect(ray)
 

@@ -17,8 +17,10 @@ class SurfaceSolver:
             puv = self.surface.evaluate_local(u0, v0)
             if np.all(np.isfinite(puv)) and float(np.linalg.norm(puv - p)) < 1e-8:
                 return u0, v0
-        us = np.linspace(self.surface.u_range[0], self.surface.u_range[1], 64)
-        vs = np.linspace(self.surface.v_range[0], self.surface.v_range[1], 64)
+        (u_min, u_max), (v_min, v_max) = self.surface.parameter_range
+
+        us = np.linspace(u_min, u_max, 64)
+        vs = np.linspace(v_min, v_max, 64)
         U, V = np.meshgrid(us, vs)
         pts = self.surface.evaluate_local(U, V).reshape(-1, 3)
         dist = np.linalg.norm(pts - p, axis=1)
@@ -34,8 +36,10 @@ class SurfaceSolver:
         x = float(x)
         y = float(y)
 
-        us = np.linspace(self.surface.u_range[0], self.surface.u_range[1], 64)
-        vs = np.linspace(self.surface.v_range[0], self.surface.v_range[1], 64)
+        (u_min, u_max), (v_min, v_max) = self.surface.parameter_range
+
+        us = np.linspace(u_min, u_max, 64)
+        vs = np.linspace(v_min, v_max, 64)
 
         U, V = np.meshgrid(us, vs)
         pts = self.surface.evaluate_local(U, V)

@@ -645,3 +645,37 @@ def test_element_sidewall_rotated_world_frame():
 
     assert hit is not None
     assert np.allclose(hit.point, p, atol=1e-9)
+
+def test_surface_outside_sqrt_domain_is_invalid():
+    surface = Surface(
+        "u",
+        "v",
+        "sqrt(1 - u**2 - v**2)",
+        u_range=(-2, 2),
+        v_range=(-2, 2),
+    )
+
+    assert np.all(np.isfinite(
+        surface.evaluate_local(0.0, 0.0)
+    ))
+
+    assert not np.all(np.isfinite(
+        surface.evaluate_local(1.5, 1.5)
+    ))
+
+def test_aperture_does_not_change_surface_evaluation():
+    no_aperture = Surface(
+        "u", "v", "sqrt(1 - u**2 - v**2)"
+    )
+
+    with_aperture = Surface(
+        "u", "v", "sqrt(1 - u**2 - v**2)",
+        aperture={"radius": 0.5},
+    )
+
+    for u, v in [(0, 0), (0.25, 0.25), (2, 2)]:
+        np.testing.assert_allclose(
+            no_aperture.evaluate_local(u, v),
+            with_aperture.evaluate_local(u, v),
+            equal_nan=True,
+        )

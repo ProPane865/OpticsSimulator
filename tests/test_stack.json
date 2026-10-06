@@ -1,0 +1,52 @@
+{
+    "lens1": {
+        "surface1": {
+            "x": "u",
+            "y": "v",
+            "z": "-1 + sqrt(9 - (u**2) - (v**2))",
+            "u_range": [-2.0, 2.0],
+            "v_range": [-2.0, 2.0],
+            "aperture": {
+                "radius": 0.75
+            }
+        },
+        "surface2": {
+            "x": "u",
+            "y": "v",
+            "z": "4.6 - sqrt(9 - (u**2) - (v**2))",
+            "u_range": [-2.0, 2.0],
+            "v_range": [-2.0, 2.0],
+            "aperture": {
+                "radius": 0.75
+            }
+        },
+        "material": {
+            "refractive_index": 1.5
+        }
+    },
+    "lens2": {
+        "surface1": {
+            "x": "u",
+            "y": "v",
+            "z": "2.8 - sqrt(4 - (u**2) - (v**2))",
+            "u_range": [-2.0, 2.0],
+            "v_range": [-2.0, 2.0],
+            "aperture": {
+                "radius": 0.75
+            }
+        },
+        "surface2": {
+            "x": "u",
+            "y": "v",
+            "z": "-1.3 + sqrt(4 - (u**2) - (v**2))",
+            "u_range": [-2.0, 2.0],
+            "v_range": [-2.0, 2.0],
+            "aperture": {
+                "radius": 0.75
+            }
+        },
+        "material": {
+            "refractive_index": 1.5
+        }
+    }
+}

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -134,32 +135,53 @@ def _add_axes(view, length=2.0, width=2):
         _add_segment(view, origin, end, AXIS_COLORS[name], width=width)
 
 
-def draw_ray(view, element, ray, ray_length=3.0):
+def draw_ray_stack(view, elements, ray, ray_length=3.0):
     origin = np.asarray(ray.origin, dtype=float)
     direction = np.asarray(ray.direction, dtype=float)
     if not (np.all(np.isfinite(origin)) and np.all(np.isfinite(direction))):
         return
 
-    p1, out = trace_ray(element, ray)
-
-    if p1 is not None:
-        _add_segment(view, origin, p1, INCIDENT_COLOR)
-        _add_marker(view, p1, INCIDENT_COLOR)
-    else:
-        _add_segment(view, origin, origin + ray_length * direction, INCIDENT_COLOR)
-
-    if out is None:
+    current = ray
+    start = origin
+    if not elements:
+        _add_segment(view, start, start + ray_length * direction, INCIDENT_COLOR)
         return
-    if out.origin is not None and np.all(np.isfinite(out.origin)):
+
+    for index, element in enumerate(elements):
+        p1, out = trace_ray(element, current)
+        segment_color = INCIDENT_COLOR if index == 0 else INTERNAL_COLOR
+        if p1 is None:
+            miss_dir = np.asarray(current.direction, dtype=float)
+            if np.all(np.isfinite(miss_dir)):
+                _add_segment(view, start, start + ray_length * miss_dir, segment_color)
+            return
+        _add_segment(view, start, p1, segment_color)
+        _add_marker(view, p1, segment_color)
+        if out is None or out.origin is None or not np.all(np.isfinite(out.origin)):
+            return
         p2 = np.asarray(out.origin, dtype=float)
-        if p1 is not None:
-            _add_segment(view, p1, p2, INTERNAL_COLOR)
+        _add_segment(view, p1, p2, INTERNAL_COLOR)
         _add_marker(view, p2, EXIT_COLOR)
-        if np.all(np.isfinite(out.direction)):
-            _add_segment(view, p2, p2 + ray_length * np.asarray(out.direction, dtype=float), EXIT_COLOR)
+        start = p2
+        current = out
+
+    exit_dir = np.asarray(current.direction, dtype=float)
+    if np.all(np.isfinite(exit_dir)):
+        _add_segment(view, start, start + ray_length * exit_dir, EXIT_COLOR)
 
 
-def visualize(element, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=3.0, show=True):
+def draw_ray(view, elements, ray, ray_length=3.0):
+    if isinstance(elements, RefractiveElement):
+        elements = [elements]
+    draw_ray_stack(view, list(elements), ray, ray_length=ray_length)
+
+
+def visualize(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=3.0, show=True):
+    if isinstance(elements, RefractiveElement):
+        element_list = [elements]
+    else:
+        element_list = list(elements)
+
     canvas = scene.SceneCanvas(
         keys="interactive",
         size=(900, 700),
@@ -171,19 +193,20 @@ def visualize(element, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_lengt
 
     axis_len = max(abs(x_range[0]), abs(x_range[1]), abs(y_range[0]), abs(y_range[1]))
     _add_axes(view, length=axis_len)
-    _attach(view, make_surface_visual(element.surface1, SURFACE1_COLOR))
-    _attach(view, make_surface_visual(element.surface2, SURFACE2_COLOR))
+    for element in element_list:
+        _attach(view, make_surface_visual(element.surface1, SURFACE1_COLOR))
+        _attach(view, make_surface_visual(element.surface2, SURFACE2_COLOR))
 
-    sidewall = getattr(element, "sidewall", None)
-    if sidewall is not None:
-        _attach(view, make_wall_visual(sidewall, SIDEWALL_COLOR))
+        sidewall = getattr(element, "sidewall", None)
+        if sidewall is not None:
+            _attach(view, make_wall_visual(sidewall, SIDEWALL_COLOR))
 
     if isinstance(rays, (list, tuple)):
         ray_list = list(rays)
     else:
         ray_list = [rays]
     for ray in ray_list:
-        draw_ray(view, element, ray, ray_length=ray_length)
+        draw_ray(view, element_list, ray, ray_length=ray_length)
 
     if show:
         canvas.show(run=True)
@@ -191,17 +214,17 @@ def visualize(element, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_lengt
 
 
 def main():
-    schema_path = Path(__file__).resolve().parent / "tests" / "offset_geometry.json"
+    schema_path = Path(__file__).resolve().parent / "tests" / "test_stack.json"
     with open(schema_path, "r") as f:
-        schema = f.read()
+        stack = json.load(f)
 
-    element = RefractiveElement(schema)
+    elements = [RefractiveElement(json.dumps(entry)) for entry in stack.values()]
     rays = [
         Ray(np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),
         Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),
         Ray(np.array([0.0, 0.4, 3.0]), np.array([0.0, 0.0, -1.0])),
     ]
-    visualize(element, rays)
+    visualize(elements, rays, ray_length=6.0)
 
 
 if __name__ == "__main__":

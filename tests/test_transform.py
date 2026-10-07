@@ -1,9 +1,7 @@
-import json
-
 import numpy as np
 
 from optics.ray import Ray
-from optics.refraction import RefractiveElement
+from optics.config import refractive_element_from_config
 from optics.surface import Surface
 from optics.transform import Transform
 from optics.vector import rotation_from_z
@@ -78,30 +76,28 @@ def test_surface_point_uses_translation():
 
 
 def _lens_schema():
-    return json.dumps(
-        {
-            "surface1": {
-                "x": "u",
-                "y": "v",
-                "z": "sqrt(1 - u**2 - v**2)",
-                "u_range": [-1.0, 1.0],
-                "v_range": [-1.0, 1.0],
-            },
-            "surface2": {
-                "x": "u",
-                "y": "v",
-                "z": "-sqrt(1 - u**2 - v**2)",
-                "u_range": [-1.0, 1.0],
-                "v_range": [-1.0, 1.0],
-            },
-            "material": {"refractive_index": 1.5},
-        }
-    )
+    return {
+        "surface1": {
+            "x": "u",
+            "y": "v",
+            "z": "sqrt(1 - u**2 - v**2)",
+            "u_range": [-1.0, 1.0],
+            "v_range": [-1.0, 1.0],
+        },
+        "surface2": {
+            "x": "u",
+            "y": "v",
+            "z": "-sqrt(1 - u**2 - v**2)",
+            "u_range": [-1.0, 1.0],
+            "v_range": [-1.0, 1.0],
+        },
+        "material": {"refractive_index": 1.5},
+    }
 
 
 def test_positioned_element_mesh_is_shifted():
-    default = RefractiveElement(_lens_schema())
-    positioned = RefractiveElement(_lens_schema(), position=TRANS)
+    default = refractive_element_from_config(_lens_schema())
+    positioned = refractive_element_from_config(_lens_schema(), position=TRANS)
     v0, f0 = SurfaceMesher(default.surface1).mesh(16)
     v1, f1 = SurfaceMesher(positioned.surface1).mesh(16)
     assert f0.shape == f1.shape
@@ -109,8 +105,8 @@ def test_positioned_element_mesh_is_shifted():
 
 
 def test_positioned_element_intersection_shifted():
-    default = RefractiveElement(_lens_schema())
-    positioned = RefractiveElement(_lens_schema(), position=TRANS)
+    default = refractive_element_from_config(_lens_schema())
+    positioned = refractive_element_from_config(_lens_schema(), position=TRANS)
     ray = Ray(np.array([0.0, 0.0, 2.0]), np.array([0.0, 0.0, -1.0]))
     hit0 = default.surface1.intersect(ray)
     hit1 = positioned.surface1.intersect(

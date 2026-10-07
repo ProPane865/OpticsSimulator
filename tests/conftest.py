@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import numpy as np
@@ -6,6 +5,10 @@ import pytest
 import sympy as sp
 
 import optics.refraction as refraction
+from optics.config import (
+    refractive_element_from_config,
+    refractive_element_from_json,
+)
 
 
 def _parametric_equation(equation: str) -> str:
@@ -27,7 +30,7 @@ def sphere_schema(repo_root) -> str:
 
 @pytest.fixture
 def sphere(sphere_schema) -> refraction.RefractiveElement:
-    return refraction.RefractiveElement(sphere_schema)
+    return refractive_element_from_json(sphere_schema)
 
 
 @pytest.fixture
@@ -37,7 +40,7 @@ def offset_lens_schema(repo_root) -> str:
 
 @pytest.fixture
 def offset_lens(offset_lens_schema) -> refraction.RefractiveElement:
-    return refraction.RefractiveElement(offset_lens_schema)
+    return refractive_element_from_json(offset_lens_schema)
 
 
 @pytest.fixture
@@ -66,13 +69,11 @@ def make_element():
                 entry["aperture"] = aperture
             return entry
 
-        schema = json.dumps(
-            {
-                "surface1": _surface(surface1),
-                "surface2": _surface(surface2),
-                "material": {"refractive_index": n},
-            }
-        )
-        return refraction.RefractiveElement(schema, orientation)
+        config = {
+            "surface1": _surface(surface1),
+            "surface2": _surface(surface2),
+            "material": {"refractive_index": n},
+        }
+        return refractive_element_from_config(config, orientation)
 
     return _make

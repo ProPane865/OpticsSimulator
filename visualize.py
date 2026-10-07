@@ -8,6 +8,7 @@ from vispy.scene import visuals
 from rendering.meshing import SurfaceMesher
 from optics.ray import Ray
 from optics.refraction import RefractiveElement
+from optics.config import refractive_element_from_config
 
 SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
 SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.25)
@@ -208,7 +209,7 @@ def main():
     with open(schema_path, "r") as f:
         stack = json.load(f)
 
-    elements = [RefractiveElement(json.dumps(entry)) for entry in stack.values()]
+    elements = [refractive_element_from_config(entry) for entry in stack.values()]
     rays = [
         Ray(np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),
         Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),

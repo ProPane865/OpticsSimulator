@@ -1,10 +1,8 @@
 import numpy as np
-import json
 
 from .surface import Surface
 from .sidewall import LensSidewall
-from .transform import Transform
-from .vector import rotation_from_z
+from .material import Material
 from .hit import Hit
 from .ray import Ray
 
@@ -36,15 +34,15 @@ class TraceResult:
     outgoing_ray: Ray | None
 
 class RefractiveElement:
-    def __init__(self, schema: str, orientation=np.array([0, 0, 1]), position=None):
-        self.sch = json.loads(schema)
-        self.n = self.sch["material"]["refractive_index"]
-        position = np.zeros(3) if position is None else np.asarray(position, dtype=float)
-        self.transform = Transform(rotation_from_z(orientation), position)
-
-        self.surface1 = self._make_surface(self.sch["surface1"], self.transform)
-        self.surface2 = self._make_surface(self.sch["surface2"], self.transform)
+    def __init__(self, surface1: Surface, surface2: Surface, material: Material):
+        self.surface1 = surface1
+        self.surface2 = surface2
+        self.material = material
         self._sidewall = _SIDEWALL_UNSET
+
+    @property
+    def transform(self):
+        return self.surface1.transform
 
     @property
     def sidewall(self):
@@ -74,18 +72,6 @@ class RefractiveElement:
                     self._sidewall = None
         return self._sidewall
 
-    @staticmethod
-    def _make_surface(entry, transform):
-        return Surface(
-            entry["x"],
-            entry["y"],
-            entry["z"],
-            transform=transform,
-            u_range=entry.get("u_range", (-2.0, 2.0)),
-            v_range=entry.get("v_range", (-2.0, 2.0)),
-            aperture=entry.get("aperture")
-        )
-
     def trace(self, ray) -> TraceResult:
         hit1 = self.surface1.intersect(ray)
 
@@ -98,7 +84,7 @@ class RefractiveElement:
         if n1 is None:
             return TraceResult(hit1, None, ray, None, None)
 
-        d1 = trace_direction(ray.direction, n1, n_from=1.0, n_to=self.n)
+        d1 = trace_direction(ray.direction, n1, n_from=1.0, n_to=self.material.refractive_index)
         r1 = Ray(p1, d1)
 
         hit2 = self.surface2.intersect(r1)
@@ -112,7 +98,7 @@ class RefractiveElement:
         if n2 is None:
             return TraceResult(hit1, hit2, ray, r1, None)
 
-        d2 = trace_direction(d1, n2, n_from=self.n, n_to=1.0)
+        d2 = trace_direction(d1, n2, n_from=self.material.refractive_index, n_to=1.0)
         r2 = Ray(p2, d2)
 
         return TraceResult(hit1, hit2, ray, r1, r2)

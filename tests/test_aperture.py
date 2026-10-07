@@ -1,10 +1,8 @@
-import json
-
 import numpy as np
 import pytest
 
 from optics.ray import Ray
-from optics.refraction import RefractiveElement
+from optics.config import refractive_element_from_config
 from optics.surface import Surface
 from optics.aperture import CircularAperture, Aperture
 from optics.sidewall import LensSidewall
@@ -61,10 +59,10 @@ def make_element(aperture_radius=APERTURE_RADIUS, orientation=None):
     }
 
     if orientation is None:
-        return RefractiveElement(json.dumps(schema))
+        return refractive_element_from_config(schema)
 
-    return RefractiveElement(
-        json.dumps(schema),
+    return refractive_element_from_config(
+        schema,
         np.asarray(orientation, dtype=float),
     )
 
@@ -603,7 +601,7 @@ def test_element_sidewall_absent_without_aperture():
         },
         "material": {"refractive_index": 1.5},
     }
-    element = RefractiveElement(json.dumps(schema))
+    element = refractive_element_from_config(schema)
 
     assert element.sidewall is None
 

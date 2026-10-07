@@ -64,12 +64,12 @@ def test_sphere_off_axis_matches_reference(sphere):
     hit1 = sphere.surface1.intersect(ray)
     p1, u1, v1 = hit1.point, hit1.u, hit1.v
     n1 = -sphere.surface1.normal(u1, v1)
-    d1 = _refract_direction(ray.direction, n1, 1.0 / sphere.n)
+    d1 = _refract_direction(ray.direction, n1, 1.0 / sphere.material.refractive_index)
 
     hit2 = sphere.surface2.intersect(Ray(p1, d1))
     p2, u2, v2 = hit2.point, hit2.u, hit2.v
     n2 = -sphere.surface2.normal(u2, v2)
-    d2 = _refract_direction(d1, n2, sphere.n)
+    d2 = _refract_direction(d1, n2, sphere.material.refractive_index)
 
     np.testing.assert_allclose(out.direction, d2, atol=1e-9)
     np.testing.assert_allclose(out.origin, p2, atol=1e-8)

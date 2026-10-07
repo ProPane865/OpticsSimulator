@@ -139,7 +139,9 @@ def draw_ray_stack(view, elements, ray, ray_length=3.0):
         return
 
     for index, element in enumerate(elements):
-        p1, out = trace_ray(element, current)
+        trace = trace_ray(element, current)
+        p1 = trace.incident_hit.point
+        out = trace.outgoing_ray
         segment_color = INCIDENT_COLOR if index == 0 else INTERNAL_COLOR
         if p1 is None:
             miss_dir = np.asarray(current.direction, dtype=float)

@@ -83,17 +83,8 @@ def _marker_positions(pos, radius=0.03, n_phi=16, n_theta=8):
 
 
 def trace_ray(element, ray):
-    hit = element.surface1.intersect(ray)
-    p1 = hit.point if hit is not None else None
-    if p1 is not None and not np.all(np.isfinite(p1)):
-        p1 = None
-    if p1 is None:
-        return None, None
-    try:
-        out = element.refract(ray)
-    except (TypeError, ValueError):
-        return p1, None
-    return p1, out
+    trace = element.trace(ray)
+    return trace.incident_hit.point, trace.outgoing_ray
 
 
 def _attach(view, visual):

@@ -4,18 +4,36 @@ import json
 from .surface import Surface
 from .sidewall import LensSidewall
 from .transform import Transform
-from .vector import normalize, rotation_from_z
+from .vector import rotation_from_z
+from .hit import Hit
 from .ray import Ray
+
+from dataclasses import dataclass
 
 _SIDEWALL_UNSET = object()
 
-def refract_direction(incident, normal, n_from, n_to):
+def _refract_direction(incident, normal, eta, cos_i, k):
+    return eta * incident + (np.sqrt(k) - eta * cos_i) * normal
+
+def _reflect_direction(incident, normal, cos_i):
+    return incident - 2.0 * cos_i * normal
+
+def trace_direction(incident, normal, n_from, n_to):
     eta = n_from / n_to
     cos_i = float(np.dot(normal, incident))
     k = 1.0 - eta**2 * (1.0 - cos_i**2)
+
     if k < 0.0:
-        return incident - 2.0 * cos_i * normal
-    return eta * incident + (np.sqrt(k) - eta * cos_i) * normal
+        return _reflect_direction(incident, normal, cos_i)
+    return _refract_direction(incident, normal, eta, cos_i, k)
+
+@dataclass(frozen=True)
+class TraceResult:
+    incident_hit: Hit
+    exit_hit: Hit
+    incident_ray: Ray
+    internal_ray: Ray
+    outgoing_ray: Ray
 
 class RefractiveElement:
     def __init__(self, schema: str, orientation=np.array([0, 0, 1]), position=None):
@@ -68,7 +86,7 @@ class RefractiveElement:
             aperture=entry.get("aperture")
         )
 
-    def refract(self, ray: Ray) -> Ray:
+    def trace(self, ray) -> TraceResult | None:
         hit1 = self.surface1.intersect(ray)
 
         if hit1 is None:
@@ -80,7 +98,7 @@ class RefractiveElement:
         if n1 is None:
             return None
 
-        d1 = refract_direction(ray.direction, n1, n_from=1.0, n_to=self.n)
+        d1 = trace_direction(ray.direction, n1, n_from=1.0, n_to=self.n)
         r1 = Ray(p1, d1)
 
         hit2 = self.surface2.intersect(r1)
@@ -94,6 +112,7 @@ class RefractiveElement:
         if n2 is None:
             return None
 
-        d2 = refract_direction(d1, n2, n_from=self.n, n_to=1.0)
+        d2 = trace_direction(d1, n2, n_from=self.n, n_to=1.0)
+        r2 = Ray(p2, d2)
 
-        return Ray(p2, d2)
+        return TraceResult(hit1, hit2, ray, r1, r2)

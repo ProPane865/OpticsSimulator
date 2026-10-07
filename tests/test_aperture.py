@@ -285,7 +285,7 @@ def test_inside_aperture_ray_refracts():
         np.array([0.0, 0.0, -1.0]),
     )
 
-    out = element.refract(ray)
+    out = element.trace(ray).outgoing_ray
 
     assert out is not None
     assert np.all(np.isfinite(out.origin))
@@ -304,7 +304,7 @@ def test_outside_aperture_ray_does_not_refract():
         np.array([0.0, 0.0, -1.0]),
     )
 
-    out = element.refract(ray)
+    out = element.trace(ray)
 
     assert out is None
 
@@ -323,7 +323,7 @@ def test_rotated_element_on_axis_ray_refracts():
         -orientation,
     )
 
-    out = element.refract(ray)
+    out = element.trace(ray).outgoing_ray
 
     assert out is not None
     assert np.all(np.isfinite(out.origin))
@@ -356,7 +356,7 @@ def test_rotated_element_rejects_ray_outside_local_aperture():
     )
 
     assert element.surface1.intersect(ray) is None
-    assert element.refract(ray) is None
+    assert element.trace(ray) is None
 
 def test_circular_aperture_boundary_plane():
     aperture = CircularAperture(1.0)

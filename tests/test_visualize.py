@@ -68,9 +68,9 @@ def test_trace_ray_off_axis_finite(sphere):
 
 def test_trace_ray_miss_returns_none(sphere):
     ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, 1.0]))
-    p1, out = visualize.trace_ray(sphere, ray)
-    assert p1 is None
-    assert out is None
+    trace = visualize.trace_ray(sphere, ray)
+    assert trace.incident_hit.point is None
+    assert trace.outgoing_ray is None
 
 
 def _face_normals(verts, faces):

@@ -167,20 +167,21 @@ def draw_ray(view, elements, ray, ray_length=3.0):
     draw_ray_stack(view, list(elements), ray, ray_length=ray_length)
 
 
-def visualize(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=3.0, show=True):
-    if isinstance(elements, RefractiveElement):
-        element_list = [elements]
-    else:
-        element_list = list(elements)
-
-    canvas = scene.SceneCanvas(
+def create_canvas(width=900, height=700):
+    return scene.SceneCanvas(
         keys="interactive",
-        size=(900, 700),
+        size=(width, height),
         show=False,
         bgcolor=(1.0, 1.0, 1.0, 1.0),
         title="OpticsSimulator",
     )
-    view = canvas.central_widget.add_view(camera="turntable")
+
+
+def build_scene(view, elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=3.0):
+    if isinstance(elements, RefractiveElement):
+        element_list = [elements]
+    else:
+        element_list = list(elements)
 
     axis_len = max(abs(x_range[0]), abs(x_range[1]), abs(y_range[0]), abs(y_range[1]))
     _add_axes(view, length=axis_len)
@@ -198,24 +199,36 @@ def visualize(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_leng
         ray_list = [rays]
     for ray in ray_list:
         draw_ray(view, element_list, ray, ray_length=ray_length)
+    return element_list
+
+
+def visualize(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=3.0, show=True):
+    canvas = create_canvas()
+    view = canvas.central_widget.add_view(camera="turntable")
+    build_scene(view, elements, rays, x_range=x_range, y_range=y_range, ray_length=ray_length)
 
     if show:
         canvas.show(run=True)
     return canvas
 
 
-def main():
+def default_stack():
     schema_path = Path(__file__).resolve().parent / "tests" / "test_stack.json"
     with open(schema_path, "r") as f:
         stack = json.load(f)
+    return [refractive_element_from_config(entry) for entry in stack.values()]
 
-    elements = [refractive_element_from_config(entry) for entry in stack.values()]
-    rays = [
+
+def default_rays():
+    return [
         Ray(np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),
         Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),
         Ray(np.array([0.0, 0.4, 3.0]), np.array([0.0, 0.0, -1.0])),
     ]
-    visualize(elements, rays, ray_length=6.0)
+
+
+def main():
+    visualize(default_stack(), default_rays(), ray_length=6.0)
 
 
 if __name__ == "__main__":

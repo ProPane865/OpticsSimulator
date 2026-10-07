@@ -84,7 +84,7 @@ def _marker_positions(pos, radius=0.03, n_phi=16, n_theta=8):
 
 def trace_ray(element, ray):
     trace = element.trace(ray)
-    return trace.incident_hit.point, trace.outgoing_ray
+    return trace
 
 
 def _attach(view, visual):

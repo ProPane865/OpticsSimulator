@@ -47,7 +47,9 @@ def test_surface_positions_tilted_matches_rotation(make_element):
 
 def test_trace_ray_on_axis(sphere):
     ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
-    p1, out = visualize.trace_ray(sphere, ray)
+    trace = visualize.trace_ray(sphere, ray)
+    p1 = trace.incident_hit.point
+    out = trace.outgoing_ray
     assert p1 is not None
     assert np.all(np.isfinite(p1))
     assert np.isclose(np.linalg.norm(p1), 1.0, atol=1e-8)
@@ -58,7 +60,9 @@ def test_trace_ray_on_axis(sphere):
 
 def test_trace_ray_off_axis_finite(sphere):
     ray = Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
-    p1, out = visualize.trace_ray(sphere, ray)
+    trace = visualize.trace_ray(sphere, ray)
+    p1 = trace.incident_hit.point
+    out = trace.outgoing_ray
     assert p1 is not None
     assert np.all(np.isfinite(p1))
     assert out is not None
@@ -69,7 +73,7 @@ def test_trace_ray_off_axis_finite(sphere):
 def test_trace_ray_miss_returns_none(sphere):
     ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, 1.0]))
     trace = visualize.trace_ray(sphere, ray)
-    assert trace.incident_hit.point is None
+    assert trace.incident_hit is None
     assert trace.outgoing_ray is None
 
 

@@ -90,13 +90,13 @@ class RefractiveElement:
         hit1 = self.surface1.intersect(ray)
 
         if hit1 is None:
-            return None
+            return TraceResult(None, None, ray, None, None)
 
         p1, u1, v1 = hit1.point, hit1.u, hit1.v
         n1 = self.surface1.normal(u1, v1)
 
         if n1 is None:
-            return None
+            return TraceResult(hit1, None, ray, None, None)
 
         d1 = trace_direction(ray.direction, n1, n_from=1.0, n_to=self.n)
         r1 = Ray(p1, d1)
@@ -104,13 +104,13 @@ class RefractiveElement:
         hit2 = self.surface2.intersect(r1)
 
         if hit2 is None:
-            return None
+            return TraceResult(hit1, None, ray, r1, None)
 
         p2, u2, v2 = hit2.point, hit2.u, hit2.v
         n2 = self.surface2.normal(u2, v2)
 
         if n2 is None:
-            return None
+            return TraceResult(hit1, hit2, ray, r1, None)
 
         d2 = trace_direction(d1, n2, n_from=self.n, n_to=1.0)
         r2 = Ray(p2, d2)

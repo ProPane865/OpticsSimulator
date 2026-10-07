@@ -206,3 +206,20 @@ def test_trace_miss_returns_empty_trace(make_element):
     assert result.incident_ray is ray
     assert result.internal_ray is None
     assert result.outgoing_ray is None
+
+
+def test_hit_surface1_only_returns_incident_hit_internal_ray(make_element):
+    elem = make_element("0", "-2")
+
+    ray = Ray(
+        np.array([9.0, 0.0, 2.0]),
+        np.array([0.5, 0.0, -1.0]),
+    )
+
+    result = elem.trace(ray)
+
+    assert result.incident_hit is not None
+    assert result.exit_hit is None
+    assert result.incident_ray is ray
+    assert result.internal_ray is not None
+    assert result.outgoing_ray is None

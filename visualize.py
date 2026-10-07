@@ -145,11 +145,6 @@ def draw_ray_stack(view, elements, ray, ray_length=3.0):
 
         p1 = trace.incident_hit.point
         out = trace.outgoing_ray
-        if p1 is None:
-            miss_dir = np.asarray(current.direction, dtype=float)
-            if np.all(np.isfinite(miss_dir)):
-                _add_segment(view, start, start + ray_length * miss_dir, segment_color)
-            return
         _add_segment(view, start, p1, segment_color)
         _add_marker(view, p1, segment_color)
         if out is None or out.origin is None or not np.all(np.isfinite(out.origin)):

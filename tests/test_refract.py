@@ -190,3 +190,19 @@ def test_refract_direction_matches_reference():
         out = trace_direction(d, n, n_from=n_from, n_to=n_to)
         expected = _refract_direction(d, -n, n_from / n_to)
         np.testing.assert_allclose(out, expected, atol=1e-12)
+
+def test_trace_miss_returns_empty_trace(make_element):
+    elem = make_element("0", "-2")
+
+    ray = Ray(
+        np.array([15.0, 0.0, 2.0]),
+        np.array([0.0, 0.0, -1.0]),
+    )
+
+    result = elem.trace(ray)
+
+    assert result.incident_hit is None
+    assert result.exit_hit is None
+    assert result.incident_ray is ray
+    assert result.internal_ray is None
+    assert result.outgoing_ray is None

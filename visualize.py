@@ -82,11 +82,6 @@ def _marker_positions(pos, radius=0.03, n_phi=16, n_theta=8):
     return verts, faces
 
 
-def trace_ray(element, ray):
-    trace = element.trace(ray)
-    return trace
-
-
 def _attach(view, visual):
     view.add(visual)
     return visual
@@ -139,10 +134,17 @@ def draw_ray_stack(view, elements, ray, ray_length=3.0):
         return
 
     for index, element in enumerate(elements):
-        trace = trace_ray(element, current)
+        trace = element.trace(current)
+        segment_color = INCIDENT_COLOR if index == 0 else INTERNAL_COLOR
+
+        if trace.incident_hit is None:
+            miss_dir = np.asarray(current.direction, dtype=float)
+            if np.all(np.isfinite(miss_dir)):
+                _add_segment(view, start, start + ray_length * miss_dir, segment_color)
+            return
+
         p1 = trace.incident_hit.point
         out = trace.outgoing_ray
-        segment_color = INCIDENT_COLOR if index == 0 else INTERNAL_COLOR
         if p1 is None:
             miss_dir = np.asarray(current.direction, dtype=float)
             if np.all(np.isfinite(miss_dir)):

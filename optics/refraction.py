@@ -29,11 +29,11 @@ def trace_direction(incident, normal, n_from, n_to):
 
 @dataclass(frozen=True)
 class TraceResult:
-    incident_hit: Hit
-    exit_hit: Hit
+    incident_hit: Hit | None
+    exit_hit: Hit | None
     incident_ray: Ray
-    internal_ray: Ray
-    outgoing_ray: Ray
+    internal_ray: Ray | None
+    outgoing_ray: Ray | None
 
 class RefractiveElement:
     def __init__(self, schema: str, orientation=np.array([0, 0, 1]), position=None):
@@ -86,7 +86,7 @@ class RefractiveElement:
             aperture=entry.get("aperture")
         )
 
-    def trace(self, ray) -> TraceResult | None:
+    def trace(self, ray) -> TraceResult:
         hit1 = self.surface1.intersect(ray)
 
         if hit1 is None:

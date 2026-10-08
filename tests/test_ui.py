@@ -8,7 +8,7 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtWidgets
 
-import visualize
+import rendering.visualize as visualize
 from ui.app import OpticsMainWindow, make_display
 
 

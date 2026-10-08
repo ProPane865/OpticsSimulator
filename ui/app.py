@@ -5,7 +5,7 @@ from PySide6.QtUiTools import QUiLoader
 
 from vispy import app as vispy_app
 
-import visualize
+import rendering.visualize as visualize
 
 UI_PATH = Path(__file__).resolve().parent / "main.ui"
 

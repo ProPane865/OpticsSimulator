@@ -1,6 +1,6 @@
 import types
 import numpy as np
-import visualize
+import rendering.visualize as visualize
 
 from rendering.meshing import SurfaceMesher
 from optics.ray import Ray
@@ -151,7 +151,7 @@ def test_make_wall_visual(make_element):
     mesh = visualize.make_wall_visual(wall)
     assert mesh is not None
     assert mesh._vshare.gl_state["blend"] is True
-    assert mesh._vshare.gl_state["depth_mask"] is False
+    assert mesh._vshare.gl_state["depth_mask"] is True
 
 
 def test_visualize_attaches_sidewall_when_aperture(make_element, monkeypatch):

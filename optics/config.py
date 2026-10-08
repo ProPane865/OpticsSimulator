@@ -51,3 +51,7 @@ def refractive_element_from_json(
         orientation=orientation,
         position=position,
     )
+
+
+def stack_from_config(stack_config):
+    return [refractive_element_from_config(entry) for entry in stack_config.values()]

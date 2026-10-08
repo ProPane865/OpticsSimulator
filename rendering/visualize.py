@@ -8,7 +8,7 @@ from vispy.scene import visuals
 from rendering.meshing import SurfaceMesher
 from optics.ray import Ray
 from optics.refraction import RefractiveElement
-from optics.config import refractive_element_from_config
+from optics.config import refractive_element_from_config, stack_from_config
 
 SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
 SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.25)
@@ -202,6 +202,13 @@ def build_scene(view, elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), 
     return element_list
 
 
+def clear_scene(view):
+    camera = view.camera
+    for node in list(view.scene.children):
+        if node is not camera:
+            node.parent = None
+
+
 def visualize(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=3.0, show=True):
     canvas = create_canvas()
     view = canvas.central_widget.add_view(camera="turntable")
@@ -216,7 +223,7 @@ def default_stack():
     schema_path = Path(__file__).resolve().parent.parent / "tests" / "test_stack.json"
     with open(schema_path, "r") as f:
         stack = json.load(f)
-    return [refractive_element_from_config(entry) for entry in stack.values()]
+    return stack_from_config(stack)
 
 
 def default_rays():

@@ -26,6 +26,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def _load_ui(self):
         loaded = QUiLoader().load(str(UI_PATH))
+        self._ui = loaded
         self.setWindowTitle(loaded.windowTitle())
         self.setCentralWidget(loaded.centralWidget())
         self.setMenuWidget(loaded.menuWidget())

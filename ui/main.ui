@@ -14,8 +14,8 @@
    <string>OpticsSimulator</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QGridLayout" name="gridLayout">
-    <item row="0" column="0">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <item>
      <widget class="QWidget" name="openGLWidget" native="true"/>
     </item>
    </layout>
@@ -33,10 +33,16 @@
     <property name="title">
      <string>File</string>
     </property>
+    <addaction name="actionOpen"/>
    </widget>
    <addaction name="menuFile"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionOpen">
+   <property name="text">
+    <string>Open</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>

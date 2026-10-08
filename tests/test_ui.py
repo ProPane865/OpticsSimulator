@@ -39,6 +39,17 @@ def test_canvas_embedded_in_opengl_widget(qt_app, make_element):
     window.close()
 
 
+def test_file_menu_is_populated(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    menu_bar = window.findChild(QtWidgets.QMenuBar, "menubar")
+    assert menu_bar is not None
+    file_menu = menu_bar.findChild(QtWidgets.QMenu, "menuFile")
+    assert file_menu is not None
+    assert not file_menu.isEmpty()
+    assert any(a.objectName() == "actionOpen" for a in file_menu.actions())
+    window.close()
+
+
 def test_window_shows_with_scene(qt_app, make_element):
     elem = make_element("sqrt(1 - (x**2) - (y**2))", "0")
     canvas = make_display([elem], visualize.default_rays())

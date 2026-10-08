@@ -213,7 +213,7 @@ def visualize(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_leng
 
 
 def default_stack():
-    schema_path = Path(__file__).resolve().parent / "tests" / "test_stack.json"
+    schema_path = Path(__file__).resolve().parent.parent / "tests" / "test_stack.json"
     with open(schema_path, "r") as f:
         stack = json.load(f)
     return [refractive_element_from_config(entry) for entry in stack.values()]

@@ -40,7 +40,7 @@ def make_surface_visual(surface, color=SURFACE1_COLOR, **mesh_kwargs):
     mesh.set_gl_state(
         blend=True,
         depth_test=True,
-        depth_mask=False,
+        depth_mask=True,
         blend_func=("src_alpha", "one_minus_src_alpha")
     )
     
@@ -54,7 +54,7 @@ def make_wall_visual(sidewall, color=SIDEWALL_COLOR):
     mesh.set_gl_state(
         blend=True,
         depth_test=True,
-        depth_mask=False,
+        depth_mask=True,
         blend_func=("src_alpha", "one_minus_src_alpha")
     )
 

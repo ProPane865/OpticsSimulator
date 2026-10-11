@@ -35,7 +35,14 @@
     </property>
     <addaction name="actionOpen"/>
    </widget>
+   <widget class="QMenu" name="menuNew">
+    <property name="title">
+     <string>New</string>
+    </property>
+    <addaction name="actionOptical_Element"/>
+   </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuNew"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <widget class="QDockWidget" name="dockWidget">
@@ -133,6 +140,11 @@
   <action name="actionOpen">
    <property name="text">
     <string>Open</string>
+   </property>
+  </action>
+  <action name="actionOptical_Element">
+   <property name="text">
+    <string>Optical Element</string>
    </property>
   </action>
  </widget>

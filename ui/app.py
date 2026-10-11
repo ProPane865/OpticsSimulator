@@ -12,6 +12,26 @@ from optics.config import refractive_element_from_config, stack_from_config
 
 UI_PATH = Path(__file__).resolve().parent / "main.ui"
 
+DEFAULT_ELEMENT_CONFIG = {
+    "surface1": {
+        "x": "u",
+        "y": "v",
+        "z": "-0.25",
+        "u_range": [-2.0, 2.0],
+        "v_range": [-2.0, 2.0],
+        "aperture": {"radius": 0.75},
+    },
+    "surface2": {
+        "x": "u",
+        "y": "v",
+        "z": "0.25",
+        "u_range": [-2.0, 2.0],
+        "v_range": [-2.0, 2.0],
+        "aperture": {"radius": 0.75},
+    },
+    "material": {"refractive_index": 1.5},
+}
+
 
 def make_display(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=6.0):
     canvas = visualize.create_canvas()
@@ -57,6 +77,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         open_action = self._ui.findChild(QtGui.QAction, "actionOpen")
         if open_action is not None:
             open_action.triggered.connect(self._on_open)
+        new_element_action = self._ui.findChild(QtGui.QAction, "actionOptical_Element")
+        if new_element_action is not None:
+            new_element_action.triggered.connect(self._on_new_element)
 
     def _connect_property_editor(self):
         self._lens_selector = self.findChild(QtWidgets.QComboBox, "lensSelector")
@@ -170,6 +193,38 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._populate_lens_selector()
         self.statusBar().showMessage(f"Loaded {len(elements)} element(s) from {path.name}")
         return elements
+
+    def _new_element_name(self):
+        index = 1
+        while f"lens{index}" in self._schema:
+            index += 1
+        return f"lens{index}"
+
+    def _on_new_element(self):
+        if self._schema is None:
+            self._schema = {}
+        name = self._new_element_name()
+        config = copy.deepcopy(DEFAULT_ELEMENT_CONFIG)
+        try:
+            element = refractive_element_from_config(config)
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Element Properties",
+                f"Could not add optical element:\n{exc}",
+            )
+            return
+
+        self._schema[name] = config
+        self._elements.append(element)
+
+        visualize.clear_scene(self._view)
+        visualize.build_scene(self._view, self._elements, self._rays, ray_length=6.0)
+
+        self._populate_lens_selector()
+        self._lens_selector.setCurrentText(name)
+        self._populate_properties()
+        self.statusBar().showMessage(f"Added {name}")
 
     def _on_open(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(

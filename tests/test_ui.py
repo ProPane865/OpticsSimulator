@@ -224,3 +224,86 @@ def test_invalid_expression_warns_and_keeps_scene(qt_app, repo_root, monkeypatch
     assert window.elements[0].surface1.z_expr == sp.parse_expr("-1 + sqrt(9 - (u**2) - (v**2))")
     assert "Updated properties" not in window.statusBar().currentMessage()
     window.close()
+
+
+def _trigger_new_element(window):
+    menu = window.findChild(QtWidgets.QMenu, "menuNew")
+    assert menu is not None
+    matches = [a for a in menu.actions() if a.objectName() == "actionOptical_Element"]
+    assert matches, "actionOptical_Element missing from New menu"
+    matches[0].trigger()
+
+
+def test_new_element_action_adds_to_stack(qt_app, repo_root):
+    canvas = make_display([], [])
+    window = OpticsMainWindow(canvas)
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    meshes_before = _mesh_count(canvas.view)
+
+    _trigger_new_element(window)
+
+    assert len(window.elements) == 3
+    editor = _editor(window)
+    items = [editor["selector"].itemText(i) for i in range(editor["selector"].count())]
+    assert items == ["lens1", "lens2", "lens3"]
+    assert editor["selector"].currentText() == "lens3"
+    assert editor["selector"].isEnabled()
+    assert _mesh_count(canvas.view) > meshes_before
+    assert "Added lens3" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_new_element_on_empty_stack(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_new_element(window)
+
+    assert len(window.elements) == 1
+    editor = _editor(window)
+    assert editor["selector"].currentText() == "lens1"
+    assert editor["selector"].isEnabled()
+    assert "Added lens1" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_new_element_names_increment(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_new_element(window)
+    _trigger_new_element(window)
+
+    assert len(window.elements) == 2
+    items = [_editor(window)["selector"].itemText(i) for i in range(_editor(window)["selector"].count())]
+    assert items == ["lens1", "lens2"]
+    window.close()
+
+
+def test_new_element_default_geometry(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_new_element(window)
+
+    element = window.elements[-1]
+    assert float(element.surface2.z_expr - element.surface1.z_expr) == pytest.approx(0.5)
+    assert element.material.refractive_index == pytest.approx(1.5)
+    assert element.surface1.aperture.radius == pytest.approx(0.75)
+    assert element.surface2.aperture.radius == pytest.approx(0.75)
+
+    editor = _editor(window)
+    assert editor["index"].value() == pytest.approx(1.5)
+    assert editor["radius"].value() == pytest.approx(0.75)
+    assert editor["s1"].text() == "-0.25"
+    assert editor["s2"].text() == "0.25"
+    window.close()
+
+
+def test_ok_applies_to_new_element(qt_app, repo_root):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _trigger_new_element(window)
+
+    editor = _editor(window)
+    editor["index"].setValue(1.9)
+    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert window.elements[-1].material.refractive_index == pytest.approx(1.9)
+    assert window.elements[0].material.refractive_index == pytest.approx(1.5)
+    assert "Updated properties for lens3" in window.statusBar().currentMessage()
+    window.close()

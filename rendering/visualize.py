@@ -122,7 +122,7 @@ def make_measurement_plane_visual(plane):
     mesh.set_gl_state(
         blend=True,
         depth_test=True,
-        depth_mask=False,
+        depth_mask=True,
         blend_func=("src_alpha", "one_minus_src_alpha"),
     )
     return mesh

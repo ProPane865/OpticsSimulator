@@ -163,8 +163,6 @@ class MeasurementPlane:
 
         return total
 
-
-
     def irradiance(self):
         """Power per unit true plane area for each bin."""
         area = self.bin_area / abs(self.n[2])

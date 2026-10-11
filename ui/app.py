@@ -67,7 +67,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(loaded.statusBar())
         dock = loaded.findChild(QtWidgets.QDockWidget, "dockWidget")
         if dock is not None:
-            self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, dock)
+            self.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
 
     def _embed_canvas(self):
         container = self.findChild(QtWidgets.QWidget, "openGLWidget")

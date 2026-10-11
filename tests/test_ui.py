@@ -567,7 +567,7 @@ def test_measurement_plane_action_adds_plane(qt_app, repo_root):
 
     assert len(window.planes) == 1
     assert _mesh_count(canvas.view) == meshes_before + 1
-    assert "Added measurement plane" in window.statusBar().currentMessage()
+    assert "Added plane1" in window.statusBar().currentMessage()
     window.close()
 
 
@@ -608,4 +608,151 @@ def test_measurement_plane_remeasures_on_source_change(qt_app, repo_root):
     assert len(window.planes) == 1
     assert plane.grid.shape == (64, 64)
     assert plane.grid.sum() >= 0.0
+    window.close()
+
+
+def _plane_editor(window):
+    return {
+        "selector": window.findChild(QtWidgets.QComboBox, "comboBox_2"),
+        "remove": window.findChild(QtWidgets.QPushButton, "pushButton"),
+        "pos": [
+            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_5"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_6"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_7"),
+        ],
+        "normal": [
+            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_8"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_9"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_10"),
+        ],
+        "buttons": window.findChild(QtWidgets.QDialogButtonBox, "buttonBox_2"),
+    }
+
+
+def _click_plane(window, role):
+    _plane_editor(window)["buttons"].button(role).click()
+
+
+def test_plane_editor_disabled_without_planes(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    editor = _plane_editor(window)
+    assert not editor["selector"].isEnabled()
+    assert not editor["remove"].isEnabled()
+    assert not editor["buttons"].isEnabled()
+    window.close()
+
+
+def test_add_plane_populates_selector_and_fields(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    assert editor["selector"].isEnabled()
+    assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane1"]
+    assert editor["pos"][2].value() == pytest.approx(-3.0)
+    assert editor["normal"][2].value() == pytest.approx(1.0)
+    window.close()
+
+
+def test_plane_ok_applies_position(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["pos"][2].setValue(-5.0)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert window.planes[0].o[2] == pytest.approx(-5.0)
+    assert "Updated properties for plane1" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_plane_ok_applies_normal(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["normal"][2].setValue(0.5)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert window.planes[0].n[2] == pytest.approx(1.0)
+    window.close()
+
+
+def test_plane_invalid_normal_warns_and_keeps(qt_app, monkeypatch):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+
+    warnings = []
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: warnings.append(args)),
+    )
+
+    editor = _plane_editor(window)
+    editor["normal"][0].setValue(1.0)
+    editor["normal"][2].setValue(0.0)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert warnings, "expected a warning for an invalid plane normal"
+    np.testing.assert_allclose(window.planes[0].n, [0.0, 0.0, 1.0], atol=1e-9)
+    assert "Updated properties" not in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_plane_cancel_reverts_edits(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    original = editor["pos"][2].value()
+    editor["pos"][2].setValue(original - 2.0)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+
+    assert editor["pos"][2].value() == pytest.approx(original)
+    assert window.planes[0].o[2] == pytest.approx(original)
+    window.close()
+
+
+def test_plane_selector_switches_fields(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane1", "plane2"]
+    editor["selector"].setCurrentText("plane1")
+    assert editor["pos"][2].value() == pytest.approx(-3.0)
+    editor["selector"].setCurrentText("plane2")
+    assert editor["pos"][2].value() == pytest.approx(-4.0)
+    window.close()
+
+
+def test_remove_plane_button(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["remove"].click()
+
+    assert len(window.planes) == 0
+    assert editor["selector"].count() == 0
+    assert not editor["selector"].isEnabled()
+    assert "Removed plane1" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_remove_selected_plane_keeps_others(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["selector"].setCurrentText("plane1")
+    editor["remove"].click()
+
+    assert len(window.planes) == 1
+    assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane2"]
+    assert window.planes[0].o[2] == pytest.approx(-4.0)
     window.close()

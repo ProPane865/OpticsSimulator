@@ -84,11 +84,13 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._ray_nodes = []
         self._planes = []
         self._plane_nodes = []
+        self._plane_names = []
         self._load_ui()
         self._embed_canvas()
         self._connect_actions()
         self._connect_property_editor()
         self._connect_source_editor()
+        self._connect_plane_editor()
         self._refresh_source()
 
     def _load_ui(self):
@@ -311,6 +313,112 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         visualize.remove_nodes(self._source_nodes)
         self._source_nodes = visualize.build_source_nodes(self._view, self._source)
 
+    def _connect_plane_editor(self):
+        self._plane_selector = self.findChild(QtWidgets.QComboBox, "comboBox_2")
+        self._plane_remove_button = self.findChild(QtWidgets.QPushButton, "pushButton")
+        self._plane_pos_spins = (
+            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_5"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_6"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_7"),
+        )
+        self._plane_normal_spins = (
+            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_8"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_9"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_10"),
+        )
+        self._plane_button_box = self.findChild(QtWidgets.QDialogButtonBox, "buttonBox_2")
+
+        for spin in self._plane_pos_spins:
+            spin.setRange(-100.0, 100.0)
+            spin.setSingleStep(0.1)
+        for spin in self._plane_normal_spins:
+            spin.setRange(-1.0, 1.0)
+            spin.setSingleStep(0.1)
+            spin.setDecimals(3)
+
+        self._plane_selector.currentIndexChanged.connect(self._populate_plane_properties)
+        self._plane_remove_button.clicked.connect(self._remove_plane)
+        self._plane_button_box.accepted.connect(self._apply_plane_properties)
+        self._plane_button_box.rejected.connect(self._populate_plane_properties)
+        self._set_plane_editor_enabled(False)
+
+    def _plane_editor_widgets(self):
+        return (
+            self._plane_selector,
+            self._plane_remove_button,
+            *self._plane_pos_spins,
+            *self._plane_normal_spins,
+            self._plane_button_box,
+        )
+
+    def _set_plane_editor_enabled(self, enabled):
+        for widget in self._plane_editor_widgets():
+            widget.setEnabled(enabled)
+
+    def _new_plane_name(self):
+        index = 1
+        while f"plane{index}" in self._plane_names:
+            index += 1
+        return f"plane{index}"
+
+    def _populate_plane_selector(self):
+        self._plane_selector.blockSignals(True)
+        self._plane_selector.clear()
+        self._plane_selector.addItems(self._plane_names)
+        self._plane_selector.blockSignals(False)
+        has_planes = self._plane_selector.count() > 0
+        self._set_plane_editor_enabled(has_planes)
+        if has_planes:
+            self._populate_plane_properties()
+
+    def _populate_plane_properties(self, *_):
+        index = self._plane_selector.currentIndex()
+        if index < 0 or index >= len(self._planes):
+            return
+        plane = self._planes[index]
+        for spin, value in zip(self._plane_pos_spins, plane.o):
+            spin.setValue(float(value))
+        for spin, value in zip(self._plane_normal_spins, plane.n):
+            spin.setValue(float(value))
+
+    def _apply_plane_properties(self):
+        index = self._plane_selector.currentIndex()
+        if index < 0 or index >= len(self._planes):
+            return
+        plane = self._planes[index]
+        try:
+            updated = MeasurementPlane(
+                origin=np.array([spin.value() for spin in self._plane_pos_spins]),
+                normal=np.array([spin.value() for spin in self._plane_normal_spins]),
+                u_range=(plane.u_min, plane.u_max),
+                v_range=(plane.v_min, plane.v_max),
+                resolution=(plane.ru, plane.rv),
+            )
+            updated.measure(self._rays, self._elements)
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Measurement Plane Properties",
+                f"Could not apply measurement plane properties:\n{exc}",
+            )
+            return
+
+        visualize.remove_nodes(self._plane_nodes[index])
+        self._planes[index] = updated
+        self._plane_nodes[index] = visualize.build_measurement_nodes(self._view, updated)
+        self.statusBar().showMessage(f"Updated properties for {self._plane_names[index]}")
+
+    def _remove_plane(self):
+        index = self._plane_selector.currentIndex()
+        if index < 0 or index >= len(self._planes):
+            return
+        name = self._plane_names[index]
+        visualize.remove_nodes(self._plane_nodes.pop(index))
+        self._planes.pop(index)
+        self._plane_names.pop(index)
+        self._populate_plane_selector()
+        self.statusBar().showMessage(f"Removed {name}")
+
     @property
     def canvas(self):
         return self._canvas
@@ -409,14 +517,18 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             )
             return
 
+        name = self._new_plane_name()
         plane.measure(self._rays, self._elements)
         self._planes.append(plane)
+        self._plane_names.append(name)
         self._plane_nodes.append(
             visualize.build_measurement_nodes(self._view, plane)
         )
-        self.statusBar().showMessage(
-            f"Added measurement plane ({len(self._planes)} total)"
-        )
+
+        self._populate_plane_selector()
+        self._plane_selector.setCurrentText(name)
+        self._populate_plane_properties()
+        self.statusBar().showMessage(f"Added {name}")
 
     def _on_open(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(

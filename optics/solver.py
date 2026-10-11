@@ -6,6 +6,7 @@ from .hit import Hit
 class SurfaceSolver:
     def __init__(self, surface):
         self.surface = surface
+        self._grid_cache = {}
 
     def parameters_at(self, pos):
         p = self.surface.transform.point_to_local(np.asarray(pos, dtype=float))
@@ -17,45 +18,36 @@ class SurfaceSolver:
             puv = self.surface.evaluate_local(u0, v0)
             if np.all(np.isfinite(puv)) and float(np.linalg.norm(puv - p)) < 1e-8:
                 return u0, v0
-        (u_min, u_max), (v_min, v_max) = self.surface.parameter_range
-
-        us = np.linspace(u_min, u_max, 64)
-        vs = np.linspace(v_min, v_max, 64)
-        U, V = np.meshgrid(us, vs)
-        pts = self.surface.evaluate_local(U, V).reshape(-1, 3)
+        grid = self._seed_grid()
+        pts = grid["pts"]
         dist = np.linalg.norm(pts - p, axis=1)
-        valid = self._grid_mask(U, V, pts) & np.isfinite(dist)
+        valid = grid["valid"] & np.isfinite(dist)
         if not valid.any():
             return None
         idx = int(np.argmin(np.where(valid, dist, np.inf)))
-        u = float(U.ravel()[idx])
-        v = float(V.ravel()[idx])
+        u = float(grid["Uf"][idx])
+        v = float(grid["Vf"][idx])
         return self._solve_parameters_point(p, u, v)
 
     def parameters_at_xy(self, x, y):
         x = float(x)
         y = float(y)
 
-        (u_min, u_max), (v_min, v_max) = self.surface.parameter_range
-
-        us = np.linspace(u_min, u_max, 64)
-        vs = np.linspace(v_min, v_max, 64)
-
-        U, V = np.meshgrid(us, vs)
-        pts = self.surface.evaluate_local(U, V)
-
-        finite = np.all(np.isfinite(pts), axis=-1)
+        grid = self._seed_grid()
+        pts = grid["pts"]
+        finite = grid["finite"]
 
         if not finite.any():
             return None
 
-        distance2 = np.where(finite, ((pts[..., 0] - x)**2 + (pts[..., 1] - y)**2), np.inf)
-        order = np.argsort(distance2.ravel())
+        distance2 = np.where(finite, ((pts[:, 0] - x)**2 + (pts[:, 1] - y)**2), np.inf)
+        order = np.argsort(distance2)
+
+        Uf = grid["Uf"]
+        Vf = grid["Vf"]
 
         for idx in order[:12]:
-            i, j = np.unravel_index(idx, U.shape)
-
-            result = self._solve_parameters_xy(x, y, float(U[i, j]), float(V[i, j]))
+            result = self._solve_parameters_xy(x, y, float(Uf[idx]), float(Vf[idx]))
 
             if result is not None:
                 return result
@@ -201,26 +193,75 @@ class SurfaceSolver:
 
         return None
 
+    def _domain_mask(self, uf, vf):
+        s = self.surface
+        tu = 1e-9 * max(1.0, abs(s.u_range[1] - s.u_range[0]))
+        tv = 1e-9 * max(1.0, abs(s.v_range[1] - s.v_range[0]))
+        return (
+            (uf >= s.u_range[0] - tu)
+            & (uf <= s.u_range[1] + tu)
+            & (vf >= s.v_range[0] - tv)
+            & (vf <= s.v_range[1] + tv)
+        )
+
+    def _aperture_mask(self, uf, vf, pts):
+        s = self.surface
+        try:
+            return np.asarray(
+                s.aperture.mask(s, uf, vf, pts[:, 0], pts[:, 1], pts[:, 2]),
+                dtype=bool,
+            )
+        except NotImplementedError:
+            return np.array(
+                [bool(s.aperture.contains(s, u, v)) for u, v in zip(uf, vf)],
+                dtype=bool,
+            )
+
     def _grid_mask(self, U, V, pts):
         finite = np.all(np.isfinite(pts), axis=1)
-        domain = np.array([
-            bool(self.surface.accepts_parameters(u, v))
-            for u, v in zip(U.ravel(), V.ravel())
-        ])
-        return finite & domain
+        uf = U.ravel()
+        vf = V.ravel()
+        mask = finite & self._domain_mask(uf, vf)
+        if self.surface.aperture is not None:
+            mask = mask & self._aperture_mask(uf, vf, pts)
+        return mask
 
-    def _intersection_seeds(self, ray, grid_n=64, seed_tol=0.75, max_seeds=12):
-        (u_min, u_max), (v_min, v_max) = self.surface.parameter_range
+    def _seed_grid(self, grid_n=64):
+        entry = self._grid_cache.get(grid_n)
+        if entry is not None:
+            return entry
+        s = self.surface
+        (u_min, u_max), (v_min, v_max) = s.parameter_range
         us = np.linspace(u_min, u_max, grid_n)
         vs = np.linspace(v_min, v_max, grid_n)
         U, V = np.meshgrid(us, vs)
-        pts = self.surface.evaluate_local(U, V).reshape(-1, 3)
-        valid_flat = self._grid_mask(U, V, pts)
-        if not valid_flat.any():
+        Uf = U.ravel()
+        Vf = V.ravel()
+        pts = s.evaluate_local(U, V).reshape(-1, 3)
+        finite = np.all(np.isfinite(pts), axis=1)
+        valid = self._grid_mask(U, V, pts)
+        entry = {
+            "Uf": Uf,
+            "Vf": Vf,
+            "pts": pts,
+            "finite": finite,
+            "valid": valid,
+            "Uf_valid": Uf[valid],
+            "Vf_valid": Vf[valid],
+            "P_world": (
+                s.transform.points_to_world(pts[valid])
+                if valid.any()
+                else np.empty((0, 3), dtype=float)
+            ),
+        }
+        self._grid_cache[grid_n] = entry
+        return entry
+
+    def _intersection_seeds(self, ray, grid_n=64, seed_tol=0.75, max_seeds=12):
+        grid = self._seed_grid(grid_n)
+        if not grid["valid"].any():
             return []
-        Uf = U.ravel()[valid_flat]
-        Vf = V.ravel()[valid_flat]
-        P = self.surface.transform.points_to_world(pts[valid_flat])
+        P = grid["P_world"]
         rel = P - ray.origin
         t = rel @ ray.direction
         forward = t > 0.0
@@ -235,6 +276,8 @@ class SurfaceSolver:
                 return []
         indices = np.where(mask)[0]
         order = indices[np.argsort(residual[indices])]
+        Uf = grid["Uf_valid"]
+        Vf = grid["Vf_valid"]
         return [
             (float(Uf[idx]), float(Vf[idx]), float(t[idx]))
             for idx in order[:max_seeds]

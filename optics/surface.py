@@ -91,13 +91,22 @@ class Surface:
 
     def evaluate_local(self, U, V):
         """Local-space point (can be array)."""
-        U, V = np.broadcast_arrays(U, V)
-        shape = U.shape
+        U = np.asarray(U, dtype=float)
+        V = np.asarray(V, dtype=float)
         with np.errstate(invalid="ignore", divide="ignore"):
+            if U.ndim == 0 and V.ndim == 0:
+                u = float(U)
+                v = float(V)
+                return np.array(
+                    [self._x(u, v), self._y(u, v), self._z(u, v)],
+                    dtype=float,
+                )
+            U, V = np.broadcast_arrays(U, V)
+            shape = U.shape
             X = np.asarray(self._x(U, V), dtype=float)
             Y = np.asarray(self._y(U, V), dtype=float)
             Z = np.asarray(self._z(U, V), dtype=float)
-        
+
         X = np.broadcast_to(X, shape)
         Y = np.broadcast_to(Y, shape)
         Z = np.broadcast_to(Z, shape)

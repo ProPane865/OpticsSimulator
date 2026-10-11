@@ -54,7 +54,7 @@ class CircularAperture(Aperture):
 
         return (
             finite
-            & (dx ** 2 + dy ** 2 <= self.radius ** 2)
+            & (dx ** 2 + dy ** 2 <= self.radius ** 2 + 1e-12)
         )
 
     def boundary(self, surface, n=128):

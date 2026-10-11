@@ -51,6 +51,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._rays = rays if rays is not None else visualize.default_rays()
         self._schema = None
         self._elements = []
+        self._element_nodes = []
+        self._ray_nodes = []
         self._load_ui()
         self._embed_canvas()
         self._connect_actions()
@@ -168,11 +170,21 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             return
 
         self._schema[name] = config
-        self._elements[list(self._schema.keys()).index(name)] = element
+        index = list(self._schema.keys()).index(name)
+        self._elements[index] = element
 
-        visualize.clear_scene(self._view)
-        visualize.build_scene(self._view, self._elements, self._rays, ray_length=6.0)
+        visualize.remove_nodes(self._element_nodes[index])
+        self._element_nodes[index] = visualize.build_element_nodes(self._view, element)
+        self._retrace_rays()
         self.statusBar().showMessage(f"Updated properties for {name}")
+
+    def _retrace_rays(self):
+        visualize.remove_nodes(self._ray_nodes)
+        self._ray_nodes = []
+        for ray in self._rays:
+            nodes = visualize.draw_ray(self._view, self._elements, ray, ray_length=6.0)
+            if nodes:
+                self._ray_nodes.extend(nodes)
 
     @property
     def canvas(self):
@@ -191,7 +203,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         elements = self._elements
 
         visualize.clear_scene(self._view)
-        visualize.build_scene(self._view, elements, self._rays, ray_length=6.0)
+        _, self._element_nodes, self._ray_nodes = visualize.build_scene(
+            self._view, elements, self._rays, ray_length=6.0
+        )
 
         self._populate_lens_selector()
         self.statusBar().showMessage(f"Loaded {len(elements)} element(s) from {path.name}")
@@ -229,9 +243,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
         self._schema[name] = config
         self._elements.append(element)
-
-        visualize.clear_scene(self._view)
-        visualize.build_scene(self._view, self._elements, self._rays, ray_length=6.0)
+        self._element_nodes.append(visualize.build_element_nodes(self._view, element))
+        self._retrace_rays()
 
         self._populate_lens_selector()
         self._lens_selector.setCurrentText(name)

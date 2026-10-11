@@ -123,16 +123,19 @@ def _add_axes(view, length=2.0, width=2):
 
 
 def draw_ray_stack(view, elements, ray, ray_length=3.0):
+    nodes = []
     origin = np.asarray(ray.origin, dtype=float)
     direction = np.asarray(ray.direction, dtype=float)
     if not (np.all(np.isfinite(origin)) and np.all(np.isfinite(direction))):
-        return
+        return nodes
 
     current = ray
     start = origin
     if not elements:
-        _add_segment(view, start, start + ray_length * direction, INCIDENT_COLOR)
-        return
+        segment = _add_segment(view, start, start + ray_length * direction, INCIDENT_COLOR)
+        if segment is not None:
+            nodes.append(segment)
+        return nodes
 
     for index, element in enumerate(elements):
         trace = element.trace(current)
@@ -141,30 +144,39 @@ def draw_ray_stack(view, elements, ray, ray_length=3.0):
         if trace.incident_hit is None:
             miss_dir = np.asarray(current.direction, dtype=float)
             if np.all(np.isfinite(miss_dir)):
-                _add_segment(view, start, start + ray_length * miss_dir, segment_color)
-            return
+                segment = _add_segment(view, start, start + ray_length * miss_dir, segment_color)
+                if segment is not None:
+                    nodes.append(segment)
+            return nodes
 
         p1 = trace.incident_hit.point
         out = trace.outgoing_ray
-        _add_segment(view, start, p1, segment_color)
-        _add_marker(view, p1, segment_color)
+        segment = _add_segment(view, start, p1, segment_color)
+        if segment is not None:
+            nodes.append(segment)
+        nodes.append(_add_marker(view, p1, segment_color))
         if out is None or out.origin is None or not np.all(np.isfinite(out.origin)):
-            return
+            return nodes
         p2 = np.asarray(out.origin, dtype=float)
-        _add_segment(view, p1, p2, INTERNAL_COLOR)
-        _add_marker(view, p2, EXIT_COLOR)
+        segment = _add_segment(view, p1, p2, INTERNAL_COLOR)
+        if segment is not None:
+            nodes.append(segment)
+        nodes.append(_add_marker(view, p2, EXIT_COLOR))
         start = p2
         current = out
 
     exit_dir = np.asarray(current.direction, dtype=float)
     if np.all(np.isfinite(exit_dir)):
-        _add_segment(view, start, start + ray_length * exit_dir, EXIT_COLOR)
+        segment = _add_segment(view, start, start + ray_length * exit_dir, EXIT_COLOR)
+        if segment is not None:
+            nodes.append(segment)
+    return nodes
 
 
 def draw_ray(view, elements, ray, ray_length=3.0):
     if isinstance(elements, RefractiveElement):
         elements = [elements]
-    draw_ray_stack(view, list(elements), ray, ray_length=ray_length)
+    return draw_ray_stack(view, list(elements), ray, ray_length=ray_length)
 
 
 def create_canvas(width=900, height=700):
@@ -177,6 +189,23 @@ def create_canvas(width=900, height=700):
     )
 
 
+def build_element_nodes(view, element):
+    nodes = []
+    nodes.append(_attach(view, make_surface_visual(element.surface1, SURFACE1_COLOR)))
+    nodes.append(_attach(view, make_surface_visual(element.surface2, SURFACE2_COLOR)))
+
+    sidewall = getattr(element, "sidewall", None)
+    if sidewall is not None:
+        nodes.append(_attach(view, make_wall_visual(sidewall, SIDEWALL_COLOR)))
+    return nodes
+
+
+def remove_nodes(nodes):
+    for node in nodes:
+        if node is not None:
+            node.parent = None
+
+
 def build_scene(view, elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=3.0):
     if isinstance(elements, RefractiveElement):
         element_list = [elements]
@@ -185,21 +214,20 @@ def build_scene(view, elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), 
 
     axis_len = max(abs(x_range[0]), abs(x_range[1]), abs(y_range[0]), abs(y_range[1]))
     _add_axes(view, length=axis_len)
+    element_nodes = []
     for element in element_list:
-        _attach(view, make_surface_visual(element.surface1, SURFACE1_COLOR))
-        _attach(view, make_surface_visual(element.surface2, SURFACE2_COLOR))
-
-        sidewall = getattr(element, "sidewall", None)
-        if sidewall is not None:
-            _attach(view, make_wall_visual(sidewall, SIDEWALL_COLOR))
+        element_nodes.append(build_element_nodes(view, element))
 
     if isinstance(rays, (list, tuple)):
         ray_list = list(rays)
     else:
         ray_list = [rays]
+    ray_nodes = []
     for ray in ray_list:
-        draw_ray(view, element_list, ray, ray_length=ray_length)
-    return element_list
+        nodes = draw_ray(view, element_list, ray, ray_length=ray_length)
+        if nodes:
+            ray_nodes.extend(nodes)
+    return element_list, element_nodes, ray_nodes
 
 
 def clear_scene(view):

@@ -29,9 +29,14 @@ class SurfaceSolver:
         v = float(grid["Vf"][idx])
         return self._solve_parameters_point(p, u, v)
 
-    def parameters_at_xy(self, x, y):
+    def parameters_at_xy(self, x, y, seed=None):
         x = float(x)
         y = float(y)
+
+        if seed is not None:
+            result = self._solve_parameters_xy(x, y, float(seed[0]), float(seed[1]))
+            if result is not None:
+                return result
 
         grid = self._seed_grid()
         pts = grid["pts"]
@@ -41,12 +46,14 @@ class SurfaceSolver:
             return None
 
         distance2 = np.where(finite, ((pts[:, 0] - x)**2 + (pts[:, 1] - y)**2), np.inf)
-        order = np.argsort(distance2)
+        k = min(12, distance2.size)
+        order = np.argpartition(distance2, k - 1)[:k]
+        order = order[np.argsort(distance2[order])]
 
         Uf = grid["Uf"]
         Vf = grid["Vf"]
 
-        for idx in order[:12]:
+        for idx in order:
             result = self._solve_parameters_xy(x, y, float(Uf[idx]), float(Vf[idx]))
 
             if result is not None:

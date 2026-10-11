@@ -65,14 +65,16 @@ class CircularAperture(Aperture):
         ])
 
         points = []
+        last = None
 
         for x, y in targets:
-            uv = surface.parameters_at_xy(x, y)
+            uv = surface.parameters_at_xy(x, y, seed=last)
 
             if uv is None:
                 raise ValueError(f"Aperture boundary point ({x}, {y}) does not lie on the surface")
 
             u, v = uv
+            last = uv
             p = surface.point(u, v)
 
             if not np.all(np.isfinite(p)):

@@ -1,9 +1,37 @@
+import functools
+
 import numpy as np
 import sympy as sp
 
 from .aperture import Aperture
 from .solver import SurfaceSolver
 from .transform import Transform
+
+@functools.lru_cache(maxsize=64)
+def _compile_parametric_surface(x_src, y_src, z_src):
+    u = sp.symbols("u")
+    v = sp.symbols("v")
+    x_expr = sp.parse_expr(x_src)
+    y_expr = sp.parse_expr(y_src)
+    z_expr = sp.parse_expr(z_src)
+
+    def lam(expr):
+        return sp.lambdify((u, v), expr, modules=["numpy"])
+
+    return (
+        x_expr,
+        y_expr,
+        z_expr,
+        lam(x_expr),
+        lam(y_expr),
+        lam(z_expr),
+        lam(sp.diff(x_expr, u)),
+        lam(sp.diff(y_expr, u)),
+        lam(sp.diff(z_expr, u)),
+        lam(sp.diff(x_expr, v)),
+        lam(sp.diff(y_expr, v)),
+        lam(sp.diff(z_expr, v)),
+    )
 
 class Surface:
     def __init__(
@@ -18,9 +46,20 @@ class Surface:
     ):
         self.u = sp.symbols("u")
         self.v = sp.symbols("v")
-        self.x_expr = sp.parse_expr(str(x_expr))
-        self.y_expr = sp.parse_expr(str(y_expr))
-        self.z_expr = sp.parse_expr(str(z_expr))
+        (
+            self.x_expr,
+            self.y_expr,
+            self.z_expr,
+            self._x,
+            self._y,
+            self._z,
+            self._rx,
+            self._ry,
+            self._rz,
+            self._sx,
+            self._sy,
+            self._sz,
+        ) = _compile_parametric_surface(str(x_expr), str(y_expr), str(z_expr))
         if transform is None:
             self.transform = Transform(np.eye(3, 3), np.zeros(3))
         elif isinstance(transform, Transform):
@@ -61,8 +100,8 @@ class Surface:
     def parameters_at(self, pos):
         return self.solver.parameters_at(pos)
 
-    def parameters_at_xy(self, x, y):
-        return self.solver.parameters_at_xy(x, y)
+    def parameters_at_xy(self, x, y, seed=None):
+        return self.solver.parameters_at_xy(x, y, seed=seed)
 
     def normal_at(self, pos):
         uv = self.parameters_at(pos)

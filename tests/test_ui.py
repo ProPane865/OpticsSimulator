@@ -4,6 +4,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+import numpy as np
 import sympy as sp
 
 PySide6 = pytest.importorskip("PySide6")
@@ -69,11 +70,11 @@ def _mesh_count(view):
 def test_load_stack_rebuilds_scene(qt_app, repo_root):
     canvas = make_display([], [])
     window = OpticsMainWindow(canvas)
-    assert _mesh_count(canvas.view) == 0
+    assert _mesh_count(canvas.view) == 1
 
     elements = window.load_stack(repo_root / "tests" / "test_stack.json")
     assert len(elements) == 2
-    assert _mesh_count(canvas.view) >= 6
+    assert _mesh_count(canvas.view) >= 7
     assert "test_stack.json" in window.statusBar().currentMessage()
     window.close()
 
@@ -402,4 +403,137 @@ def test_save_as_empty_stack_warns(qt_app, tmp_path, monkeypatch):
     assert warnings, "expected a warning dialog when no stack is loaded"
     assert not dialog_calls, "save dialog should not open when no stack is loaded"
     assert not list(tmp_path.iterdir())
+    window.close()
+
+
+def _source_editor(window):
+    return {
+        "type": window.findChild(QtWidgets.QComboBox, "comboBox"),
+        "intensity": window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_3"),
+        "cone": window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_4"),
+        "rays": window.findChild(QtWidgets.QSpinBox, "spinBox"),
+        "x": window.findChild(QtWidgets.QDoubleSpinBox, "sourceX"),
+        "y": window.findChild(QtWidgets.QDoubleSpinBox, "sourceY"),
+        "z": window.findChild(QtWidgets.QDoubleSpinBox, "sourceZ"),
+        "buttons": window.findChild(QtWidgets.QDialogButtonBox, "sourceButtonBox"),
+    }
+
+
+def _click_source(window, role):
+    _source_editor(window)["buttons"].button(role).click()
+
+
+def test_source_editor_enabled_without_stack(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    editor = _source_editor(window)
+    assert editor["type"].isEnabled()
+    assert editor["buttons"].isEnabled()
+    window.close()
+
+
+def test_source_panel_populated_with_defaults(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    editor = _source_editor(window)
+    assert editor["type"].currentText() == "Single Point"
+    assert editor["intensity"].value() == pytest.approx(1.0)
+    assert editor["cone"].value() == pytest.approx(360.0)
+    assert editor["rays"].value() == 64
+    assert editor["z"].value() == pytest.approx(3.0)
+    window.close()
+
+
+def test_point_array_option_disabled(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    combo = _source_editor(window)["type"]
+    item = combo.model().item(combo.findText("Point Array"))
+    assert not item.isEnabled()
+    window.close()
+
+
+def test_source_sphere_drawn_at_startup(qt_app):
+    canvas = make_display([], [])
+    window = OpticsMainWindow(canvas)
+    assert _mesh_count(canvas.view) == 1
+    window.close()
+
+
+def test_source_ok_applies_changes(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    editor = _source_editor(window)
+    editor["rays"].setValue(8)
+    editor["z"].setValue(5.0)
+    editor["intensity"].setValue(2.5)
+    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert window.source.num_rays == 8
+    assert window.source.intensity == pytest.approx(2.5)
+    assert window.source.position[2] == pytest.approx(5.0)
+    assert len(window.rays) == 8
+    assert all(ray.origin[2] == pytest.approx(5.0) for ray in window.rays)
+    assert "Updated light source (8 rays)" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_source_cancel_reverts_edits(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    editor = _source_editor(window)
+    original = editor["rays"].value()
+    editor["rays"].setValue(original + 10)
+    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+
+    assert editor["rays"].value() == original
+    assert window.source.num_rays == original
+    window.close()
+
+
+def test_source_ok_retraces_rays(qt_app, repo_root):
+    canvas = make_display([], [])
+    window = OpticsMainWindow(canvas)
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    editor = _source_editor(window)
+    editor["rays"].setValue(4)
+    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert len(window.rays) == 4
+    assert _mesh_count(canvas.view) >= 7
+    window.close()
+
+
+def test_source_survives_stack_reload(qt_app, repo_root):
+    canvas = make_display([], [])
+    window = OpticsMainWindow(canvas)
+    editor = _source_editor(window)
+    editor["rays"].setValue(6)
+    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    assert window.source.num_rays == 6
+    assert len(window.rays) == 6
+    assert _mesh_count(canvas.view) >= 7
+    window.close()
+
+
+def test_source_cone_angle_applies(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    editor = _source_editor(window)
+    editor["cone"].setValue(90.0)
+    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert window.source.cone_angle == pytest.approx(90.0)
+    assert len(window.rays) == 64
+    cos_half = np.cos(np.deg2rad(45.0))
+    assert all(ray.direction[2] <= -cos_half + 1e-12 for ray in window.rays)
+    window.close()
+
+
+def test_source_cone_angle_cancel_reverts(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    editor = _source_editor(window)
+    editor["cone"].setValue(45.0)
+    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+
+    assert editor["cone"].value() == pytest.approx(360.0)
+    assert window.source.cone_angle == pytest.approx(360.0)
     window.close()

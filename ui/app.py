@@ -2,6 +2,8 @@ import copy
 import json
 from pathlib import Path
 
+import numpy as np
+
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtUiTools import QUiLoader
 
@@ -9,8 +11,23 @@ from vispy import app as vispy_app
 
 import rendering.visualize as visualize
 from optics.config import refractive_element_from_config, stack_from_config
+from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource
 
 UI_PATH = Path(__file__).resolve().parent / "main.ui"
+
+SOURCE_TYPE_BY_LABEL = {
+    "Single Point": SINGLE_POINT,
+    "Point Array": POINT_ARRAY,
+}
+LABEL_BY_SOURCE_TYPE = {value: key for key, value in SOURCE_TYPE_BY_LABEL.items()}
+
+DEFAULT_SOURCE_CONFIG = {
+    "position": [0.0, 0.0, 3.0],
+    "intensity": 1.0,
+    "num_rays": 64,
+    "source_type": SINGLE_POINT,
+    "cone_angle": 360.0,
+}
 
 DEFAULT_ELEMENT_CONFIG = {
     "surface1": {
@@ -48,7 +65,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         super().__init__(parent)
         self._canvas = canvas
         self._view = canvas.view
-        self._rays = rays if rays is not None else visualize.default_rays()
+        self._source = PointSource(**DEFAULT_SOURCE_CONFIG)
+        self._source_nodes = []
+        self._rays = rays if rays is not None else self._source.emit_rays()
         self._schema = None
         self._elements = []
         self._element_nodes = []
@@ -57,6 +76,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._embed_canvas()
         self._connect_actions()
         self._connect_property_editor()
+        self._connect_source_editor()
+        self._refresh_source()
 
     def _load_ui(self):
         loaded = QUiLoader().load(str(UI_PATH))
@@ -186,9 +207,99 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             if nodes:
                 self._ray_nodes.extend(nodes)
 
+    def _connect_source_editor(self):
+        self._source_type_combo = self.findChild(QtWidgets.QComboBox, "comboBox")
+        self._intensity_spin = self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_3")
+        self._cone_angle_spin = self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_4")
+        self._num_rays_spin = self.findChild(QtWidgets.QSpinBox, "spinBox")
+        self._source_x_spin = self.findChild(QtWidgets.QDoubleSpinBox, "sourceX")
+        self._source_y_spin = self.findChild(QtWidgets.QDoubleSpinBox, "sourceY")
+        self._source_z_spin = self.findChild(QtWidgets.QDoubleSpinBox, "sourceZ")
+        self._source_button_box = self.findChild(QtWidgets.QDialogButtonBox, "sourceButtonBox")
+
+        self._intensity_spin.setRange(0.0, 1000.0)
+        self._intensity_spin.setSingleStep(0.1)
+        self._cone_angle_spin.setRange(0.0, 360.0)
+        self._cone_angle_spin.setSingleStep(1.0)
+        self._num_rays_spin.setRange(1, 512)
+        for spin in (self._source_x_spin, self._source_y_spin, self._source_z_spin):
+            spin.setRange(-100.0, 100.0)
+            spin.setSingleStep(0.1)
+
+        point_array_item = self._source_type_combo.model().item(
+            self._source_type_combo.findText("Point Array")
+        )
+        if point_array_item is not None:
+            point_array_item.setEnabled(False)
+            point_array_item.setToolTip("Point array sources are not implemented yet")
+
+        self._source_button_box.accepted.connect(self._apply_source)
+        self._source_button_box.rejected.connect(self._populate_source)
+        self._populate_source()
+
+    def _source_widgets(self):
+        return (
+            self._source_type_combo,
+            self._intensity_spin,
+            self._cone_angle_spin,
+            self._num_rays_spin,
+            self._source_x_spin,
+            self._source_y_spin,
+            self._source_z_spin,
+        )
+
+    def _populate_source(self, *_):
+        self._source_type_combo.setCurrentText(LABEL_BY_SOURCE_TYPE.get(self._source.source_type, "Single Point"))
+        self._intensity_spin.setValue(float(self._source.intensity))
+        self._cone_angle_spin.setValue(float(self._source.cone_angle))
+        self._num_rays_spin.setValue(int(self._source.num_rays))
+        self._source_x_spin.setValue(float(self._source.position[0]))
+        self._source_y_spin.setValue(float(self._source.position[1]))
+        self._source_z_spin.setValue(float(self._source.position[2]))
+
+    def _apply_source(self):
+        try:
+            source = PointSource(
+                position=np.array([
+                    self._source_x_spin.value(),
+                    self._source_y_spin.value(),
+                    self._source_z_spin.value(),
+                ]),
+                intensity=float(self._intensity_spin.value()),
+                num_rays=int(self._num_rays_spin.value()),
+                source_type=SOURCE_TYPE_BY_LABEL[self._source_type_combo.currentText()],
+                cone_angle=float(self._cone_angle_spin.value()),
+            )
+            rays = source.emit_rays()
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Light Source Properties",
+                f"Could not apply light source properties:\n{exc}",
+            )
+            return
+
+        self._source = source
+        self._rays = rays
+        self._refresh_source()
+        self._retrace_rays()
+        self.statusBar().showMessage(f"Updated light source ({len(rays)} rays)")
+
+    def _refresh_source(self):
+        visualize.remove_nodes(self._source_nodes)
+        self._source_nodes = visualize.build_source_nodes(self._view, self._source)
+
     @property
     def canvas(self):
         return self._canvas
+
+    @property
+    def source(self):
+        return self._source
+
+    @property
+    def rays(self):
+        return list(self._rays)
 
     @property
     def elements(self):
@@ -206,6 +317,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         _, self._element_nodes, self._ray_nodes = visualize.build_scene(
             self._view, elements, self._rays, ray_length=6.0
         )
+        self._refresh_source()
 
         self._populate_lens_selector()
         self.statusBar().showMessage(f"Loaded {len(elements)} element(s) from {path.name}")
@@ -294,9 +406,8 @@ def main():
     QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     vispy_app.use_app("pyside6")
 
-    rays = visualize.default_rays()
-    canvas = make_display([], rays)
-    window = OpticsMainWindow(canvas, rays=rays)
+    canvas = make_display([], [])
+    window = OpticsMainWindow(canvas)
     window.load_stack(Path(__file__).resolve().parent.parent / "tests" / "test_stack.json")
     window.show()
     return QtWidgets.QApplication.instance().exec()

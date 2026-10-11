@@ -16,6 +16,7 @@ SIDEWALL_COLOR = (0.55, 0.55, 0.65, 0.3)
 INCIDENT_COLOR = (0.9, 0.2, 0.2, 1.0)
 INTERNAL_COLOR = (1.0, 0.6, 0.1, 1.0)
 EXIT_COLOR = (0.2, 0.75, 0.3, 1.0)
+SOURCE_COLOR = (1.0, 0.85, 0.25, 1.0)
 AXIS_COLORS = {
     "x": (0.85, 0.15, 0.15, 1.0),
     "y": (0.15, 0.65, 0.2, 1.0),
@@ -198,6 +199,14 @@ def build_element_nodes(view, element):
     if sidewall is not None:
         nodes.append(_attach(view, make_wall_visual(sidewall, SIDEWALL_COLOR)))
     return nodes
+
+
+def make_source_visual(source, color=SOURCE_COLOR, radius=0.08):
+    return _make_marker(np.asarray(source.position, dtype=float), color, radius=radius)
+
+
+def build_source_nodes(view, source, radius=0.08):
+    return [_attach(view, make_source_visual(source, radius=radius))]
 
 
 def remove_nodes(nodes):

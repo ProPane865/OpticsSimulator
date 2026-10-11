@@ -307,3 +307,99 @@ def test_ok_applies_to_new_element(qt_app, repo_root):
     assert window.elements[0].material.refractive_index == pytest.approx(1.5)
     assert "Updated properties for lens3" in window.statusBar().currentMessage()
     window.close()
+
+
+def _trigger_save_as(window):
+    menu = window.findChild(QtWidgets.QMenu, "menuFile")
+    assert menu is not None
+    matches = [a for a in menu.actions() if a.objectName() == "actionSave_As"]
+    assert matches, "actionSave_As missing from File menu"
+    matches[0].trigger()
+
+
+def test_save_as_action_writes_file(qt_app, repo_root, tmp_path, monkeypatch):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    out_path = tmp_path / "saved_stack.json"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *args, **kwargs: (str(out_path), "")),
+    )
+
+    _trigger_save_as(window)
+
+    assert out_path.exists()
+    saved = json.loads(out_path.read_text(encoding="utf-8"))
+    expected = json.loads((repo_root / "tests" / "test_stack.json").read_text(encoding="utf-8"))
+    assert saved == expected
+    assert "Saved" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_save_as_appends_json_extension(qt_app, repo_root, tmp_path, monkeypatch):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    out_path = tmp_path / "stack_no_ext"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *args, **kwargs: (str(out_path), "")),
+    )
+
+    _trigger_save_as(window)
+
+    assert out_path.with_suffix(".json").exists()
+    window.close()
+
+
+def test_save_as_round_trip_preserves_edits(qt_app, repo_root, tmp_path, monkeypatch):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    editor = _editor(window)
+    editor["index"].setValue(1.8)
+    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    out_path = tmp_path / "modified_stack.json"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *args, **kwargs: (str(out_path), "")),
+    )
+    _trigger_save_as(window)
+
+    saved = json.loads(out_path.read_text(encoding="utf-8"))
+    assert saved["lens1"]["material"]["refractive_index"] == pytest.approx(1.8)
+
+    window2 = OpticsMainWindow(make_display([], []))
+    elements = window2.load_stack(out_path)
+    assert elements[0].material.refractive_index == pytest.approx(1.8)
+    window.close()
+    window2.close()
+
+
+def test_save_as_empty_stack_warns(qt_app, tmp_path, monkeypatch):
+    window = OpticsMainWindow(make_display([], []))
+
+    warnings = []
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: warnings.append(args)),
+    )
+    dialog_calls = []
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *args, **kwargs: dialog_calls.append(1) or ("", "")),
+    )
+
+    _trigger_save_as(window)
+
+    assert warnings, "expected a warning dialog when no stack is loaded"
+    assert not dialog_calls, "save dialog should not open when no stack is loaded"
+    assert not list(tmp_path.iterdir())
+    window.close()

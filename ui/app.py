@@ -80,6 +80,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         new_element_action = self._ui.findChild(QtGui.QAction, "actionOptical_Element")
         if new_element_action is not None:
             new_element_action.triggered.connect(self._on_new_element)
+        save_as_action = self._ui.findChild(QtGui.QAction, "actionSave_As")
+        if save_as_action is not None:
+            save_as_action.triggered.connect(self._on_save_as)
 
     def _connect_property_editor(self):
         self._lens_selector = self.findChild(QtWidgets.QComboBox, "lensSelector")
@@ -194,6 +197,15 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"Loaded {len(elements)} element(s) from {path.name}")
         return elements
 
+    def save_stack(self, path):
+        if self._schema is None:
+            raise RuntimeError("No optical stack loaded to save")
+        path = Path(path)
+        with open(path, "w") as f:
+            json.dump(self._schema, f, indent=4)
+        self.statusBar().showMessage(f"Saved {len(self._schema)} element(s) to {path.name}")
+        return path
+
     def _new_element_name(self):
         index = 1
         while f"lens{index}" in self._schema:
@@ -239,6 +251,30 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self.load_stack(path)
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Open Failed", f"Could not load optical stack:\n{exc}")
+
+    def _on_save_as(self):
+        if self._schema is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Nothing to Save",
+                "No optical stack is loaded.",
+            )
+            return
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save Optical Stack",
+            str(Path.home()),
+            "JSON files (*.json);;All files (*)",
+        )
+        if not path:
+            return
+        path = Path(path)
+        if not path.suffix:
+            path = path.with_suffix(".json")
+        try:
+            self.save_stack(path)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Save Failed", f"Could not save optical stack:\n{exc}")
 
 
 def main():

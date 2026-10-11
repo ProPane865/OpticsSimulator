@@ -409,7 +409,7 @@ def test_save_as_empty_stack_warns(qt_app, tmp_path, monkeypatch):
 def _source_editor(window):
     return {
         "type": window.findChild(QtWidgets.QComboBox, "comboBox"),
-        "intensity": window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_3"),
+        "power": window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_3"),
         "cone": window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_4"),
         "rays": window.findChild(QtWidgets.QSpinBox, "spinBox"),
         "x": window.findChild(QtWidgets.QDoubleSpinBox, "sourceX"),
@@ -435,7 +435,7 @@ def test_source_panel_populated_with_defaults(qt_app):
     window = OpticsMainWindow(make_display([], []))
     editor = _source_editor(window)
     assert editor["type"].currentText() == "Single Point"
-    assert editor["intensity"].value() == pytest.approx(1.0)
+    assert editor["power"].value() == pytest.approx(1.0)
     assert editor["cone"].value() == pytest.approx(360.0)
     assert editor["rays"].value() == 64
     assert editor["z"].value() == pytest.approx(3.0)
@@ -462,11 +462,11 @@ def test_source_ok_applies_changes(qt_app):
     editor = _source_editor(window)
     editor["rays"].setValue(8)
     editor["z"].setValue(5.0)
-    editor["intensity"].setValue(2.5)
+    editor["power"].setValue(2.5)
     _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
 
     assert window.source.num_rays == 8
-    assert window.source.intensity == pytest.approx(2.5)
+    assert window.source.power == pytest.approx(2.5)
     assert window.source.position[2] == pytest.approx(5.0)
     assert len(window.rays) == 8
     assert all(ray.origin[2] == pytest.approx(5.0) for ray in window.rays)

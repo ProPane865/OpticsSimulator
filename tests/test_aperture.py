@@ -74,6 +74,7 @@ def test_center_ray_intersects():
     ray = Ray(
         np.array([0.0, 0.0, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     hit = surface.intersect(ray)
@@ -94,6 +95,7 @@ def test_ray_inside_aperture_intersects():
     ray = Ray(
         np.array([0.25, 0.0, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     hit = surface.intersect(ray)
@@ -117,6 +119,7 @@ def test_ray_outside_aperture_does_not_intersect():
     ray = Ray(
         np.array([0.75, 0.0, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     assert surface.intersect(ray) is None
@@ -129,6 +132,7 @@ def test_ray_just_inside_aperture_intersects():
     ray = Ray(
         np.array([APERTURE_RADIUS - 1e-4, 0.0, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     assert surface.intersect(ray) is not None
@@ -141,6 +145,7 @@ def test_ray_just_outside_aperture_does_not_intersect():
     ray = Ray(
         np.array([APERTURE_RADIUS + 1e-4, 0.0, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     assert surface.intersect(ray) is None
@@ -156,6 +161,7 @@ def test_ray_on_aperture_boundary_intersects():
     ray = Ray(
         np.array([APERTURE_RADIUS, 0.0, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     hit = surface.intersect(ray)
@@ -194,6 +200,7 @@ def test_aperture_rejects_all_directions(x, y):
     ray = Ray(
         np.array([x, y, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     assert surface.intersect(ray) is None
@@ -281,6 +288,7 @@ def test_inside_aperture_ray_refracts():
     ray = Ray(
         np.array([0.20, 0.0, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     out = element.trace(ray).outgoing_ray
@@ -300,6 +308,7 @@ def test_outside_aperture_ray_does_not_refract():
     ray = Ray(
         np.array([0.75, 0.0, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     out = element.trace(ray)
@@ -319,6 +328,7 @@ def test_rotated_element_on_axis_ray_refracts():
     ray = Ray(
         2.0 * orientation,
         -orientation,
+        1.0,
     )
 
     out = element.trace(ray).outgoing_ray
@@ -351,6 +361,7 @@ def test_rotated_element_rejects_ray_outside_local_aperture():
     ray = Ray(
         world_origin,
         world_direction,
+        1.0,
     )
 
     assert element.surface1.intersect(ray) is None
@@ -501,7 +512,7 @@ def test_sidewall_rejects_too_few_points():
 
 def test_sidewall_intersect_hit_outside():
     wall = make_sidewall(n=64)
-    ray = Ray(np.array([2.0, 0.0, 0.0]), np.array([-1.0, 0.0, 0.0]))
+    ray = Ray(np.array([2.0, 0.0, 0.0]), np.array([-1.0, 0.0, 0.0]), 1.0)
 
     hit = wall.intersect(ray)
 
@@ -516,7 +527,7 @@ def test_sidewall_intersect_hit_outside():
 
 def test_sidewall_intersect_hit_from_inside():
     wall = make_sidewall(n=64)
-    ray = Ray(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]))
+    ray = Ray(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]), 1.0)
 
     hit = wall.intersect(ray)
 
@@ -526,14 +537,14 @@ def test_sidewall_intersect_hit_from_inside():
 
 def test_sidewall_intersect_miss_above_wall():
     wall = make_sidewall(n=64, radius=1.0, z_front=1.0, z_rear=-1.0)
-    ray = Ray(np.array([2.0, 0.0, 2.0]), np.array([-1.0, 0.0, 0.0]))
+    ray = Ray(np.array([2.0, 0.0, 2.0]), np.array([-1.0, 0.0, 0.0]), 1.0)
 
     assert wall.intersect(ray) is None
 
 
 def test_sidewall_intersect_miss_outside_radius():
     wall = make_sidewall(n=64, radius=1.0)
-    ray = Ray(np.array([2.0, 2.0, 0.0]), np.array([-1.0, 0.0, 0.0]))
+    ray = Ray(np.array([2.0, 2.0, 0.0]), np.array([-1.0, 0.0, 0.0]), 1.0)
 
     assert wall.intersect(ray) is None
 
@@ -615,7 +626,7 @@ def test_element_sidewall_intersect_edge_hit():
     wall = element.sidewall
     assert wall is not None
 
-    ray = Ray(np.array([2.0, 0.0, 0.0]), np.array([-1.0, 0.0, 0.0]))
+    ray = Ray(np.array([2.0, 0.0, 0.0]), np.array([-1.0, 0.0, 0.0]), 1.0)
     hit = wall.intersect(ray)
 
     assert hit is not None
@@ -638,7 +649,7 @@ def test_element_sidewall_rotated_world_frame():
     local = np.array([APERTURE_RADIUS, 0.0, 0.4])
     p = element.transform.point_to_world(local)
 
-    ray = Ray(p + 0.5 * radial_world, -radial_world)
+    ray = Ray(p + 0.5 * radial_world, -radial_world, 1.0)
     hit = wall.intersect(ray)
 
     assert hit is not None

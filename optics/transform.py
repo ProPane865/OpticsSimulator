@@ -28,4 +28,5 @@ class Transform:
         return Ray(
             self.point_to_local(ray.origin),
             self.vector_to_local(ray.direction),
+            ray.power,
         )

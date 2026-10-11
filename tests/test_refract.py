@@ -24,7 +24,7 @@ def _refract_direction(d_in: np.ndarray, n_face: np.ndarray, eta: float) -> np.n
 
 
 def test_sphere_on_axis_no_deflection(sphere):
-    ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0)
     out = sphere.trace(ray).outgoing_ray
     np.testing.assert_allclose(out.direction, [0.0, 0.0, -1.0], atol=1e-9)
     assert np.isclose(np.linalg.norm(out.origin), 1.0, atol=1e-8)
@@ -33,7 +33,7 @@ def test_sphere_on_axis_no_deflection(sphere):
 def test_slab_exit_parallel_to_incident(make_element):
     elem = make_element("0", "-2", n=1.5)
     d = np.array([0.4, -0.2, -1.0])
-    ray = Ray(np.array([0.5, 0.0, 2.5]), d)
+    ray = Ray(np.array([0.5, 0.0, 2.5]), d, 1.0)
     out = elem.trace(ray).outgoing_ray
     np.testing.assert_allclose(out.direction, d / np.linalg.norm(d), atol=1e-9)
     assert np.isclose(out.origin[2], -2.0, atol=1e-8)
@@ -43,7 +43,7 @@ def test_slab_lateral_shift_matches_analytic(make_element):
     elem = make_element("0", "-2", n=1.5)
     d = np.array([0.4, -0.2, -1.0])
     d = d / np.linalg.norm(d)
-    ray = Ray(np.array([0.5, 0.0, 2.5]), d)
+    ray = Ray(np.array([0.5, 0.0, 2.5]), d, 1.0)
     out = elem.trace(ray).outgoing_ray
 
     t = (2.5 - (-2.0)) / (-d[2])
@@ -58,7 +58,7 @@ def test_slab_lateral_shift_matches_analytic(make_element):
 
 
 def test_sphere_off_axis_matches_reference(sphere):
-    ray = Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0)
     out = sphere.trace(ray).outgoing_ray
 
     hit1 = sphere.surface1.intersect(ray)
@@ -66,7 +66,7 @@ def test_sphere_off_axis_matches_reference(sphere):
     n1 = -sphere.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / sphere.material.refractive_index)
 
-    hit2 = sphere.surface2.intersect(Ray(p1, d1))
+    hit2 = sphere.surface2.intersect(Ray(p1, d1, 1.0))
     p2, u2, v2 = hit2.point, hit2.u, hit2.v
     n2 = -sphere.surface2.normal(u2, v2)
     d2 = _refract_direction(d1, n2, sphere.material.refractive_index)
@@ -82,7 +82,7 @@ def test_tilted_sphere_on_axis_no_deflection(make_element):
         "-sqrt(1 - (x**2) - (y**2))",
         orientation=s,
     )
-    ray = Ray(2.0 * s, -s)
+    ray = Ray(2.0 * s, -s, 1.0)
     out = elem.trace(ray).outgoing_ray
     np.testing.assert_allclose(out.direction, -s, atol=1e-9)
     assert np.isclose(np.linalg.norm(out.origin), 1.0, atol=1e-8)
@@ -90,7 +90,7 @@ def test_tilted_sphere_on_axis_no_deflection(make_element):
 
 def test_unit_index_plane_slab_is_straight(make_element):
     elem = make_element("0", "-2", n=1.0)
-    ray = Ray(np.array([1.0, 0.0, 4.0]), np.array([1.0, 0.0, -2.0]))
+    ray = Ray(np.array([1.0, 0.0, 4.0]), np.array([1.0, 0.0, -2.0]), 1.0)
     out = elem.trace(ray).outgoing_ray
     np.testing.assert_allclose(out.direction, ray.direction, atol=1e-9)
     t = (4.0 - (-2.0)) / (-ray.direction[2])
@@ -100,14 +100,14 @@ def test_unit_index_plane_slab_is_straight(make_element):
 
 def test_bicone_launch_is_supercritical(make_element):
     elem = make_element(BICONE_S1, BICONE_S2, n=1.5)
-    ray = Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
     hit1 = elem.surface1.intersect(ray)
     p1, u1, v1 = hit1.point, hit1.u, hit1.v
     n1 = -elem.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
-    hit2 = elem.surface2.intersect(Ray(p1, d1))
+    hit2 = elem.surface2.intersect(Ray(p1, d1, 1.0))
     p2, u2, v2 = hit2.point, hit2.u, hit2.v
     n2 = -elem.surface2.normal(u2, v2)
     cos_i2 = -float(np.dot(n2, d1))
@@ -118,14 +118,14 @@ def test_bicone_launch_is_supercritical(make_element):
 
 def test_total_internal_reflection_returns_reflected_ray(make_element):
     elem = make_element(BICONE_S1, BICONE_S2, n=1.5)
-    ray = Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([0.05, 0.0, 5.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
     hit1 = elem.surface1.intersect(ray)
     p1, u1, v1 = hit1.point, hit1.u, hit1.v
     n1 = -elem.surface1.normal(u1, v1)
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
-    hit2 = elem.surface2.intersect(Ray(p1, d1))
+    hit2 = elem.surface2.intersect(Ray(p1, d1, 1.0))
     p2, u2, v2 = hit2.point, hit2.u, hit2.v
     n2 = -elem.surface2.normal(u2, v2)
     expected = d1 - 2.0 * float(np.dot(n2, d1)) * n2
@@ -139,7 +139,7 @@ def test_total_internal_reflection_returns_reflected_ray(make_element):
     reason="grazing entry makes the intersection/normal undefined and trace raises TypeError",
 )
 def test_grazing_ray_does_not_crash(sphere):
-    ray = Ray(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]))
+    ray = Ray(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]), 1.0)
     out = sphere.trace(ray).outgoing_ray
     assert np.all(np.isfinite(out.direction))
 
@@ -197,6 +197,7 @@ def test_trace_miss_returns_empty_trace(make_element):
     ray = Ray(
         np.array([15.0, 0.0, 2.0]),
         np.array([0.0, 0.0, -1.0]),
+        1.0,
     )
 
     result = elem.trace(ray)
@@ -214,6 +215,7 @@ def test_hit_surface1_only_returns_incident_hit_internal_ray(make_element):
     ray = Ray(
         np.array([9.0, 0.0, 2.0]),
         np.array([0.5, 0.0, -1.0]),
+        1.0,
     )
 
     result = elem.trace(ray)
@@ -223,3 +225,10 @@ def test_hit_surface1_only_returns_incident_hit_internal_ray(make_element):
     assert result.incident_ray is ray
     assert result.internal_ray is not None
     assert result.outgoing_ray is None
+
+
+def test_trace_conserves_ray_power(sphere):
+    ray = Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 3.0)
+    result = sphere.trace(ray)
+    assert result.internal_ray.power == pytest.approx(3.0)
+    assert result.outgoing_ray.power == pytest.approx(3.0)

@@ -23,7 +23,7 @@ LABEL_BY_SOURCE_TYPE = {value: key for key, value in SOURCE_TYPE_BY_LABEL.items(
 
 DEFAULT_SOURCE_CONFIG = {
     "position": [0.0, 0.0, 3.0],
-    "intensity": 1.0,
+    "power": 1.0,
     "num_rays": 64,
     "source_type": SINGLE_POINT,
     "cone_angle": 360.0,
@@ -209,7 +209,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def _connect_source_editor(self):
         self._source_type_combo = self.findChild(QtWidgets.QComboBox, "comboBox")
-        self._intensity_spin = self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_3")
+        self._power_spin = self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_3")
         self._cone_angle_spin = self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_4")
         self._num_rays_spin = self.findChild(QtWidgets.QSpinBox, "spinBox")
         self._source_x_spin = self.findChild(QtWidgets.QDoubleSpinBox, "sourceX")
@@ -217,8 +217,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._source_z_spin = self.findChild(QtWidgets.QDoubleSpinBox, "sourceZ")
         self._source_button_box = self.findChild(QtWidgets.QDialogButtonBox, "sourceButtonBox")
 
-        self._intensity_spin.setRange(0.0, 1000.0)
-        self._intensity_spin.setSingleStep(0.1)
+        self._power_spin.setRange(0.0, 1000.0)
+        self._power_spin.setSingleStep(0.1)
         self._cone_angle_spin.setRange(0.0, 360.0)
         self._cone_angle_spin.setSingleStep(1.0)
         self._num_rays_spin.setRange(1, 512)
@@ -240,7 +240,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     def _source_widgets(self):
         return (
             self._source_type_combo,
-            self._intensity_spin,
+            self._power_spin,
             self._cone_angle_spin,
             self._num_rays_spin,
             self._source_x_spin,
@@ -250,7 +250,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def _populate_source(self, *_):
         self._source_type_combo.setCurrentText(LABEL_BY_SOURCE_TYPE.get(self._source.source_type, "Single Point"))
-        self._intensity_spin.setValue(float(self._source.intensity))
+        self._power_spin.setValue(float(self._source.power))
         self._cone_angle_spin.setValue(float(self._source.cone_angle))
         self._num_rays_spin.setValue(int(self._source.num_rays))
         self._source_x_spin.setValue(float(self._source.position[0]))
@@ -265,7 +265,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
                     self._source_y_spin.value(),
                     self._source_z_spin.value(),
                 ]),
-                intensity=float(self._intensity_spin.value()),
+                power=float(self._power_spin.value()),
                 num_rays=int(self._num_rays_spin.value()),
                 source_type=SOURCE_TYPE_BY_LABEL[self._source_type_combo.currentText()],
                 cone_angle=float(self._cone_angle_spin.value()),

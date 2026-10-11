@@ -33,7 +33,7 @@ class PointSource:
     def __init__(
         self,
         position,
-        intensity=1.0,
+        power=1.0,
         num_rays=64,
         source_type=SINGLE_POINT,
         cone_angle=360.0,
@@ -44,9 +44,9 @@ class PointSource:
         if not np.all(np.isfinite(self.position)):
             raise ValueError("Position must be finite")
 
-        self.intensity = float(intensity)
-        if not np.isfinite(self.intensity) or self.intensity < 0.0:
-            raise ValueError("Intensity must be finite and non-negative")
+        self.power = float(power)
+        if not np.isfinite(self.power) or self.power < 0.0:
+            raise ValueError("Power must be finite and non-negative")
 
         self.num_rays = int(num_rays)
         if self.num_rays < 1:
@@ -65,4 +65,5 @@ class PointSource:
             raise ValueError(f"Unknown source type: {self.source_type}")
 
         directions = fibonacci_cone_directions(self.num_rays, self.cone_angle)
-        return [Ray(self.position.copy(), d) for d in directions]
+        ray_power = self.power / self.num_rays
+        return [Ray(self.position.copy(), d, ray_power) for d in directions]

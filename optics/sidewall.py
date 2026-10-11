@@ -45,7 +45,7 @@ class LensSidewall:
         if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
             return None
 
-        ray = Ray(o, d)
+        ray = Ray(o, d, ray.power)
 
         tri = self._verts[self._faces]
         a = tri[:, 0]

@@ -33,7 +33,7 @@ def test_translation_applied_to_points_only():
 
 
 def test_ray_to_local():
-    ray = Ray(np.array([1.0, 2.0, 3.0]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([1.0, 2.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
     local = TF.ray_to_local(ray)
     np.testing.assert_allclose(local.origin, TF.point_to_local(ray.origin), atol=1e-12)
     np.testing.assert_allclose(local.direction, TF.vector_to_local(ray.direction), atol=1e-12)
@@ -107,10 +107,10 @@ def test_positioned_element_mesh_is_shifted():
 def test_positioned_element_intersection_shifted():
     default = refractive_element_from_config(_lens_schema())
     positioned = refractive_element_from_config(_lens_schema(), position=TRANS)
-    ray = Ray(np.array([0.0, 0.0, 2.0]), np.array([0.0, 0.0, -1.0]))
+    ray = Ray(np.array([0.0, 0.0, 2.0]), np.array([0.0, 0.0, -1.0]), 1.0)
     hit0 = default.surface1.intersect(ray)
     hit1 = positioned.surface1.intersect(
-        Ray(ray.origin + TRANS, ray.direction)
+        Ray(ray.origin + TRANS, ray.direction, 1.0)
     )
     assert hit0 is not None
     assert hit1 is not None

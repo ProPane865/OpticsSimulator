@@ -14,7 +14,7 @@ from optics.source import (
 def test_default_source_attributes():
     source = PointSource([0.0, 0.0, 3.0])
     assert np.allclose(source.position, [0.0, 0.0, 3.0])
-    assert source.intensity == pytest.approx(1.0)
+    assert source.power == pytest.approx(1.0)
     assert source.num_rays == 64
     assert source.source_type == SINGLE_POINT
 
@@ -26,11 +26,11 @@ def test_invalid_position_raises():
         PointSource([np.nan, 0.0, 0.0])
 
 
-def test_invalid_intensity_raises():
+def test_invalid_power_raises():
     with pytest.raises(ValueError):
-        PointSource([0.0, 0.0, 0.0], intensity=-1.0)
+        PointSource([0.0, 0.0, 0.0], power=-1.0)
     with pytest.raises(ValueError):
-        PointSource([0.0, 0.0, 0.0], intensity=np.nan)
+        PointSource([0.0, 0.0, 0.0], power=np.nan)
 
 
 def test_invalid_num_rays_raises():
@@ -150,3 +150,15 @@ def test_emit_rays_uses_cone_angle():
     directions = np.array([ray.direction for ray in source.emit_rays()])
     cos_half = np.cos(np.deg2rad(45.0))
     assert np.all(directions[:, 2] <= -cos_half + 1e-12)
+
+
+def test_emit_rays_power_divided_by_ray_count():
+    source = PointSource([0.0, 0.0, 3.0], power=2.5, num_rays=10)
+    rays = source.emit_rays()
+    assert all(ray.power == pytest.approx(0.25) for ray in rays)
+
+
+def test_emit_rays_zero_power_allowed():
+    source = PointSource([0.0, 0.0, 3.0], power=0.0, num_rays=8)
+    rays = source.emit_rays()
+    assert all(ray.power == 0.0 for ray in rays)

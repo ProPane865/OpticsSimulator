@@ -85,7 +85,7 @@ class RefractiveElement:
             return TraceResult(hit1, None, ray, None, None)
 
         d1 = trace_direction(ray.direction, n1, n_from=1.0, n_to=self.material.refractive_index)
-        r1 = Ray(p1, d1)
+        r1 = Ray(p1, d1, ray.power)
 
         hit2 = self.surface2.intersect(r1)
 
@@ -99,6 +99,6 @@ class RefractiveElement:
             return TraceResult(hit1, hit2, ray, r1, None)
 
         d2 = trace_direction(d1, n2, n_from=self.material.refractive_index, n_to=1.0)
-        r2 = Ray(p2, d2)
+        r2 = Ray(p2, d2, ray.power)
 
         return TraceResult(hit1, hit2, ray, r1, r2)

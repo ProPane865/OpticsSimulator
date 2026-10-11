@@ -66,7 +66,7 @@ class SurfaceSolver:
         d = np.asarray(ray.direction, dtype=float)
         if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
             return None
-        ray = Ray(o, d)
+        ray = Ray(o, d, ray.power)
         for u0, v0, t0 in self._intersection_seeds(ray):
             hit = self._newton_intersection(ray, u0, v0, t0)
             if hit is not None:

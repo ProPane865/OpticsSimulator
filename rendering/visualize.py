@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 from vispy import scene
 from vispy.scene import visuals
+from vispy.color import get_colormap
 
 from rendering.meshing import SurfaceMesher
 from optics.ray import Ray
@@ -17,6 +18,9 @@ INCIDENT_COLOR = (0.9, 0.2, 0.2, 1.0)
 INTERNAL_COLOR = (1.0, 0.6, 0.1, 1.0)
 EXIT_COLOR = (0.2, 0.75, 0.3, 1.0)
 SOURCE_COLOR = (1.0, 0.85, 0.25, 1.0)
+MEASUREMENT_COLOR = (0.5, 0.5, 0.55, 0.35)
+MEASUREMENT_OUTLINE_COLOR = (0.75, 0.35, 0.85, 1.0)
+MEASUREMENT_COLORMAP = "viridis"
 AXIS_COLORS = {
     "x": (0.85, 0.15, 0.15, 1.0),
     "y": (0.15, 0.65, 0.2, 1.0),
@@ -60,6 +64,88 @@ def make_wall_visual(sidewall, color=SIDEWALL_COLOR):
     )
 
     return mesh
+
+
+def _cell_to_vertex_values(grid):
+    """Expand a (rows, cols) cell grid to (rows+1, cols+1) vertex values."""
+    rows, cols = grid.shape
+    out = np.empty((rows + 1, cols + 1), dtype=float)
+    out[1:-1, 1:-1] = 0.25 * (
+        grid[:-1, :-1] + grid[:-1, 1:] + grid[1:, :-1] + grid[1:, 1:]
+    )
+    out[1:-1, 0] = 0.5 * (grid[:-1, 0] + grid[1:, 0])
+    out[1:-1, -1] = 0.5 * (grid[:-1, -1] + grid[1:, -1])
+    out[0, 1:-1] = 0.5 * (grid[0, :-1] + grid[0, 1:])
+    out[-1, 1:-1] = 0.5 * (grid[-1, :-1] + grid[-1, 1:])
+    out[0, 0] = grid[0, 0]
+    out[0, -1] = grid[0, -1]
+    out[-1, 0] = grid[-1, 0]
+    out[-1, -1] = grid[-1, -1]
+    return out
+
+
+def _measurement_vertex_colors(plane):
+    irradiance = plane.irradiance()
+    values = _cell_to_vertex_values(irradiance.T)
+    flat = np.asarray(MEASUREMENT_COLOR, dtype=float)
+    vmax = float(np.nanmax(values)) if values.size else 0.0
+    if not np.isfinite(vmax) or vmax <= 0.0:
+        return np.tile(flat, (values.size, 1))
+    normalized = np.clip(values / vmax, 0.0, 1.0).ravel()
+    colors = np.asarray(
+        get_colormap(MEASUREMENT_COLORMAP).map(normalized), dtype=float
+    )
+    colors[..., 3] = 0.85
+    return colors
+
+
+def make_measurement_plane_visual(plane):
+    ru, rv = plane.ru, plane.rv
+    us = np.linspace(plane.u_min, plane.u_max, ru + 1)
+    vs = np.linspace(plane.v_min, plane.v_max, rv + 1)
+    U, V = np.meshgrid(us, vs, indexing="ij")
+    verts = plane.point(U, V).reshape(-1, 3)
+
+    i = np.repeat(np.arange(ru), rv)
+    j = np.tile(np.arange(rv), ru)
+    a = i * (rv + 1) + j
+    b = (i + 1) * (rv + 1) + j
+    c = (i + 1) * (rv + 1) + (j + 1)
+    d = i * (rv + 1) + (j + 1)
+    faces = np.vstack([
+        np.column_stack([a, b, d]),
+        np.column_stack([b, c, d]),
+    ])
+
+    colors = _measurement_vertex_colors(plane)
+    mesh = visuals.Mesh(verts, faces, vertex_colors=colors, shading="flat")
+    mesh.set_gl_state(
+        blend=True,
+        depth_test=True,
+        depth_mask=False,
+        blend_func=("src_alpha", "one_minus_src_alpha"),
+    )
+    return mesh
+
+
+def _measurement_outline(plane):
+    corners = [
+        plane.point(plane.u_min, plane.v_min),
+        plane.point(plane.u_max, plane.v_min),
+        plane.point(plane.u_max, plane.v_max),
+        plane.point(plane.u_min, plane.v_max),
+    ]
+    return [corners[k] for k in (0, 1, 1, 2, 2, 3, 3, 0)]
+
+
+def build_measurement_nodes(view, plane):
+    nodes = [_attach(view, make_measurement_plane_visual(plane))]
+    outline = _measurement_outline(plane)
+    for a, b in zip(outline[0::2], outline[1::2]):
+        segment = _add_segment(view, a, b, MEASUREMENT_OUTLINE_COLOR, width=2)
+        if segment is not None:
+            nodes.append(segment)
+    return nodes
 
 
 def _marker_positions(pos, radius=0.03, n_phi=16, n_theta=8):

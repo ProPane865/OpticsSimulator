@@ -537,3 +537,75 @@ def test_source_cone_angle_cancel_reverts(qt_app):
     assert editor["cone"].value() == pytest.approx(360.0)
     assert window.source.cone_angle == pytest.approx(360.0)
     window.close()
+
+
+def _trigger_measurement_plane(window):
+    menu = window.findChild(QtWidgets.QMenu, "menuMeasure")
+    assert menu is not None
+    matches = [a for a in menu.actions() if a.objectName() == "actionMeasurement_Plane"]
+    assert matches, "actionMeasurement_Plane missing from Measure menu"
+    matches[0].trigger()
+
+
+def test_measure_menu_has_action(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    menu_bar = window.findChild(QtWidgets.QMenuBar, "menubar")
+    measure_menu = menu_bar.findChild(QtWidgets.QMenu, "menuMeasure")
+    assert measure_menu is not None
+    assert not measure_menu.isEmpty()
+    assert any(a.objectName() == "actionMeasurement_Plane" for a in measure_menu.actions())
+    window.close()
+
+
+def test_measurement_plane_action_adds_plane(qt_app, repo_root):
+    canvas = make_display([], [])
+    window = OpticsMainWindow(canvas)
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    meshes_before = _mesh_count(canvas.view)
+
+    _trigger_measurement_plane(window)
+
+    assert len(window.planes) == 1
+    assert _mesh_count(canvas.view) == meshes_before + 1
+    assert "Added measurement plane" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_multiple_measurement_planes_offset(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+    _trigger_measurement_plane(window)
+
+    assert len(window.planes) == 2
+    assert window.planes[0].o[2] != window.planes[1].o[2]
+    window.close()
+
+
+def test_measurement_plane_persists_across_reload(qt_app, repo_root):
+    canvas = make_display([], [])
+    window = OpticsMainWindow(canvas)
+    _trigger_measurement_plane(window)
+
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    assert len(window.planes) == 1
+    assert _mesh_count(canvas.view) >= 7
+    window.close()
+
+
+def test_measurement_plane_remeasures_on_source_change(qt_app, repo_root):
+    canvas = make_display([], [])
+    window = OpticsMainWindow(canvas)
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _trigger_measurement_plane(window)
+
+    plane = window.planes[0]
+    editor = _source_editor(window)
+    editor["rays"].setValue(8)
+    editor["cone"].setValue(30.0)
+    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert len(window.planes) == 1
+    assert plane.grid.shape == (64, 64)
+    assert plane.grid.sum() >= 0.0
+    window.close()

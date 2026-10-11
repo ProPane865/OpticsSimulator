@@ -3,6 +3,7 @@ import numpy as np
 import rendering.visualize as visualize
 
 from rendering.meshing import SurfaceMesher
+from optics.measurement_plane import MeasurementPlane
 from optics.ray import Ray
 from optics.surface import Surface
 
@@ -186,3 +187,56 @@ def test_visualize_attaches_sidewall_when_aperture(make_element, monkeypatch):
     assert kinds.count("surface") == 2
     assert "wall" in kinds
     assert canvas is not None
+
+
+def _measurement_plane(resolution=(6, 5)):
+    return MeasurementPlane(
+        origin=np.array([0.0, 0.0, -3.0]),
+        normal=np.array([0.0, 0.0, 1.0]),
+        u_range=(-2.0, 2.0),
+        v_range=(-2.0, 2.0),
+        resolution=resolution,
+    )
+
+
+def test_make_measurement_plane_visual_has_vertex_colors():
+    plane = _measurement_plane()
+    rays = [
+        Ray(np.array([u, v, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+        for u in (-1.0, 0.0, 1.0)
+        for v in (-1.0, 0.0, 1.0)
+    ]
+    plane.measure(rays)
+    mesh = visualize.make_measurement_plane_visual(plane)
+    ru, rv = plane.ru, plane.rv
+    assert mesh.mesh_data.has_vertex_color()
+    assert len(mesh.mesh_data.get_vertices()) == (ru + 1) * (rv + 1)
+    assert mesh._vshare.gl_state["depth_mask"] is False
+    assert mesh._vshare.gl_state["blend"] is True
+
+
+def test_make_measurement_plane_visual_empty_is_flat():
+    plane = _measurement_plane()
+    mesh = visualize.make_measurement_plane_visual(plane)
+    assert mesh.mesh_data.has_vertex_color()
+    colors = np.asarray(mesh.mesh_data.get_vertex_colors())
+    assert colors.shape[0] == (plane.ru + 1) * (plane.rv + 1)
+    assert np.allclose(colors, colors[0])
+
+
+class _FakeView:
+    def __init__(self):
+        self.added = []
+
+    def add(self, visual):
+        self.added.append(visual)
+
+
+def test_build_measurement_nodes_attaches_mesh_and_outline():
+    plane = _measurement_plane()
+    view = _FakeView()
+    nodes = visualize.build_measurement_nodes(view, plane)
+    assert len(nodes) == 5
+    assert len(view.added) == 5
+    assert type(nodes[0]).__name__ == "Mesh"
+    assert all(type(n).__name__ == "Line" for n in nodes[1:])

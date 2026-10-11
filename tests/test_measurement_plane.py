@@ -1,0 +1,132 @@
+import numpy as np
+import pytest
+
+from optics.measurement_plane import MeasurementPlane
+from optics.ray import Ray
+
+
+def _plane(resolution=(4, 4), normal=(0.0, 0.0, 1.0), origin=(0.0, 0.0, -3.0)):
+    return MeasurementPlane(
+        origin=np.array(origin, dtype=float),
+        normal=np.array(normal, dtype=float),
+        u_range=(-2.0, 2.0),
+        v_range=(-2.0, 2.0),
+        resolution=resolution,
+    )
+
+
+def test_vertical_normal_raises():
+    with pytest.raises(ValueError):
+        _plane(normal=(1.0, 0.0, 0.0))
+
+
+def test_intersect_straight_down_hits_correct_point():
+    plane = _plane()
+    ray = Ray(np.array([0.3, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+    point, u, v = plane.intersect(ray)
+    np.testing.assert_allclose(point, [0.3, 0.2, -3.0], atol=1e-9)
+    assert u == pytest.approx(0.3)
+    assert v == pytest.approx(0.2)
+
+
+def test_intersect_behind_returns_none():
+    plane = _plane()
+    ray = Ray(np.array([0.0, 0.0, -4.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+    assert plane.intersect(ray) is None
+
+
+def test_intersect_parallel_returns_none():
+    plane = _plane()
+    ray = Ray(np.array([0.0, 0.0, -3.0]), np.array([1.0, 0.0, 0.0]), 1.0)
+    assert plane.intersect(ray) is None
+
+
+def test_point_satisfies_plane_equation():
+    plane = _plane(normal=(0.0, 0.6, 0.8), origin=(0.0, 0.0, 0.0))
+    for u, v in ((0.0, 0.0), (1.3, -0.7), (-2.0, 2.0)):
+        p = plane.point(u, v)
+        assert np.dot(plane.n, p - plane.o) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_intersect_tilted_plane_matches_parameters():
+    plane = _plane(normal=(0.0, 0.6, 0.8), origin=(0.0, 0.0, 0.0))
+    ray = Ray(np.array([0.4, -0.5, 5.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+    point, u, v = plane.intersect(ray)
+    assert u == pytest.approx(0.4)
+    assert v == pytest.approx(-0.5)
+    assert point[2] == pytest.approx(-0.75 * -0.5)
+
+
+def test_discretize_maps_to_expected_bins():
+    plane = _plane(resolution=(8, 8))
+    i, j = plane.discretize(0.3, 0.2)
+    assert (int(i), int(j)) == (4, 4)
+    i, j = plane.discretize(-1.5, -1.5)
+    assert (int(i), int(j)) == (1, 1)
+
+
+def test_discretize_clamps_to_edges():
+    plane = _plane(resolution=(4, 4))
+    i, j = plane.discretize(-2.0, -2.0)
+    assert (int(i), int(j)) == (0, 0)
+    i, j = plane.discretize(2.0, 2.0)
+    assert (int(i), int(j)) == (3, 3)
+
+
+def test_contains_bounds():
+    plane = _plane()
+    assert bool(plane.contains(0.0, 0.0))
+    assert not bool(plane.contains(3.0, 0.0))
+    assert not bool(plane.contains(0.0, -3.0))
+
+
+def test_measure_conserves_power_on_bin_centers():
+    plane = _plane(resolution=(4, 4))
+    centers = [-1.5, -0.5, 0.5, 1.5]
+    rays = [
+        Ray(np.array([u, v, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+        for u in centers
+        for v in centers
+    ]
+    total = plane.measure(rays)
+    assert total == pytest.approx(16.0)
+    assert plane.grid.sum() == pytest.approx(16.0)
+    assert np.allclose(plane.grid, 1.0)
+
+
+def test_measure_excludes_out_of_bounds():
+    plane = _plane(resolution=(4, 4))
+    inside = Ray(np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+    outside = Ray(np.array([3.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+    total = plane.measure([inside, outside])
+    assert total == pytest.approx(1.0)
+    assert plane.grid.sum() == pytest.approx(1.0)
+
+
+def test_irradiance_uniform_beam():
+    plane = _plane(resolution=(4, 4))
+    centers = [-1.5, -0.5, 0.5, 1.5]
+    rays = [
+        Ray(np.array([u, v, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+        for u in centers
+        for v in centers
+    ]
+    plane.measure(rays)
+    irr = plane.irradiance()
+    bin_area = plane.bin_area / abs(plane.n[2])
+    assert np.allclose(irr, 1.0 / bin_area)
+
+
+def test_measure_traces_through_elements(make_element):
+    element = make_element("0", "-2")
+    plane = _plane()
+    ray = Ray(np.array([0.3, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+
+    with_stack = plane.measure([ray], [element])
+    without_stack = plane.measure([ray])
+
+    assert with_stack == pytest.approx(1.0)
+    assert with_stack == pytest.approx(without_stack)
+    point, u, v = plane.intersect(ray)
+    i, j = plane.discretize(u, v)
+    assert plane.grid[int(j), int(i)] == pytest.approx(1.0)

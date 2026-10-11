@@ -33,6 +33,18 @@ class TraceResult:
     internal_ray: Ray | None
     outgoing_ray: Ray | None
 
+
+def trace_stack(ray, elements):
+    """Return the ray leaving an ordered stack of elements, or None if stopped."""
+    current = ray
+    for element in elements:
+        trace = element.trace(current)
+        out = trace.outgoing_ray
+        if out is None:
+            return None
+        current = out
+    return current
+
 class RefractiveElement:
     def __init__(self, surface1: Surface, surface2: Surface, material: Material):
         self.surface1 = surface1

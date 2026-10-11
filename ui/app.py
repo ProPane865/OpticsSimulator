@@ -11,6 +11,7 @@ from vispy import app as vispy_app
 
 import rendering.visualize as visualize
 from optics.config import refractive_element_from_config, stack_from_config
+from optics.measurement_plane import MeasurementPlane
 from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource
 
 UI_PATH = Path(__file__).resolve().parent / "main.ui"
@@ -50,6 +51,15 @@ DEFAULT_ELEMENT_CONFIG = {
 }
 
 
+DEFAULT_MEASUREMENT_CONFIG = {
+    "origin": [0.0, 0.0, -3.0],
+    "normal": [0.0, 0.0, 1.0],
+    "u_range": [-2.0, 2.0],
+    "v_range": [-2.0, 2.0],
+    "resolution": [64, 64],
+}
+
+
 def make_display(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=6.0):
     canvas = visualize.create_canvas()
     view = canvas.central_widget.add_view(camera="turntable")
@@ -72,6 +82,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._elements = []
         self._element_nodes = []
         self._ray_nodes = []
+        self._planes = []
+        self._plane_nodes = []
         self._load_ui()
         self._embed_canvas()
         self._connect_actions()
@@ -106,6 +118,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         save_as_action = self._ui.findChild(QtGui.QAction, "actionSave_As")
         if save_as_action is not None:
             save_as_action.triggered.connect(self._on_save_as)
+        measurement_action = self._ui.findChild(QtGui.QAction, "actionMeasurement_Plane")
+        if measurement_action is not None:
+            measurement_action.triggered.connect(self._on_new_measurement_plane)
 
     def _connect_property_editor(self):
         self._lens_selector = self.findChild(QtWidgets.QComboBox, "lensSelector")
@@ -206,6 +221,13 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             nodes = visualize.draw_ray(self._view, self._elements, ray, ray_length=6.0)
             if nodes:
                 self._ray_nodes.extend(nodes)
+        self._remeasure_planes()
+
+    def _remeasure_planes(self):
+        for index, plane in enumerate(self._planes):
+            plane.measure(self._rays, self._elements)
+            visualize.remove_nodes(self._plane_nodes[index])
+            self._plane_nodes[index] = visualize.build_measurement_nodes(self._view, plane)
 
     def _connect_source_editor(self):
         self._source_type_combo = self.findChild(QtWidgets.QComboBox, "comboBox")
@@ -305,6 +327,10 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     def elements(self):
         return list(self._elements)
 
+    @property
+    def planes(self):
+        return list(self._planes)
+
     def load_stack(self, path):
         path = Path(path)
         with open(path, "r") as f:
@@ -318,6 +344,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._view, elements, self._rays, ray_length=6.0
         )
         self._refresh_source()
+        self._remeasure_planes()
 
         self._populate_lens_selector()
         self.statusBar().showMessage(f"Loaded {len(elements)} element(s) from {path.name}")
@@ -362,6 +389,34 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._lens_selector.setCurrentText(name)
         self._populate_properties()
         self.statusBar().showMessage(f"Added {name}")
+
+    def _on_new_measurement_plane(self):
+        config = copy.deepcopy(DEFAULT_MEASUREMENT_CONFIG)
+        config["origin"][2] -= float(len(self._planes))
+        try:
+            plane = MeasurementPlane(
+                origin=np.asarray(config["origin"], dtype=float),
+                normal=np.asarray(config["normal"], dtype=float),
+                u_range=config["u_range"],
+                v_range=config["v_range"],
+                resolution=config["resolution"],
+            )
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Measurement Plane",
+                f"Could not add measurement plane:\n{exc}",
+            )
+            return
+
+        plane.measure(self._rays, self._elements)
+        self._planes.append(plane)
+        self._plane_nodes.append(
+            visualize.build_measurement_nodes(self._view, plane)
+        )
+        self.statusBar().showMessage(
+            f"Added measurement plane ({len(self._planes)} total)"
+        )
 
     def _on_open(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(

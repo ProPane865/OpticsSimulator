@@ -436,8 +436,8 @@ def test_source_panel_populated_with_defaults(qt_app):
     editor = _source_editor(window)
     assert editor["type"].currentText() == "Single Point"
     assert editor["power"].value() == pytest.approx(1.0)
-    assert editor["cone"].value() == pytest.approx(360.0)
-    assert editor["rays"].value() == 64
+    assert editor["cone"].value() == pytest.approx(60.0)
+    assert editor["rays"].value() == 16
     assert editor["z"].value() == pytest.approx(3.0)
     window.close()
 
@@ -522,7 +522,7 @@ def test_source_cone_angle_applies(qt_app):
     _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
 
     assert window.source.cone_angle == pytest.approx(90.0)
-    assert len(window.rays) == 64
+    assert len(window.rays) == 16
     cos_half = np.cos(np.deg2rad(45.0))
     assert all(ray.direction[2] <= -cos_half + 1e-12 for ray in window.rays)
     window.close()
@@ -534,8 +534,8 @@ def test_source_cone_angle_cancel_reverts(qt_app):
     editor["cone"].setValue(45.0)
     _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Cancel)
 
-    assert editor["cone"].value() == pytest.approx(360.0)
-    assert window.source.cone_angle == pytest.approx(360.0)
+    assert editor["cone"].value() == pytest.approx(60.0)
+    assert window.source.cone_angle == pytest.approx(60.0)
     window.close()
 
 

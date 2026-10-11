@@ -130,3 +130,17 @@ def test_measure_traces_through_elements(make_element):
     point, u, v = plane.intersect(ray)
     i, j = plane.discretize(u, v)
     assert plane.grid[int(j), int(i)] == pytest.approx(1.0)
+
+
+def test_measure_works_for_intermediate_elements(make_element):
+    element1 = make_element("0", "-1")
+    element2 = make_element("-4", "-5")
+
+    plane = _plane()
+    ray = Ray(np.array([0.3, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+
+    measurement = plane.measure([ray], [element1, element2])
+    baseline = plane.measure([ray])
+
+    assert measurement == pytest.approx(1.0)
+    assert measurement == pytest.approx(baseline)

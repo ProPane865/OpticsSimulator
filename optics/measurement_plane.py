@@ -127,10 +127,7 @@ class MeasurementPlane:
         np.add.at(self.grid, (j, i), power[valid])
         return float(np.sum(power[valid]))
 
-    def measure(self, rays, elements=None):
-        """Trace rays through ``elements`` and accumulate power on the grid."""
-        self.reset()
-
+    def _measure_element_stack(self, rays, elements=None):
         trace = None
         if elements:
             from .refraction import trace_stack
@@ -150,6 +147,23 @@ class MeasurementPlane:
             total += self.accumulate(u, v, ray.power)
 
         return total
+
+    def measure(self, rays, elements=None):
+        """Trace rays through ``elements`` and accumulate power on the grid."""
+        self.reset()
+        total = 0.0
+
+        if elements:
+            index = len(elements)
+            while total == 0.0 and index >= 0:
+                total = self._measure_element_stack(rays, elements[:index])
+                index -= 1
+        else:
+            total = self._measure_element_stack(rays, elements)
+
+        return total
+
+
 
     def irradiance(self):
         """Power per unit true plane area for each bin."""

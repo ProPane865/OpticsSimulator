@@ -25,9 +25,9 @@ LABEL_BY_SOURCE_TYPE = {value: key for key, value in SOURCE_TYPE_BY_LABEL.items(
 DEFAULT_SOURCE_CONFIG = {
     "position": [0.0, 0.0, 3.0],
     "power": 1.0,
-    "num_rays": 64,
+    "num_rays": 16,
     "source_type": SINGLE_POINT,
-    "cone_angle": 360.0,
+    "cone_angle": 60.0,
 }
 
 DEFAULT_ELEMENT_CONFIG = {

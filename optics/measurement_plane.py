@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
+from numba import njit
 
 from . import constants as _c
 from .ray import Ray
@@ -9,6 +10,84 @@ from .refraction import RefractiveElement, TraceResult, internal_rays, traverse_
 from .vector import normalize
 
 _EPS = _c.PLANE_EPS
+
+
+@njit(cache=True)
+def _intersect_kernel(
+    ro: np.ndarray,
+    d: np.ndarray,
+    o: np.ndarray,
+    n: np.ndarray,
+    eps: float,
+) -> "tuple[float, float, float, bool]":
+    """Ray/plane intersection; returns ``(u, v, t, ok)`` in plane parameters."""
+    nz = n[2]
+    if abs(nz) <= eps or abs(float(np.dot(d, n))) <= eps:
+        return 0.0, 0.0, 0.0, False
+
+    nxnz = n[0] / nz
+    nynz = n[1] / nz
+    A = np.array([
+        [-1.0, 0.0, d[0]],
+        [0.0, -1.0, d[1]],
+        [nxnz, nynz, d[2]],
+    ])
+    b = np.array([-ro[0], -ro[1], nxnz * o[0] + nynz * o[1] + o[2] - ro[2]])
+
+    det = d[2] + d[1] * nynz + d[0] * nxnz
+    if not np.isfinite(det) or abs(det) <= eps:
+        return 0.0, 0.0, 0.0, False
+
+    sol = np.linalg.solve(A, b)
+    u = float(sol[0])
+    v = float(sol[1])
+    t = float(sol[2])
+
+    if not np.isfinite(t) or t <= 0.0:
+        return 0.0, 0.0, 0.0, False
+    if not (np.isfinite(u) and np.isfinite(v)):
+        return 0.0, 0.0, 0.0, False
+    return u, v, t, True
+
+
+@njit(cache=True)
+def _accumulate_kernel(
+    grid: np.ndarray,
+    u: np.ndarray,
+    v: np.ndarray,
+    power: np.ndarray,
+    u_min: float,
+    u_max: float,
+    v_min: float,
+    v_max: float,
+    ru: int,
+    rv: int,
+    interval_u: float,
+    interval_v: float,
+) -> float:
+    """Accumulate in-extent ray power into ``grid``; return total added."""
+    total = 0.0
+    for idx in range(u.shape[0]):
+        uu = u[idx]
+        vv = v[idx]
+        pw = power[idx]
+        if not (np.isfinite(uu) and np.isfinite(vv) and np.isfinite(pw)):
+            continue
+        if uu < u_min or uu > u_max or vv < v_min or vv > v_max:
+            continue
+        i = int(np.floor((uu - u_min) / interval_u * ru))
+        j = int(np.floor((vv - v_min) / interval_v * rv))
+        if i < 0:
+            i = 0
+        elif i > ru - 1:
+            i = ru - 1
+        if j < 0:
+            j = 0
+        elif j > rv - 1:
+            j = rv - 1
+        grid[j, i] += pw
+        total += pw
+    return total
 
 
 class MeasurementPlane:
@@ -86,25 +165,11 @@ class MeasurementPlane:
         ro = ray.origin
         if not (np.all(np.isfinite(ro)) and np.all(np.isfinite(d))):
             return None
-        if abs(self.n[2]) <= _EPS or abs(float(np.dot(d, self.n))) <= _EPS:
-            return None
 
-        nxnz = (self.n[0] / self.n[2])
-        nynz = (self.n[1] / self.n[2])
-        A = np.asarray([
-            [-1, 0, d[0]],
-            [0, -1, d[1]],
-            [nxnz, nynz, d[2]],
-        ])
-        b = np.asarray([-ro[0], -ro[1], nxnz*self.o[0] + nynz*self.o[1] + self.o[2] - ro[2]])
-        try:
-            u, v, t = np.linalg.solve(A, b)
-        except np.linalg.LinAlgError:
-            return None
-
-        if not np.isfinite(t) or t <= 0.0:
-            return None
-        if not (np.isfinite(u) and np.isfinite(v)):
+        u, v, t, ok = _intersect_kernel(
+            np.asarray(ro, dtype=float), np.asarray(d, dtype=float), self.o, self.n, _EPS
+        )
+        if not ok:
             return None
 
         return ray.at(t), float(u), float(v)
@@ -142,13 +207,22 @@ class MeasurementPlane:
         v = np.atleast_1d(np.asarray(v, dtype=float))
         power = np.atleast_1d(np.asarray(power, dtype=float))
 
-        valid = self.contains(u, v) & np.isfinite(power)
-        if not np.any(valid):
-            return 0.0
-
-        i, j = self.discretize(u[valid], v[valid])
-        np.add.at(self.grid, (j, i), power[valid])
-        return float(np.sum(power[valid]))
+        return float(
+            _accumulate_kernel(
+                self.grid,
+                u,
+                v,
+                power,
+                self.u_min,
+                self.u_max,
+                self.v_min,
+                self.v_max,
+                self.ru,
+                self.rv,
+                self.interval_u,
+                self.interval_v,
+            )
+        )
 
     def _entry_limit(self, ray: Ray) -> float:
         hit = self.intersect(ray)

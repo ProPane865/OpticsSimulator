@@ -1,16 +1,21 @@
 from collections.abc import Sequence
 
 import numpy as np
+from numba import njit
 
 
-def normalize(vector: np.ndarray | Sequence[float]) -> np.ndarray:
-    v = np.array(vector, dtype=float)
-    norm = np.linalg.norm(v)
+@njit(cache=True)
+def _normalize(v: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(v))
 
-    if not np.isfinite(norm) or norm == 0:
+    if not np.isfinite(norm) or norm == 0.0:
         raise ValueError("Vector must be finite and nonzero")
 
     return v / norm
+
+
+def normalize(vector: np.ndarray | Sequence[float]) -> np.ndarray:
+    return _normalize(np.asarray(vector, dtype=float))
 
 
 def rotation_from_z(direction: np.ndarray | Sequence[float]) -> np.ndarray:

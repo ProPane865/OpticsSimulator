@@ -3,6 +3,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
+from numba import njit
 
 from . import constants as _c
 from .hit import Hit
@@ -52,15 +53,22 @@ def _newton_delta(J: np.ndarray, F: np.ndarray) -> np.ndarray | None:
         return None
 
 
+@njit(cache=True)
 def _is_nonsingular(J: np.ndarray) -> bool:
     """Whether ``det(J)`` is large relative to the product of ``J``'s column norms."""
     rows, cols = J.shape
     if rows != cols:
         return False
     if rows == 3:
-        a, b, c = J[0]
-        d, e, f = J[1]
-        g, h, i = J[2]
+        a = J[0, 0]
+        b = J[0, 1]
+        c = J[0, 2]
+        d = J[1, 0]
+        e = J[1, 1]
+        f = J[1, 2]
+        g = J[2, 0]
+        h = J[2, 1]
+        i = J[2, 2]
         det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
         scale = (
             math.sqrt(a * a + d * d + g * g)
@@ -68,8 +76,10 @@ def _is_nonsingular(J: np.ndarray) -> bool:
             * math.sqrt(c * c + f * f + i * i)
         )
     elif rows == 2:
-        a, b = J[0]
-        c, d = J[1]
+        a = J[0, 0]
+        b = J[0, 1]
+        c = J[1, 0]
+        d = J[1, 1]
         det = a * d - b * c
         scale = math.sqrt(a * a + c * c) * math.sqrt(b * b + d * d)
     else:

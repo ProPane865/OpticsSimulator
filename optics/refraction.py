@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from numba import njit
 
 from . import constants as _c
 from .hit import RayHit
@@ -11,7 +12,7 @@ from .ray import Ray
 from .sidewall import LensSidewall
 from .surface import Surface
 from .transform import Transform
-from .vector import normalize
+from .vector import _normalize
 
 _SIDEWALL_UNSET = object()
 
@@ -20,24 +21,27 @@ _MIN_HIT_T = _c.MIN_HIT_T
 _MAX_INTERNAL_BOUNCES = _c.MAX_INTERNAL_BOUNCES
 
 
+@njit(cache=True)
 def _reflect_direction(incident: np.ndarray, normal: np.ndarray) -> np.ndarray:
-    return normalize(incident - 2.0 * float(np.dot(normal, incident)) * normal)
+    return _normalize(incident - 2.0 * float(np.dot(normal, incident)) * normal)
 
 
+@njit(cache=True)
 def _refract_direction(
     incident: np.ndarray, normal: np.ndarray, eta: float, cos_i: float, k: float
 ) -> np.ndarray:
-    return normalize(eta * incident + (np.sqrt(k) - eta * cos_i) * normal)
+    return _normalize(eta * incident + (np.sqrt(k) - eta * cos_i) * normal)
 
 
+@njit(cache=True)
 def _orient(normal: np.ndarray, incident: np.ndarray) -> np.ndarray:
     """Align the surface normal with the incident ray direction."""
-    normal = np.asarray(normal, dtype=float)
     if float(np.dot(normal, incident)) < 0.0:
         return -normal
     return normal
 
 
+@njit(cache=True)
 def refract_or_reflect(
     incident: np.ndarray, normal: np.ndarray, n_from: float, n_to: float
 ) -> "tuple[np.ndarray, bool]":
@@ -56,6 +60,7 @@ def refract_or_reflect(
     return _refract_direction(incident, normal, eta, cos_i, k), True
 
 
+@njit(cache=True)
 def trace_direction(incident: np.ndarray, normal: np.ndarray, n_from: float, n_to: float) -> np.ndarray:
     return refract_or_reflect(incident, normal, n_from, n_to)[0]
 

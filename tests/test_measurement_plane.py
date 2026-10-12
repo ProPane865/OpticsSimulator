@@ -171,13 +171,7 @@ def test_measurement_independent_of_element_list_order(make_element, order):
     "order",
     [
         (0, 1),
-        pytest.param(
-            (1, 0),
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="prefix heuristic truncates elements instead of ordering them; reversed list measures the unrefracted ray",
-            ),
-        ),
+        (1, 0),
     ],
 )
 def test_measurement_uses_geometric_order_not_list_order(make_element, order):

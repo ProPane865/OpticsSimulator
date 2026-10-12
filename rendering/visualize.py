@@ -8,7 +8,7 @@ from vispy.color import get_colormap
 
 from rendering.meshing import SurfaceMesher
 from optics.ray import Ray
-from optics.refraction import RefractiveElement
+from optics.refraction import RefractiveElement, trace_stack_path
 from optics.config import refractive_element_from_config, stack_from_config
 
 SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
@@ -216,47 +216,23 @@ def draw_ray_stack(view, elements, ray, ray_length=3.0):
     if not (np.all(np.isfinite(origin)) and np.all(np.isfinite(direction))):
         return nodes
 
-    current = ray
-    start = origin
-    if not elements:
-        segment = _add_segment(view, start, start + ray_length * direction, INCIDENT_COLOR)
+    segments, _ = trace_stack_path(ray, list(elements), ray_length=ray_length)
+    colors = {
+        "incident": INCIDENT_COLOR,
+        "internal": INTERNAL_COLOR,
+        "exit": EXIT_COLOR,
+    }
+
+    prev_kind = None
+    for start, end, kind in segments:
+        segment = _add_segment(view, start, end, colors[kind])
         if segment is not None:
             nodes.append(segment)
-        return nodes
-
-    for index, element in enumerate(elements):
-        trace = element.trace(current)
-        segment_color = INCIDENT_COLOR if index == 0 else INTERNAL_COLOR
-
-        if trace.incident_hit is None:
-            miss_dir = np.asarray(current.direction, dtype=float)
-            if np.all(np.isfinite(miss_dir)):
-                segment = _add_segment(view, start, start + ray_length * miss_dir, segment_color)
-                if segment is not None:
-                    nodes.append(segment)
-            return nodes
-
-        p1 = trace.incident_hit.point
-        out = trace.outgoing_ray
-        segment = _add_segment(view, start, p1, segment_color)
-        if segment is not None:
-            nodes.append(segment)
-        nodes.append(_add_marker(view, p1, segment_color))
-        if out is None or out.origin is None or not np.all(np.isfinite(out.origin)):
-            return nodes
-        p2 = np.asarray(out.origin, dtype=float)
-        segment = _add_segment(view, p1, p2, INTERNAL_COLOR)
-        if segment is not None:
-            nodes.append(segment)
-        nodes.append(_add_marker(view, p2, EXIT_COLOR))
-        start = p2
-        current = out
-
-    exit_dir = np.asarray(current.direction, dtype=float)
-    if np.all(np.isfinite(exit_dir)):
-        segment = _add_segment(view, start, start + ray_length * exit_dir, EXIT_COLOR)
-        if segment is not None:
-            nodes.append(segment)
+        if kind == "internal" and prev_kind != "internal":
+            nodes.append(_add_marker(view, start, INCIDENT_COLOR))
+        elif prev_kind == "internal" and kind != "internal":
+            nodes.append(_add_marker(view, start, EXIT_COLOR))
+        prev_kind = kind
     return nodes
 
 

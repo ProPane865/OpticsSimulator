@@ -3,47 +3,126 @@ import numpy as np
 from .surface import Surface
 from .sidewall import LensSidewall
 from .material import Material
-from .hit import Hit
+from .hit import Hit, MeshHit
 from .ray import Ray
 
 from dataclasses import dataclass
 
 _SIDEWALL_UNSET = object()
 
+_EPSILON = 1e-9
+_MIN_HIT_T = 1e-7
+_MAX_INTERNAL_BOUNCES = 8
+
+def _reflect_direction(incident, normal):
+    return incident - 2.0 * float(np.dot(normal, incident)) * normal
+
 def _refract_direction(incident, normal, eta, cos_i, k):
     return eta * incident + (np.sqrt(k) - eta * cos_i) * normal
 
-def _reflect_direction(incident, normal, cos_i):
-    return incident - 2.0 * cos_i * normal
+def _orient(normal, incident):
+    """Align the surface normal with the incident ray direction."""
+    normal = np.asarray(normal, dtype=float)
+    if float(np.dot(normal, incident)) < 0.0:
+        return -normal
+    return normal
 
-def trace_direction(incident, normal, n_from, n_to):
+def refract_or_reflect(incident, normal, n_from, n_to):
+    """Return ``(direction, refracted)`` for one interface interaction.
+
+    ``normal`` must be oriented so that ``dot(normal, incident) >= 0``.
+    On total internal reflection the reflected direction is returned with
+    ``refracted=False``.
+    """
     eta = n_from / n_to
     cos_i = float(np.dot(normal, incident))
     k = 1.0 - eta**2 * (1.0 - cos_i**2)
 
     if k < 0.0:
-        return _reflect_direction(incident, normal, cos_i)
-    return _refract_direction(incident, normal, eta, cos_i, k)
+        return _reflect_direction(incident, normal), False
+    return _refract_direction(incident, normal, eta, cos_i, k), True
+
+def trace_direction(incident, normal, n_from, n_to):
+    return refract_or_reflect(incident, normal, n_from, n_to)[0]
 
 @dataclass(frozen=True)
 class TraceResult:
-    incident_hit: Hit | None
-    exit_hit: Hit | None
+    incident_hit: Hit | MeshHit | None
+    exit_hit: Hit | MeshHit | None
     incident_ray: Ray
-    internal_ray: Ray | None
+    internal_path: tuple[Ray, ...]
     outgoing_ray: Ray | None
 
 
-def trace_stack(ray, elements):
-    """Return the ray leaving an ordered stack of elements, or None if stopped."""
-    current = ray
+def _nearest_entry(elements, ray):
+    best = None
     for element in elements:
-        trace = element.trace(current)
-        out = trace.outgoing_ray
+        entry = element.first_hit(ray)
+        if entry is None:
+            continue
+        if best is None or entry[0] < best[0]:
+            best = (entry[0], element)
+    return best
+
+
+def trace_stack(ray, elements):
+    """Return the ray leaving a stack of elements, or None if stopped.
+
+    Elements are visited in geometric order (nearest entry hit first),
+    independent of their order in the stack.
+    """
+    current = ray
+    remaining = list(elements)
+    while remaining:
+        best = _nearest_entry(remaining, current)
+        if best is None:
+            break
+        remaining.remove(best[1])
+        out = best[1].trace(current).outgoing_ray
         if out is None:
             return None
         current = out
     return current
+
+
+def trace_stack_path(ray, elements, ray_length=3.0):
+    """Return ``(segments, final_ray)`` for rendering.
+
+    Each segment is a ``(start, end, kind)`` tuple where ``kind`` is
+    ``"incident"`` before the first element, ``"internal"`` inside an
+    element, and ``"exit"`` after leaving one.
+    """
+    segments = []
+    current = ray
+    remaining = list(elements)
+    kind = "incident"
+    while remaining:
+        best = _nearest_entry(remaining, current)
+        if best is None:
+            break
+        element = best[1]
+        remaining.remove(element)
+        result = element.trace(current)
+        if result.incident_hit is None:
+            continue
+        segments.append((current.origin, result.incident_hit.point, kind))
+        path = result.internal_path
+        for i, segment in enumerate(path):
+            if i + 1 < len(path):
+                end = path[i + 1].origin
+            elif result.exit_hit is not None:
+                end = result.exit_hit.point
+            else:
+                break
+            segments.append((segment.origin, end, "internal"))
+        out = result.outgoing_ray
+        if out is None:
+            return segments, None
+        current = out
+        kind = "exit"
+    end = current.origin + ray_length * current.direction
+    segments.append((current.origin, end, kind))
+    return segments, current
 
 class RefractiveElement:
     def __init__(self, surface1: Surface, surface2: Surface, material: Material):
@@ -84,33 +163,70 @@ class RefractiveElement:
                     self._sidewall = None
         return self._sidewall
 
+    def _candidate_hits(self, ray, min_t=0.0):
+        hits = []
+        for surface in (self.surface1, self.surface2):
+            hit = surface.intersect(ray)
+            if hit is not None and hit.t > min_t:
+                normal = surface.normal(hit.u, hit.v)
+                if normal is not None:
+                    hits.append((hit.t, hit, np.asarray(normal, dtype=float)))
+        wall = self.sidewall
+        if wall is not None:
+            hit = wall.intersect(ray)
+            if hit is not None and hit.t > min_t:
+                hits.append((hit.t, hit, wall.normal(hit.face)))
+        if not hits:
+            return None
+        return min(hits, key=lambda item: item[0])
+
+    def first_hit(self, ray):
+        """Nearest intersection with any face of the element.
+
+        Returns ``(t, hit, normal)`` or None.
+        """
+        return self._candidate_hits(ray)
+
     def trace(self, ray) -> TraceResult:
-        hit1 = self.surface1.intersect(ray)
+        """Trace a ray through the closed element (surfaces + sidewall).
 
-        if hit1 is None:
-            return TraceResult(None, None, ray, None, None)
+        The ray refracts into the glass at its nearest face, bounces off
+        interior faces on total internal reflection (up to
+        ``_MAX_INTERNAL_BOUNCES``), and refracts out when it reaches a
+        subcritical hit.
+        """
+        entry = self.first_hit(ray)
+        if entry is None:
+            return TraceResult(None, None, ray, (), None)
 
-        p1, u1, v1 = hit1.point, hit1.u, hit1.v
-        n1 = self.surface1.normal(u1, v1)
+        n = self.material.refractive_index
+        _, entry_hit, entry_normal = entry
+        d, _ = refract_or_reflect(
+            ray.direction, _orient(entry_normal, ray.direction), 1.0, n
+        )
 
-        if n1 is None:
-            return TraceResult(hit1, None, ray, None, None)
+        path = []
+        current = Ray(entry_hit.point + _EPSILON * d, d, ray.power)
+        for _ in range(_MAX_INTERNAL_BOUNCES):
+            internal = self._candidate_hits(current, min_t=_MIN_HIT_T)
+            if internal is None:
+                path.append(current)
+                return TraceResult(entry_hit, None, ray, tuple(path), None)
 
-        d1 = trace_direction(ray.direction, n1, n_from=1.0, n_to=self.material.refractive_index)
-        r1 = Ray(p1, d1, ray.power)
+            _, face_hit, face_normal = internal
+            path.append(current)
+            d, refracted = refract_or_reflect(
+                current.direction, _orient(face_normal, current.direction), n, 1.0
+            )
+            if refracted:
+                return TraceResult(
+                    entry_hit,
+                    face_hit,
+                    ray,
+                    tuple(path),
+                    Ray(face_hit.point, d, ray.power),
+                )
+            current = Ray(face_hit.point + _EPSILON * d, d, ray.power)
 
-        hit2 = self.surface2.intersect(r1)
-
-        if hit2 is None:
-            return TraceResult(hit1, None, ray, r1, None)
-
-        p2, u2, v2 = hit2.point, hit2.u, hit2.v
-        n2 = self.surface2.normal(u2, v2)
-
-        if n2 is None:
-            return TraceResult(hit1, hit2, ray, r1, None)
-
-        d2 = trace_direction(d1, n2, n_from=self.material.refractive_index, n_to=1.0)
-        r2 = Ray(p2, d2, ray.power)
-
-        return TraceResult(hit1, hit2, ray, r1, r2)
+        path.append(current)
+        return TraceResult(entry_hit, None, ray, tuple(path), None)

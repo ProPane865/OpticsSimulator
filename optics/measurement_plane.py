@@ -127,17 +127,44 @@ class MeasurementPlane:
         np.add.at(self.grid, (j, i), power[valid])
         return float(np.sum(power[valid]))
 
+    def _trace_to_plane(self, ray, elements):
+        """Trace a ray through elements in geometric order up to the plane.
+
+        Only elements entered before the plane along the current ray are
+        traced, so a plane placed between elements sees the beam at its
+        own position regardless of the element list order.
+        """
+        current = ray
+        remaining = list(elements)
+        while remaining:
+            hit = self.intersect(current)
+            if hit is None:
+                return None
+            t_plane = float(np.dot(hit[0] - current.origin, current.direction))
+
+            best = None
+            for element in remaining:
+                entry = element.first_hit(current)
+                if entry is None or entry[0] >= t_plane:
+                    continue
+                if best is None or entry[0] < best[0]:
+                    best = (entry[0], element)
+
+            if best is None:
+                return current
+
+            remaining.remove(best[1])
+            out = best[1].trace(current).outgoing_ray
+            if out is None:
+                return None
+            current = out
+        return current
+
     def _measure_element_stack(self, rays, elements=None):
-        trace = None
-        if elements:
-            from .refraction import trace_stack
-
-            trace = lambda ray: trace_stack(ray, elements)
-
         total = 0.0
         for ray in rays:
-            if trace is not None:
-                ray = trace(ray)
+            if elements:
+                ray = self._trace_to_plane(ray, elements)
                 if ray is None:
                     continue
             hit = self.intersect(ray)
@@ -151,17 +178,7 @@ class MeasurementPlane:
     def measure(self, rays, elements=None):
         """Trace rays through ``elements`` and accumulate power on the grid."""
         self.reset()
-        total = 0.0
-
-        if elements:
-            index = len(elements)
-            while total == 0.0 and index >= 0:
-                total = self._measure_element_stack(rays, elements[:index])
-                index -= 1
-        else:
-            total = self._measure_element_stack(rays, elements)
-
-        return total
+        return self._measure_element_stack(rays, elements)
 
     def irradiance(self):
         """Power per unit true plane area for each bin."""

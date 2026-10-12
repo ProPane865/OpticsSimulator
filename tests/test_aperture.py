@@ -517,12 +517,13 @@ def test_sidewall_intersect_hit_outside():
     hit = wall.intersect(ray)
 
     assert hit is not None
-    p, u, v = hit.point, hit.u, hit.v
+    p = hit.point
 
     assert np.allclose(p, [1.0, 0.0, 0.0], atol=1e-9)
-    assert 0.0 <= u <= 1.0
-    assert 0.0 <= v <= 1.0
-    assert u + v <= 1.0 + 1e-9
+    assert isinstance(hit.face, int)
+    b = hit.barycentric
+    assert np.all(b >= -1e-9)
+    assert float(np.sum(b)) == pytest.approx(1.0, abs=1e-9)
 
 
 def test_sidewall_intersect_hit_from_inside():
@@ -630,7 +631,7 @@ def test_element_sidewall_intersect_edge_hit():
     hit = wall.intersect(ray)
 
     assert hit is not None
-    p, u, v = hit.point, hit.u, hit.v
+    p = hit.point
 
     assert np.isclose(np.linalg.norm(p[:2]), APERTURE_RADIUS, atol=1e-8)
     rim_z = np.sqrt(1.0 - APERTURE_RADIUS ** 2)

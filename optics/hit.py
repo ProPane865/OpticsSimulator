@@ -8,3 +8,12 @@ class Hit:
 
     u: float | None = None
     v: float | None = None
+
+
+@dataclass(frozen=True)
+class MeshHit:
+    point: np.ndarray
+    t: float
+
+    face: int
+    barycentric: np.ndarray

@@ -1,7 +1,7 @@
 import numpy as np
 
 from .ray import Ray
-from .hit import Hit
+from .hit import MeshHit
 
 class LensSidewall:
     def __init__(self, front, rear):
@@ -35,8 +35,20 @@ class LensSidewall:
         self._faces[0::2] = np.column_stack([f0, r0, r1])
         self._faces[1::2] = np.column_stack([f0, r1, f1])
 
+        self._tri = self._verts[self._faces]
+        e1 = self._tri[:, 1] - self._tri[:, 0]
+        e2 = self._tri[:, 2] - self._tri[:, 0]
+        normals = np.cross(e1, e2)
+        norms = np.linalg.norm(normals, axis=1)
+        norms[norms == 0.0] = 1.0
+        self._face_normals = normals / norms[:, None]
+
     def mesh(self):
         return self._verts, self._faces
+
+    def normal(self, face):
+        """Outward unit normal of the triangle with the given face index."""
+        return self._face_normals[int(face)]
 
     def intersect(self, ray):
         o = np.asarray(ray.origin, dtype=float)
@@ -47,7 +59,7 @@ class LensSidewall:
 
         ray = Ray(o, d, ray.power)
 
-        tri = self._verts[self._faces]
+        tri = self._tri
         a = tri[:, 0]
         e1 = tri[:, 1] - a
         e2 = tri[:, 2] - a
@@ -84,4 +96,9 @@ class LensSidewall:
         u_k = min(max(float(u[k]), 0.0), 1.0)
         v_k = min(max(float(v[k]), 0.0), 1.0 - u_k)
 
-        return Hit(ray.at(float(t[k])), float(t[k]), u_k, v_k)
+        return MeshHit(
+            ray.at(float(t[k])),
+            float(t[k]),
+            int(k),
+            np.array([1.0 - u_k - v_k, u_k, v_k], dtype=float),
+        )

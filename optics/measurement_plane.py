@@ -82,7 +82,7 @@ def _measure_direct_kernel(
             pws[i] = powers[i]
 
 
-@njit(cache=False, nogil=True)
+@njit(cache=True, nogil=True)
 def _measure_stack_chunk(
     stack: Any,
     origins: np.ndarray,

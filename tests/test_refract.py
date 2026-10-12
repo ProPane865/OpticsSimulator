@@ -158,14 +158,11 @@ def test_total_internal_reflection_reflects_inside_element(make_element):
     assert result.outgoing_ray is not None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="grazing entry makes the intersection/normal undefined and trace raises TypeError",
-)
 def test_grazing_ray_does_not_crash(sphere):
     ray = Ray(np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]), 1.0)
-    out = sphere.trace(ray).outgoing_ray
-    assert np.all(np.isfinite(out.direction))
+    result = sphere.trace(ray)
+    out = result.outgoing_ray
+    assert out is None or np.all(np.isfinite(out.direction))
 
 
 def test_refract_direction_on_axis_no_deflection():

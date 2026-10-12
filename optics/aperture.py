@@ -18,6 +18,8 @@ class Aperture:
         if isinstance(spec, dict):
             kind = str(spec.get("type", "circular")).lower()
             if kind == "circular":
+                if "radius" not in spec:
+                    raise ValueError("Missing required key 'radius' in aperture config")
                 return CircularAperture(
                     spec["radius"],
                     spec.get("center", (0.0, 0.0)),
@@ -63,7 +65,13 @@ class CircularAperture(Aperture):
 
     def __init__(self, radius: float, center: "tuple[float, float] | list[float]" = (0.0, 0.0)) -> None:
         self.radius = float(radius)
+        if not np.isfinite(self.radius) or self.radius <= 0.0:
+            raise ValueError("Aperture radius must be finite and positive")
         self.center = np.array(center, dtype=float)
+        if self.center.shape != (2,):
+            raise ValueError("Aperture center must be an array of shape (2,)")
+        if not np.all(np.isfinite(self.center)):
+            raise ValueError("Aperture center must be finite")
 
     def contains(self, surface: "Surface", u: float, v: float) -> bool:
         p = surface.evaluate_local(u, v)

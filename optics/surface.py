@@ -74,6 +74,34 @@ class Surface:
         self.v_range = (float(v_range[0]), float(v_range[1]))
         self.aperture = Aperture.from_spec(aperture)
         self.solver = SurfaceSolver(self)
+        self._graph_xy: bool | None = None
+
+    @property
+    def is_graph_over_xy(self) -> bool:
+        """Whether the surface is exactly ``(u, v, z(u, v))`` in local space.
+
+        Sampled once and cached; lets callers read the height above a local
+        ``(x, y)`` without running the parameter-inversion solver.
+        """
+        if self._graph_xy is None:
+            self._graph_xy = self._check_graph_over_xy()
+        return self._graph_xy
+
+    def _check_graph_over_xy(self) -> bool:
+        (u_min, u_max), (v_min, v_max) = self.parameter_range
+        for u in np.linspace(u_min, u_max, 5)[1:-1]:
+            for v in np.linspace(v_min, v_max, 5)[1:-1]:
+                u = float(u)
+                v = float(v)
+                p = self.evaluate_local(u, v)
+                if not np.all(np.isfinite(p)):
+                    return False
+                if (
+                    abs(float(p[0]) - u) > _c.GRAPH_XY_TOL * max(1.0, abs(u))
+                    or abs(float(p[1]) - v) > _c.GRAPH_XY_TOL * max(1.0, abs(v))
+                ):
+                    return False
+        return True
 
     @property
     def parameter_range(self) -> "tuple[tuple[float, float], tuple[float, float]]":
@@ -159,10 +187,7 @@ class Surface:
 
         return np.stack((X, Y, Z), axis=-1)
 
-    def derivatives_local(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
-        """Return du and dv tangent vectors."""
-        u = float(u)
-        v = float(v)
+    def _analytic_derivatives(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
         with np.errstate(invalid="ignore", divide="ignore"):
             ru = np.array(
                 [
@@ -180,6 +205,62 @@ class Surface:
                 ],
                 dtype=float,
             )
+        return ru, rv
+
+    def _partial_local(self, u: float, v: float, du: float, dv: float) -> np.ndarray:
+        """One-sided finite-difference partial derivative in direction ``(du, dv)``.
+
+        The step is halved until the evaluation stays finite, so it still works
+        right at the edge of the domain or aperture.
+        """
+        base = self.evaluate_local(u, v)
+        if not np.all(np.isfinite(base)):
+            return np.full(3, np.nan)
+        step = _c.FD_STEP_REL * max(1.0, abs(u), abs(v))
+        for sign in (1.0, -1.0):
+            h = step
+            for _ in range(_c.FD_STEP_SHRINKS):
+                p = self.evaluate_local(u + sign * du * h, v + sign * dv * h)
+                if np.all(np.isfinite(p)):
+                    return (p - base) / (sign * h)
+                h *= 0.5
+        return np.full(3, np.nan)
+
+    def _interior_derivatives(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
+        """Tangents at the nearest interior point, used where they blow up.
+
+        At an aperture rim a graph surface becomes vertical and its partial
+        derivatives diverge. Pulling back toward the interior of the parameter
+        domain and evaluating there gives the limiting tangent directions,
+        which is the geometrically correct rim frame.
+        """
+        (u_min, u_max), (v_min, v_max) = self.parameter_range
+        du = 0.5 * (u_min + u_max) - u
+        dv = 0.5 * (v_min + v_max) - v
+        if du == 0.0 and dv == 0.0:
+            return self._partial_local(u, v, 1.0, 0.0), self._partial_local(u, v, 0.0, 1.0)
+        span = max(abs(u_max - u_min), abs(v_max - v_min), 1.0)
+        length = float(np.hypot(du, dv))
+        frac = _c.DERIV_INTERIOR_FRAC * span / length
+        for _ in range(_c.DERIV_INTERIOR_TRIES):
+            if frac >= 1.0:
+                break
+            uu = u + du * frac
+            vv = v + dv * frac
+            if self.accepts_parameters(uu, vv):
+                ru, rv = self._analytic_derivatives(uu, vv)
+                if np.all(np.isfinite(ru)) and np.all(np.isfinite(rv)):
+                    return ru, rv
+            frac *= 2.0
+        return self._partial_local(u, v, 1.0, 0.0), self._partial_local(u, v, 0.0, 1.0)
+
+    def derivatives_local(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
+        """Return du and dv tangent vectors."""
+        u = float(u)
+        v = float(v)
+        ru, rv = self._analytic_derivatives(u, v)
+        if not (np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))):
+            ru, rv = self._interior_derivatives(u, v)
         return ru, rv
 
     def normal(self, u: float, v: float) -> np.ndarray | None:

@@ -1,3 +1,4 @@
+import math
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, TypedDict
 
@@ -15,6 +16,9 @@ _STEP_REL_TOL = _c.STEP_REL_TOL
 _CLAMP_REL = _c.CLAMP_REL
 _CONVERGED_F_NORM = _c.CONVERGED_F_NORM
 _DEDUP_UV_TOL = _c.DEDUP_UV_TOL
+_MIN_STEP = _c.NEWTON_MIN_STEP
+_STALL_STEP = _c.NEWTON_STALL_STEP
+_MAX_DAMPED_STEPS = _c.NEWTON_MAX_DAMPED_STEPS
 
 _CONVERGED = "converged"
 _STALLED = "stalled"
@@ -38,6 +42,43 @@ class _SeedGrid(TypedDict):
     P_world: np.ndarray
 
 
+def _newton_delta(J: np.ndarray, F: np.ndarray) -> np.ndarray | None:
+    """Solve ``J delta = -F``, falling back to least squares when rank-deficient."""
+    try:
+        if J.shape[0] == J.shape[1] and _is_nonsingular(J):
+            return np.linalg.solve(J, -F)
+        return np.linalg.lstsq(J, -F, rcond=None)[0]
+    except np.linalg.LinAlgError:
+        return None
+
+
+def _is_nonsingular(J: np.ndarray) -> bool:
+    """Whether ``det(J)`` is large relative to the product of ``J``'s column norms."""
+    rows, cols = J.shape
+    if rows != cols:
+        return False
+    if rows == 3:
+        a, b, c = J[0]
+        d, e, f = J[1]
+        g, h, i = J[2]
+        det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+        scale = (
+            math.sqrt(a * a + d * d + g * g)
+            * math.sqrt(b * b + e * e + h * h)
+            * math.sqrt(c * c + f * f + i * i)
+        )
+    elif rows == 2:
+        a, b = J[0]
+        c, d = J[1]
+        det = a * d - b * c
+        scale = math.sqrt(a * a + c * c) * math.sqrt(b * b + d * d)
+    else:
+        return False
+    if scale <= 0.0 or not math.isfinite(scale):
+        return False
+    return bool(abs(det) / scale > _c.NEWTON_SINGULAR_REL)
+
+
 def _newton(
     residual: _Residual,
     jacobian: _Jacobian,
@@ -46,14 +87,19 @@ def _newton(
 ) -> tuple[np.ndarray, float, str] | None:
     """Damped Newton iteration for ``residual(x) = 0``.
 
+    Steps that leave the surface undefined (outside the domain or aperture)
+    are halved until they land on valid parameters, so intersections near a
+    patch boundary still converge instead of failing.
+
     Returns ``(x, f_norm, status)`` where ``status`` is one of
     ``_CONVERGED``, ``_STALLED``, or ``_EXHAUSTED``, or
     ``(None, None, None)`` if the iteration failed.
     """
     x = np.array(x0, dtype=float)
     status = _EXHAUSTED
+    damped = 0
+    F = residual(x)
     for _ in range(_MAX_NEWTON_ITER):
-        F = residual(x)
         if F is None or not np.all(np.isfinite(F)):
             return None
         f_norm = float(np.linalg.norm(F))
@@ -62,27 +108,34 @@ def _newton(
         J = jacobian(x)
         if J is None or not np.all(np.isfinite(J)):
             return None
-        try:
-            if J.shape[0] == J.shape[1]:
-                delta = np.linalg.solve(J, -F)
-            else:
-                delta = np.linalg.lstsq(J, -F, rcond=None)[0]
-        except np.linalg.LinAlgError:
+        delta = _newton_delta(J, F)
+        if delta is None or not np.all(np.isfinite(delta)):
             return None
-        if not np.all(np.isfinite(delta)):
-            return None
-        step_norm = float(np.linalg.norm(delta))
         if clamp:
             clamp_scale = max(1.0, float(np.max(np.abs(x))))
-            if step_norm > _CLAMP_REL * clamp_scale:
-                delta = delta * (_CLAMP_REL * clamp_scale / step_norm)
-        x = x + delta
-        if not np.all(np.isfinite(x)):
-            return None
+            if float(np.linalg.norm(delta)) > _CLAMP_REL * clamp_scale:
+                delta = delta * (_CLAMP_REL * clamp_scale / float(np.linalg.norm(delta)))
+        step = 1.0
+        trial = x + delta
+        Ft = residual(trial)
+        while Ft is None or not np.all(np.isfinite(Ft)):
+            step *= 0.5
+            if step < _MIN_STEP:
+                return None
+            trial = x + step * delta
+            Ft = residual(trial)
+        if step < 1.0:
+            damped += 1
+        step_norm = float(np.linalg.norm(step * delta))
+        x = trial
+        F = Ft
+        if step < _STALL_STEP or damped >= _MAX_DAMPED_STEPS:
+            # Pinned against the edge of the domain: further iterations crawl.
+            status = _STALLED
+            break
         if step_norm < _STEP_REL_TOL * max(1.0, float(np.max(np.abs(x)))):
             status = _STALLED
             break
-    F = residual(x)
     if F is None or not np.all(np.isfinite(F)):
         return None
     return x, float(np.linalg.norm(F)), status

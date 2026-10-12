@@ -450,6 +450,23 @@ def test_aperture_from_spec_unknown_type():
         Aperture.from_spec({"type": "rectangular", "width": 1.0})
 
 
+def test_aperture_from_spec_missing_radius():
+    with pytest.raises(ValueError, match="radius"):
+        Aperture.from_spec({"type": "circular"})
+
+
+@pytest.mark.parametrize("radius", [0.0, -0.5, float("nan"), float("inf")])
+def test_circular_aperture_rejects_invalid_radius(radius):
+    with pytest.raises(ValueError, match="radius"):
+        CircularAperture(radius)
+
+
+@pytest.mark.parametrize("center", [[0.0], [0.0, 0.0, 0.0], [float("nan"), 0.0]])
+def test_circular_aperture_rejects_invalid_center(center):
+    with pytest.raises(ValueError, match="center"):
+        CircularAperture(0.5, center)
+
+
 def test_surface_accepts_dict_aperture():
     surface = Surface("u", "v", "0", aperture={"radius": APERTURE_RADIUS})
 

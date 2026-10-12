@@ -65,7 +65,7 @@ def source_from_config(config):
         raise ValueError("Source config must be an object")
     source_type = str(config.get("source_type", SINGLE_POINT))
     if source_type == POINT_ARRAY:
-        source_type = SINGLE_POINT
+        raise ValueError("Point array sources are not supported yet")
     return PointSource(
         position=np.asarray(config.get("position", [0.0, 0.0, 3.0]), dtype=float),
         power=float(config.get("power", 1.0)),

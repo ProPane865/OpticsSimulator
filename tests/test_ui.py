@@ -434,6 +434,32 @@ def test_legacy_stack_keeps_current_source_and_planes(qt_app, repo_root):
     window.close()
 
 
+def test_unsupported_source_type_is_rejected(qt_app, repo_root, tmp_path):
+    elements = json.loads((repo_root / "tests" / "test_stack.json").read_text())
+    path = tmp_path / "point_array.json"
+    path.write_text(json.dumps({
+        "version": 1,
+        "elements": elements,
+        "source": {
+            "position": [0.0, 0.0, 3.0],
+            "power": 1.0,
+            "num_rays": 8,
+            "source_type": "point_array",
+            "cone_angle": 60.0,
+        },
+    }))
+
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    rays_before = len(window.rays)
+
+    with pytest.raises(ValueError, match="Point array"):
+        window.load_stack(path)
+
+    assert len(window.rays) == rays_before
+    window.close()
+
+
 def test_load_project_planes_replace_existing(qt_app, repo_root, tmp_path):
     window = OpticsMainWindow(make_display([], []))
     window.load_stack(repo_root / "tests" / "test_stack.json")

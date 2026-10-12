@@ -5,7 +5,7 @@ import numpy as np
 
 from . import constants as _c
 from .ray import Ray
-from .refraction import RefractiveElement, traverse_stack
+from .refraction import RefractiveElement, TraceResult, internal_rays, traverse_stack
 from .vector import normalize
 
 _EPS = _c.PLANE_EPS
@@ -156,6 +156,27 @@ class MeasurementPlane:
             return -1.0
         return float(np.dot(hit[0] - ray.origin, ray.direction))
 
+    def _internal_ray_at_plane(self, result: TraceResult) -> Ray | None:
+        """The ray traveling inside ``result``'s element that reaches the plane.
+
+        Returns ``None`` when the plane is not crossed by the internal path,
+        i.e. the ray leaves the element before it gets there.
+        """
+        for segment, endpoint in internal_rays(result):
+            hit = self.intersect(segment)
+            if hit is None:
+                continue
+            point, u, v = hit
+            if not bool(self.contains(u, v)):
+                continue
+            t = float(np.dot(point - segment.origin, segment.direction))
+            if t <= 0.0:
+                continue
+            if endpoint is not None and t > float(np.linalg.norm(endpoint - segment.origin)):
+                continue
+            return segment
+        return None
+
     def _trace_to_plane(
         self, ray: Ray, elements: Sequence[RefractiveElement]
     ) -> Ray | None:
@@ -163,10 +184,15 @@ class MeasurementPlane:
 
         Only elements entered before the plane along the current ray are
         traced, so a plane placed between elements sees the beam at its
-        own position regardless of the element list order.
+        own position regardless of the element list order. When the plane
+        cuts through an element, the internal ray crossing the plane is
+        returned instead of the ray leaving that element.
         """
         current: Ray | None = ray
         for _, result in traverse_stack(ray, elements, self._entry_limit):
+            internal = self._internal_ray_at_plane(result)
+            if internal is not None:
+                return internal
             current = result.outgoing_ray
         return current
 

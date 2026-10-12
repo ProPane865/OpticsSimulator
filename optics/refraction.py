@@ -90,7 +90,8 @@ def traverse_stack(
 
     Iteration stops when no remaining element is entered before
     ``limit_fn(ray)`` (if given), when no element is hit, or when a ray
-    is absorbed inside an element.
+    is absorbed inside an element. An element already containing the ray
+    is visited at its nearest face hit and traced from its interior.
     """
     current = ray
     remaining = list(elements)
@@ -105,6 +106,22 @@ def traverse_stack(
         if result.outgoing_ray is None:
             return
         current = result.outgoing_ray
+
+
+def internal_rays(result: TraceResult) -> "Iterator[tuple[Ray, np.ndarray | None]]":
+    """Yield ``(ray, endpoint)`` for each segment traveled inside an element.
+
+    ``endpoint`` is ``None`` when the internal ray leaves the element's
+    interior without a recorded hit (open side or bounce limit reached).
+    """
+    path = result.internal_path
+    for i, segment in enumerate(path):
+        if i + 1 < len(path):
+            yield segment, path[i + 1].origin
+        elif result.exit_hit is not None:
+            yield segment, result.exit_hit.point
+        else:
+            yield segment, None
 
 
 def trace_stack(ray: Ray, elements: Sequence["RefractiveElement"]) -> Ray | None:
@@ -132,17 +149,12 @@ def trace_stack_path(
     current = ray
     kind = "incident"
     for _, result in traverse_stack(ray, elements):
-        assert result.incident_hit is not None
-        segments.append((current.origin, result.incident_hit.point, kind))
-        path = result.internal_path
-        for i, segment in enumerate(path):
-            if i + 1 < len(path):
-                end = path[i + 1].origin
-            elif result.exit_hit is not None:
-                end = result.exit_hit.point
-            else:
-                break
-            segments.append((segment.origin, end, "internal"))
+        if result.incident_hit is not None:
+            segments.append((current.origin, result.incident_hit.point, kind))
+        for segment, endpoint in internal_rays(result):
+            if endpoint is None:
+                continue
+            segments.append((segment.origin, endpoint, "internal"))
         if result.outgoing_ray is None:
             return segments, None
         current = result.outgoing_ray
@@ -161,6 +173,7 @@ class RefractiveElement:
         self.surface2 = surface2
         self.material = material
         self._sidewall: Any = _SIDEWALL_UNSET
+        self._local_aabb: tuple[np.ndarray, np.ndarray] | None = None
 
     @property
     def transform(self) -> Transform:
@@ -193,6 +206,61 @@ class RefractiveElement:
                 else:
                     self._sidewall = None
         return self._sidewall
+
+    def _local_bounds(self) -> "tuple[np.ndarray, np.ndarray]":
+        """Cached axis-aligned bounds of both surfaces in the local frame."""
+        if self._local_aabb is None:
+            lo = np.full(3, np.inf)
+            hi = np.full(3, -np.inf)
+            for surface in (self.surface1, self.surface2):
+                (u_min, u_max), (v_min, v_max) = surface.parameter_range
+                us = np.linspace(u_min, u_max, _c.CONTAINMENT_BOUNDS_N)
+                vs = np.linspace(v_min, v_max, _c.CONTAINMENT_BOUNDS_N)
+                U, V = np.meshgrid(us, vs)
+                pts = surface.evaluate_local(U, V).reshape(-1, 3)
+                pts = pts[np.all(np.isfinite(pts), axis=1)]
+                if pts.size == 0:
+                    continue
+                lo = np.minimum(lo, pts.min(axis=0))
+                hi = np.maximum(hi, pts.max(axis=0))
+            self._local_aabb = (lo, hi)
+        return self._local_aabb
+
+    def _local_surface_z(self, surface: Surface, local: np.ndarray) -> float | None:
+        """Local height of ``surface`` above ``(local[0], local[1])``."""
+        u = float(local[0])
+        v = float(local[1])
+        if surface.is_graph_over_xy:
+            if not surface.accepts_parameters(u, v):
+                return None
+        else:
+            uv = surface.parameters_at_xy(u, v)
+            if uv is None:
+                return None
+            u, v = uv
+        z = float(surface.evaluate_local(u, v)[2])
+        return z if np.isfinite(z) else None
+
+    def contains_point(self, p: np.ndarray | Sequence[float]) -> bool:
+        """Whether ``p`` lies inside the volume enclosed by this element.
+
+        The volume is the region between the two surfaces over their shared
+        aperture, expressed in the element's local frame; this matches the
+        graph-over-XY assumption already made by the sidewall and meshing
+        code. Points outside the aperture, or on elements whose surfaces are
+        not graphs over local XY, report ``False``.
+        """
+        local = self.transform.point_to_local(np.asarray(p, dtype=float))
+        if not np.all(np.isfinite(local)):
+            return False
+        lo, hi = self._local_bounds()
+        if np.any(local < lo) or np.any(local > hi):
+            return False
+        z1 = self._local_surface_z(self.surface1, local)
+        z2 = self._local_surface_z(self.surface2, local)
+        if z1 is None or z2 is None:
+            return False
+        return bool(min(z1, z2) < local[2] < max(z1, z2))
 
     def _candidate_hits(
         self, ray: Ray, min_t: float = 0.0
@@ -228,28 +296,43 @@ class RefractiveElement:
     def trace(self, ray: Ray) -> TraceResult:
         """Trace a ray through the closed element (surfaces + sidewall).
 
-        The ray refracts into the glass at its nearest face, bounces off
-        interior faces on total internal reflection (up to
-        ``_MAX_INTERNAL_BOUNCES``), and refracts out when it reaches a
-        subcritical hit.
+        A ray starting outside the element refracts into the glass at its
+        nearest face, bounces off interior faces on total internal
+        reflection (up to ``_MAX_INTERNAL_BOUNCES``), and refracts out when
+        it reaches a subcritical hit.
+
+        A ray originating inside the element is traced from that medium
+        instead: it refracts out (or reflects, on total internal
+        reflection) at its first face hit and reports ``incident_hit=None``.
         """
+        inside = self.contains_point(ray.origin)
         entry = self.first_hit(ray)
         if entry is None:
+            if inside:
+                # Originating inside an open element with no face ahead:
+                # the ray leaves through the opening undeviated.
+                return TraceResult(None, None, ray, (ray,), ray)
             return TraceResult(None, None, ray, (), None)
 
         n = self.material.refractive_index
         _, entry_hit, entry_normal = entry
-        d, _ = refract_or_reflect(
-            ray.direction, _orient(entry_normal, ray.direction), 1.0, n
-        )
 
         path: list[Ray] = []
-        current = Ray(entry_hit.point + _EPSILON * d, d, ray.power)
+        incident_hit: RayHit | None = None
+        if inside:
+            current = ray
+        else:
+            incident_hit = entry_hit
+            d, _ = refract_or_reflect(
+                ray.direction, _orient(entry_normal, ray.direction), 1.0, n
+            )
+            current = Ray(entry_hit.point + _EPSILON * d, d, ray.power)
+
         for _ in range(_MAX_INTERNAL_BOUNCES):
             internal = self._candidate_hits(current, min_t=_MIN_HIT_T)
             if internal is None:
                 path.append(current)
-                return TraceResult(entry_hit, None, ray, tuple(path), None)
+                return TraceResult(incident_hit, None, ray, tuple(path), None)
 
             _, face_hit, face_normal = internal
             path.append(current)
@@ -258,7 +341,7 @@ class RefractiveElement:
             )
             if refracted:
                 return TraceResult(
-                    entry_hit,
+                    incident_hit,
                     face_hit,
                     ray,
                     tuple(path),
@@ -267,4 +350,4 @@ class RefractiveElement:
             current = Ray(face_hit.point + _EPSILON * d, d, ray.power)
 
         path.append(current)
-        return TraceResult(entry_hit, None, ray, tuple(path), None)
+        return TraceResult(incident_hit, None, ray, tuple(path), None)

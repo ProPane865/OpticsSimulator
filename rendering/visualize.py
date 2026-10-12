@@ -1,6 +1,4 @@
-import json
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -8,7 +6,6 @@ from vispy import scene
 from vispy.color import get_colormap
 from vispy.scene import visuals
 
-from optics.config import stack_from_config
 from optics.measurement_plane import MeasurementPlane
 from optics.ray import Ray
 from optics.refraction import RefractiveElement, trace_stack_path
@@ -313,20 +310,6 @@ def build_ray_nodes(
     return nodes
 
 
-def draw_ray_stack(
-    view: Any, elements: "RefractiveElement | Sequence[RefractiveElement]", ray: Ray, ray_length: float = 3.0
-) -> list[Any]:
-    return build_ray_nodes(view, elements, [ray], ray_length=ray_length)
-
-
-def draw_ray(
-    view: Any, elements: "RefractiveElement | Sequence[RefractiveElement]", ray: Ray, ray_length: float = 3.0
-) -> list[Any]:
-    if isinstance(elements, RefractiveElement):
-        elements = [elements]
-    return draw_ray_stack(view, list(elements), ray, ray_length=ray_length)
-
-
 def create_canvas(width: int = 900, height: int = 700) -> Any:
     return scene.SceneCanvas(
         keys="interactive",
@@ -394,43 +377,3 @@ def clear_scene(view: Any) -> None:
     for node in list(view.scene.children):
         if node is not camera:
             node.parent = None
-
-
-def visualize(
-    elements: "RefractiveElement | Sequence[RefractiveElement]",
-    rays: "Ray | Sequence[Ray]",
-    x_range: "tuple[float, float]" = (-2.0, 2.0),
-    y_range: "tuple[float, float]" = (-2.0, 2.0),
-    ray_length: float = 3.0,
-    show: bool = True,
-) -> Any:
-    canvas = create_canvas()
-    view = canvas.central_widget.add_view(camera="turntable")
-    build_scene(view, elements, rays, x_range=x_range, y_range=y_range, ray_length=ray_length)
-
-    if show:
-        canvas.show(run=True)
-    return canvas
-
-
-def default_stack() -> list[RefractiveElement]:
-    schema_path = Path(__file__).resolve().parent.parent / "examples" / "doublet.json"
-    with open(schema_path) as f:
-        stack = json.load(f)
-    return stack_from_config(stack)
-
-
-def default_rays() -> list[Ray]:
-    return [
-        Ray(np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0),
-        Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0),
-        Ray(np.array([0.0, 0.4, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0),
-    ]
-
-
-def main() -> None:
-    visualize(default_stack(), default_rays(), ray_length=6.0)
-
-
-if __name__ == "__main__":
-    main()

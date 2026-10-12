@@ -6,6 +6,7 @@ import rendering.visualize as visualize
 from optics.measurement_plane import MeasurementPlane
 from optics.ray import Ray
 from optics.surface import Surface
+from rendering import demo
 from rendering.meshing import SurfaceMesher
 
 
@@ -181,9 +182,8 @@ def test_visualize_attaches_sidewall_when_aperture(make_element, monkeypatch):
     monkeypatch.setattr(visualize, "scene", types.SimpleNamespace(SceneCanvas=_FakeCanvas))
     monkeypatch.setattr(visualize, "make_surface_visual", lambda surface, color: ("surface", surface))
     monkeypatch.setattr(visualize, "make_wall_visual", lambda wall, color: ("wall", wall))
-    monkeypatch.setattr(visualize, "draw_ray", lambda view, element, ray, ray_length=3.0: None)
 
-    canvas = visualize.visualize(elem, [], show=False)
+    canvas = demo.visualize(elem, [], show=False)
 
     kinds = [payload[0] for _, payload in attached if isinstance(payload, tuple)]
     assert kinds.count("surface") == 2

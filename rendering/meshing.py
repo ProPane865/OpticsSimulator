@@ -64,7 +64,7 @@ class SurfaceMesher:
         edge_hi: list = []
         faces = []
 
-        def crossing_vertex(i0, j0, i1, j1):
+        def crossing_vertex(i0: int, j0: int, i1: int, j1: int) -> int:
             key = (i0, j0, i1, j1)
             idx = edge_index.get(key)
             if idx is None:

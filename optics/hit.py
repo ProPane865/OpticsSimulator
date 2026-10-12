@@ -11,8 +11,8 @@ class RayHit:
 
 @dataclass(frozen=True)
 class Hit(RayHit):
-    u: float | None = None
-    v: float | None = None
+    u: float
+    v: float
 
 
 @dataclass(frozen=True)

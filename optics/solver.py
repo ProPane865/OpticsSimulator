@@ -219,11 +219,7 @@ class SurfaceSolver:
                 continue
             for i, other in enumerate(hits):
                 if (
-                    hit.u is not None
-                    and other.u is not None
-                    and hit.v is not None
-                    and other.v is not None
-                    and abs(hit.u - other.u) < _DEDUP_UV_TOL
+                    abs(hit.u - other.u) < _DEDUP_UV_TOL
                     and abs(hit.v - other.v) < _DEDUP_UV_TOL
                 ):
                     if hit.t < other.t:

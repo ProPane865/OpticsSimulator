@@ -30,8 +30,14 @@ opticssim
 python -m ui.app
 ```
 
-The window loads `examples/doublet.json` by default. Use **File → Open** to load
-another stack and **File → Save As** to write one back.
+The window loads the bundled `optics/examples/doublet.json` by default. Use
+**File → Open** to load another stack and **File → Save As** to write one back.
+
+To view the example stack without the full UI:
+
+```bash
+python -m rendering.demo
+```
 
 ## Architecture
 
@@ -43,7 +49,10 @@ another stack and **File → Save As** to write one back.
   - `measurement_plane.py` planar detector accumulating ray power
   - `source.py`, `ray.py`, `aperture.py`, `material.py`, `transform.py`, `vector.py`
   - `config.py` JSON → element/stack loading
-- `rendering/` — vispy meshing (`meshing.py`) and scene building (`visualize.py`)
+  - `project.py` versioned project documents (elements + source + measurement planes)
+  - `examples/` bundled example stacks (package data)
+- `rendering/` — vispy meshing (`meshing.py`), scene building (`visualize.py`), and a
+  standalone demo (`demo.py`)
 - `ui/` — PySide6 desktop application (`app.py`, `main.ui`)
 
 ## Project file format

@@ -11,7 +11,7 @@ PySide6 = pytest.importorskip("PySide6")
 
 from PySide6 import QtWidgets
 
-import rendering.visualize as visualize
+from rendering import demo
 from ui.app import OpticsMainWindow, make_display
 
 
@@ -32,7 +32,7 @@ def test_window_title(qt_app):
 
 def test_canvas_embedded_in_opengl_widget(qt_app, make_element):
     elem = make_element("sqrt(1 - (x**2) - (y**2))", "0")
-    canvas = make_display([elem], visualize.default_rays())
+    canvas = make_display([elem], demo.default_rays())
     window = OpticsMainWindow(canvas)
 
     container = window.findChild(QtWidgets.QWidget, "openGLWidget")
@@ -55,7 +55,7 @@ def test_file_menu_is_populated(qt_app):
 
 def test_window_shows_with_scene(qt_app, make_element):
     elem = make_element("sqrt(1 - (x**2) - (y**2))", "0")
-    canvas = make_display([elem], visualize.default_rays())
+    canvas = make_display([elem], demo.default_rays())
     window = OpticsMainWindow(canvas)
     window.show()
     qt_app.processEvents()

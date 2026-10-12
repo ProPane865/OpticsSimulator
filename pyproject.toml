@@ -30,6 +30,7 @@ include = ["optics*", "rendering*", "ui*"]
 
 [tool.setuptools.package-data]
 ui = ["*.ui"]
+"optics.examples" = ["*.json"]
 
 [tool.ruff]
 line-length = 120
@@ -48,6 +49,6 @@ ignore_missing_imports = true
 no_implicit_reexport = true
 
 [[tool.mypy.overrides]]
-module = "optics.*"
+module = ["optics.*", "rendering.*", "ui.*"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

@@ -268,12 +268,7 @@ class RefractiveElement:
         hits: list[tuple[float, RayHit, np.ndarray]] = []
         for surface in (self.surface1, self.surface2):
             surface_hit = surface.intersect(ray)
-            if (
-                surface_hit is not None
-                and surface_hit.t > min_t
-                and surface_hit.u is not None
-                and surface_hit.v is not None
-            ):
+            if surface_hit is not None and surface_hit.t > min_t:
                 normal = surface.normal(surface_hit.u, surface_hit.v)
                 if normal is not None:
                     hits.append((surface_hit.t, surface_hit, np.asarray(normal, dtype=float)))

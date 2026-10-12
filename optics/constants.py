@@ -9,8 +9,6 @@ CONVERGED_F_NORM = 1e-12
 # product of their column norms are treated as rank-deficient and solved in a
 # least-squares sense (near-tangent / rim intersections).
 NEWTON_SINGULAR_REL = 1e-10
-# Maximum halvings of a Newton step that leaves the surface undefined.
-NEWTON_BACKTRACK = 40
 # Smallest accepted fraction of a Newton step before the iteration is abandoned.
 NEWTON_MIN_STEP = 1e-12
 # A step damped below this fraction means the iteration is pinned against the

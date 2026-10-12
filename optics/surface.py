@@ -44,8 +44,6 @@ class Surface:
         v_range=(-2.0, 2.0),
         aperture=None
     ):
-        self.u = sp.symbols("u")
-        self.v = sp.symbols("v")
         (
             self.x_expr,
             self.y_expr,
@@ -69,15 +67,6 @@ class Surface:
         self.u_range = (float(u_range[0]), float(u_range[1]))
         self.v_range = (float(v_range[0]), float(v_range[1]))
         self.aperture = Aperture.from_spec(aperture)
-        self._x = sp.lambdify((self.u, self.v), self.x_expr, modules=["numpy"])
-        self._y = sp.lambdify((self.u, self.v), self.y_expr, modules=["numpy"])
-        self._z = sp.lambdify((self.u, self.v), self.z_expr, modules=["numpy"])
-        self._rx = sp.lambdify((self.u, self.v), sp.diff(self.x_expr, self.u), modules=["numpy"])
-        self._ry = sp.lambdify((self.u, self.v), sp.diff(self.y_expr, self.u), modules=["numpy"])
-        self._rz = sp.lambdify((self.u, self.v), sp.diff(self.z_expr, self.u), modules=["numpy"])
-        self._sx = sp.lambdify((self.u, self.v), sp.diff(self.x_expr, self.v), modules=["numpy"])
-        self._sy = sp.lambdify((self.u, self.v), sp.diff(self.y_expr, self.v), modules=["numpy"])
-        self._sz = sp.lambdify((self.u, self.v), sp.diff(self.z_expr, self.v), modules=["numpy"])
         self.solver = SurfaceSolver(self)
 
     @property
@@ -187,15 +176,21 @@ class Surface:
             return None
         return self.transform.vector_to_world(n / norm)
 
-    def contains_parameters(self, u, v):
-        """Whether (u,v) is in the surface domain."""
+    def in_domain(self, u, v):
+        """Vectorized check whether parameters (u, v) lie in the domain."""
         tu = 1e-9 * max(1.0, abs(self.u_range[1] - self.u_range[0]))
         tv = 1e-9 * max(1.0, abs(self.v_range[1] - self.v_range[0]))
 
         return (
-            self.u_range[0] - tu <= u <= self.u_range[1] + tu
-            and self.v_range[0] - tv <= v <= self.v_range[1] + tv
+            (u >= self.u_range[0] - tu)
+            & (u <= self.u_range[1] + tu)
+            & (v >= self.v_range[0] - tv)
+            & (v <= self.v_range[1] + tv)
         )
+
+    def contains_parameters(self, u, v):
+        """Whether (u,v) is in the surface domain."""
+        return bool(self.in_domain(float(u), float(v)))
 
     def accepts_parameters(self, u, v):
         """Includes aperture restrictions."""

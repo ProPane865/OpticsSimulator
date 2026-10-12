@@ -23,9 +23,14 @@ def surface_from_config(config, transform):
 
 def refractive_element_from_config(
     config,
-    orientation=np.array([0.0, 0.0, 1.0]),
+    orientation=None,
     position=None,
 ):
+    orientation = (
+        np.array([0.0, 0.0, 1.0])
+        if orientation is None
+        else np.asarray(orientation, dtype=float)
+    )
     position = np.zeros(3) if position is None else np.asarray(position, dtype=float)
     transform = Transform(rotation_from_z(orientation), position)
 
@@ -43,7 +48,7 @@ def refractive_element_from_config(
 
 def refractive_element_from_json(
     schema,
-    orientation=np.array([0.0, 0.0, 1.0]),
+    orientation=None,
     position=None,
 ):
     return refractive_element_from_config(

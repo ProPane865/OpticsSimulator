@@ -5,6 +5,7 @@ from .sidewall import LensSidewall
 from .material import Material
 from .hit import Hit, MeshHit
 from .ray import Ray
+from .vector import normalize
 
 from dataclasses import dataclass
 
@@ -15,10 +16,10 @@ _MIN_HIT_T = 1e-7
 _MAX_INTERNAL_BOUNCES = 8
 
 def _reflect_direction(incident, normal):
-    return incident - 2.0 * float(np.dot(normal, incident)) * normal
+    return normalize(incident - 2.0 * float(np.dot(normal, incident)) * normal)
 
 def _refract_direction(incident, normal, eta, cos_i, k):
-    return eta * incident + (np.sqrt(k) - eta * cos_i) * normal
+    return normalize(eta * incident + (np.sqrt(k) - eta * cos_i) * normal)
 
 def _orient(normal, incident):
     """Align the surface normal with the incident ray direction."""
@@ -54,15 +55,37 @@ class TraceResult:
     outgoing_ray: Ray | None
 
 
-def _nearest_entry(elements, ray):
+def _nearest_entry(elements, ray, t_max=np.inf):
     best = None
     for element in elements:
         entry = element.first_hit(ray)
-        if entry is None:
+        if entry is None or entry[0] >= t_max:
             continue
         if best is None or entry[0] < best[0]:
             best = (entry[0], element)
     return best
+
+
+def traverse_stack(ray, elements, limit_fn=None):
+    """Yield ``(element, TraceResult)`` visiting elements in geometric order.
+
+    Iteration stops when no remaining element is entered before
+    ``limit_fn(ray)`` (if given), when no element is hit, or when a ray
+    is absorbed inside an element.
+    """
+    current = ray
+    remaining = list(elements)
+    while remaining:
+        t_max = np.inf if limit_fn is None else float(limit_fn(current))
+        best = _nearest_entry(remaining, current, t_max)
+        if best is None:
+            return
+        remaining.remove(best[1])
+        result = best[1].trace(current)
+        yield best[1], result
+        if result.outgoing_ray is None:
+            return
+        current = result.outgoing_ray
 
 
 def trace_stack(ray, elements):
@@ -72,16 +95,8 @@ def trace_stack(ray, elements):
     independent of their order in the stack.
     """
     current = ray
-    remaining = list(elements)
-    while remaining:
-        best = _nearest_entry(remaining, current)
-        if best is None:
-            break
-        remaining.remove(best[1])
-        out = best[1].trace(current).outgoing_ray
-        if out is None:
-            return None
-        current = out
+    for _, result in traverse_stack(ray, elements):
+        current = result.outgoing_ray
     return current
 
 
@@ -94,15 +109,8 @@ def trace_stack_path(ray, elements, ray_length=3.0):
     """
     segments = []
     current = ray
-    remaining = list(elements)
     kind = "incident"
-    while remaining:
-        best = _nearest_entry(remaining, current)
-        if best is None:
-            break
-        element = best[1]
-        remaining.remove(element)
-        result = element.trace(current)
+    for _, result in traverse_stack(ray, elements):
         if result.incident_hit is None:
             continue
         segments.append((current.origin, result.incident_hit.point, kind))
@@ -115,10 +123,9 @@ def trace_stack_path(ray, elements, ray_length=3.0):
             else:
                 break
             segments.append((segment.origin, end, "internal"))
-        out = result.outgoing_ray
-        if out is None:
+        if result.outgoing_ray is None:
             return segments, None
-        current = out
+        current = result.outgoing_ray
         kind = "exit"
     end = current.origin + ray_length * current.direction
     segments.append((current.origin, end, kind))

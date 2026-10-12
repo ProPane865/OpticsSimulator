@@ -9,7 +9,7 @@ from vispy.color import get_colormap
 from rendering.meshing import SurfaceMesher
 from optics.ray import Ray
 from optics.refraction import RefractiveElement, trace_stack_path
-from optics.config import refractive_element_from_config, stack_from_config
+from optics.config import stack_from_config
 
 SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
 SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.25)

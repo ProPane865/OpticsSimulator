@@ -1,5 +1,6 @@
 import numpy as np
 
+from .refraction import traverse_stack
 from .vector import normalize
 
 _EPS = 1e-12
@@ -63,7 +64,7 @@ class MeasurementPlane:
         ro = ray.origin
         if not (np.all(np.isfinite(ro)) and np.all(np.isfinite(d))):
             return None
-        if abs(self.n[2]) <= _EPS or abs(d[2]) <= _EPS:
+        if abs(self.n[2]) <= _EPS or abs(float(np.dot(d, self.n))) <= _EPS:
             return None
 
         nxnz = (self.n[0] / self.n[2])
@@ -127,6 +128,12 @@ class MeasurementPlane:
         np.add.at(self.grid, (j, i), power[valid])
         return float(np.sum(power[valid]))
 
+    def _entry_limit(self, ray):
+        hit = self.intersect(ray)
+        if hit is None:
+            return -1.0
+        return float(np.dot(hit[0] - ray.origin, ray.direction))
+
     def _trace_to_plane(self, ray, elements):
         """Trace a ray through elements in geometric order up to the plane.
 
@@ -135,29 +142,8 @@ class MeasurementPlane:
         own position regardless of the element list order.
         """
         current = ray
-        remaining = list(elements)
-        while remaining:
-            hit = self.intersect(current)
-            if hit is None:
-                return None
-            t_plane = float(np.dot(hit[0] - current.origin, current.direction))
-
-            best = None
-            for element in remaining:
-                entry = element.first_hit(current)
-                if entry is None or entry[0] >= t_plane:
-                    continue
-                if best is None or entry[0] < best[0]:
-                    best = (entry[0], element)
-
-            if best is None:
-                return current
-
-            remaining.remove(best[1])
-            out = best[1].trace(current).outgoing_ray
-            if out is None:
-                return None
-            current = out
+        for _, result in traverse_stack(ray, elements, self._entry_limit):
+            current = result.outgoing_ray
         return current
 
     def _measure_element_stack(self, rays, elements=None):

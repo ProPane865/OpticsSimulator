@@ -3,6 +3,65 @@ import numpy as np
 from .ray import Ray
 from .hit import Hit
 
+_MAX_NEWTON_ITER = 50
+_STEP_REL_TOL = 1e-14
+_CLAMP_REL = 0.5
+_CONVERGED_F_NORM = 1e-12
+_DEDUP_UV_TOL = 1e-6
+
+_CONVERGED = "converged"
+_STALLED = "stalled"
+_EXHAUSTED = "exhausted"
+
+_PARAM_TOL = {_CONVERGED: 1e-11, _STALLED: 1e-9, _EXHAUSTED: 1e-8}
+_HIT_TOL = {_CONVERGED: 1e-11, _STALLED: 1e-10, _EXHAUSTED: 1e-10}
+
+
+def _newton(residual, jacobian, x0, clamp=False):
+    """Damped Newton iteration for ``residual(x) = 0``.
+
+    Returns ``(x, f_norm, status)`` where ``status`` is one of
+    ``_CONVERGED``, ``_STALLED``, or ``_EXHAUSTED``, or
+    ``(None, None, None)`` if the iteration failed.
+    """
+    x = np.array(x0, dtype=float)
+    status = _EXHAUSTED
+    for _ in range(_MAX_NEWTON_ITER):
+        F = residual(x)
+        if F is None or not np.all(np.isfinite(F)):
+            return None, None, None
+        f_norm = float(np.linalg.norm(F))
+        if f_norm < _CONVERGED_F_NORM:
+            return x, f_norm, _CONVERGED
+        J = jacobian(x)
+        if J is None or not np.all(np.isfinite(J)):
+            return None, None, None
+        try:
+            if J.shape[0] == J.shape[1]:
+                delta = np.linalg.solve(J, -F)
+            else:
+                delta = np.linalg.lstsq(J, -F, rcond=None)[0]
+        except np.linalg.LinAlgError:
+            return None, None, None
+        if not np.all(np.isfinite(delta)):
+            return None, None, None
+        step_norm = float(np.linalg.norm(delta))
+        if clamp:
+            clamp_scale = max(1.0, float(np.max(np.abs(x))))
+            if step_norm > _CLAMP_REL * clamp_scale:
+                delta = delta * (_CLAMP_REL * clamp_scale / step_norm)
+        x = x + delta
+        if not np.all(np.isfinite(x)):
+            return None, None, None
+        if step_norm < _STEP_REL_TOL * max(1.0, float(np.max(np.abs(x)))):
+            status = _STALLED
+            break
+    F = residual(x)
+    if F is None or not np.all(np.isfinite(F)):
+        return None, None, None
+    return x, float(np.linalg.norm(F)), status
+
+
 class SurfaceSolver:
     def __init__(self, surface):
         self.surface = surface
@@ -67,149 +126,59 @@ class SurfaceSolver:
         if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
             return None
         ray = Ray(o, d, ray.power)
+        hits = []
         for u0, v0, t0 in self._intersection_seeds(ray):
             hit = self._newton_intersection(ray, u0, v0, t0)
-            if hit is not None:
-                return hit
-        return None
+            if hit is None:
+                continue
+            for i, other in enumerate(hits):
+                if abs(hit.u - other.u) < _DEDUP_UV_TOL and abs(hit.v - other.v) < _DEDUP_UV_TOL:
+                    if hit.t < other.t:
+                        hits[i] = hit
+                    break
+            else:
+                hits.append(hit)
+        if not hits:
+            return None
+        return min(hits, key=lambda h: h.t)
 
     def _solve_parameters_point(self, p, u, v):
-        for _ in range(50):
-            puv = self.surface.evaluate_local(u, v)
-            F = puv - p
-            if not np.all(np.isfinite(F)):
-                return None
-            f_norm = float(np.linalg.norm(F))
-            if f_norm < 1e-11:
-                if self.surface.accepts_parameters(u, v):
-                    return float(u), float(v)
-                return None
-            ru, rv = self.surface.derivatives_local(u, v)
-            if not (np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))):
-                return None
-            J = np.column_stack((ru, rv))
-            try:
-                delta = np.linalg.lstsq(J, -F, rcond=None)[0]
-            except np.linalg.LinAlgError:
-                return None
-            if not np.all(np.isfinite(delta)):
-                return None
-            u += float(delta[0])
-            v += float(delta[1])
-            if not (np.isfinite(u) and np.isfinite(v)):
-                return None
-            step_norm = float(np.linalg.norm(delta))
-            if step_norm < 1e-14 * max(1.0, abs(u), abs(v)):
-                puv = self.surface.evaluate_local(u, v)
-                F = puv - p
-                if (
-                    np.all(np.isfinite(F))
-                    and float(np.linalg.norm(F)) < 1e-9
-                    and self.surface.accepts_parameters(u, v)
-                ):
-                    return float(u), float(v)
-                return None
-        puv = self.surface.evaluate_local(u, v)
-        F = puv - p
-        if (
-            np.all(np.isfinite(F))
-            and float(np.linalg.norm(F)) < 1e-8
-            and self.surface.accepts_parameters(u, v)
-        ):
-            return float(u), float(v)
-        return None
+        def residual(x):
+            return self.surface.evaluate_local(float(x[0]), float(x[1])) - p
+
+        def jacobian(x):
+            ru, rv = self.surface.derivatives_local(float(x[0]), float(x[1]))
+            return np.column_stack((ru, rv))
+
+        x, f_norm, status = _newton(residual, jacobian, (u, v))
+        if x is None or f_norm >= _PARAM_TOL[status]:
+            return None
+        u = float(x[0])
+        v = float(x[1])
+        if not self.surface.accepts_parameters(u, v):
+            return None
+        return u, v
 
     def _solve_parameters_xy(self, x_target, y_target, u, v):
-        for _ in range(50):
-            p = self.surface.evaluate_local(u, v)
+        def residual(x):
+            p = self.surface.evaluate_local(float(x[0]), float(x[1]))
+            return np.array([p[0] - x_target, p[1] - y_target])
 
-            if not np.all(np.isfinite(p)):
-                return None
-
-            F = np.array([
-                p[0] - x_target,
-                p[1] - y_target
-            ])
-
-            f_norm = float(np.linalg.norm(F))
-
-            if f_norm < 1e-11:
-                if self.surface.accepts_parameters(u, v):
-                    return float(u), float(v)
-                return None
-
-            ru, rv = self.surface.derivatives_local(u, v)
-
-            if not (
-                np.all(np.isfinite(ru))
-                and np.all(np.isfinite(rv))
-            ):
-                return None
-
-            J = np.array([
+        def jacobian(x):
+            ru, rv = self.surface.derivatives_local(float(x[0]), float(x[1]))
+            return np.array([
                 [ru[0], rv[0]],
-                [ru[1], rv[1]]
+                [ru[1], rv[1]],
             ])
 
-            try:
-                delta = np.linalg.solve(J, -F)
-            except np.linalg.LinAlgError:
-                return None
-
-            if not np.all(np.isfinite(delta)):
-                return None
-
-            u += float(delta[0])
-            v += float(delta[1])
-
-            if not (np.isfinite(u) and np.isfinite(v)):
-                return None
-
-            step_norm = float(np.linalg.norm(delta))
-
-            if step_norm < 1e-14 * max(1.0, abs(u), abs(v)):
-                p = self.surface.evaluate_local(u, v)
-                F = np.array([
-                    p[0] - x_target,
-                    p[1] - y_target
-                ])
-                if (
-                    np.all(np.isfinite(F))
-                    and float(np.linalg.norm(F)) < 1e-9
-                    and self.surface.accepts_parameters(u, v)
-                ):
-                    return float(u), float(v)
-                return None
-
-        p = self.surface.evaluate_local(u, v)
-
-        if not np.all(np.isfinite(p)):
+        x, f_norm, status = _newton(residual, jacobian, (u, v))
+        if x is None or f_norm >= _PARAM_TOL[status]:
             return None
-
-        F = np.array([
-            p[0] - x_target,
-            p[1] - y_target
-        ])
-
-        if (
-            np.all(np.isfinite(F))
-            and float(np.linalg.norm(F)) < 1e-8
-            and self.surface.accepts_parameters(u, v)
-        ):
-            return float(u), float(v)
-
-        return None
-
-    def _domain_mask(self, uf, vf):
-        s = self.surface
-        tu = 1e-9 * max(1.0, abs(s.u_range[1] - s.u_range[0]))
-        tv = 1e-9 * max(1.0, abs(s.v_range[1] - s.v_range[0]))
-        return (
-            (uf >= s.u_range[0] - tu)
-            & (uf <= s.u_range[1] + tu)
-            & (vf >= s.v_range[0] - tv)
-            & (vf <= s.v_range[1] + tv)
-        )
+        u = float(x[0])
+        v = float(x[1])
+        if not self.surface.accepts_parameters(u, v):
+            return None
+        return u, v
 
     def _aperture_mask(self, uf, vf, pts):
         s = self.surface
@@ -228,7 +197,7 @@ class SurfaceSolver:
         finite = np.all(np.isfinite(pts), axis=1)
         uf = U.ravel()
         vf = V.ravel()
-        mask = finite & self._domain_mask(uf, vf)
+        mask = finite & self.surface.in_domain(uf, vf)
         if self.surface.aperture is not None:
             mask = mask & self._aperture_mask(uf, vf, pts)
         return mask
@@ -290,45 +259,20 @@ class SurfaceSolver:
             for idx in order[:max_seeds]
         ]
 
-    def _accept_intersection(self, ray, t, u, v, tol):
-        p = self.surface.point(u, v)
-        F = p - ray.at(t)
-        if (
-            np.all(np.isfinite(F))
-            and float(np.linalg.norm(F)) < tol
-            and t > 0.0
-            and self.surface.accepts_parameters(u, v)
-        ):
+    def _accept_intersection(self, ray, t, u, v):
+        if t > 0.0 and self.surface.accepts_parameters(u, v):
             return Hit(ray.at(t), float(t), float(u), float(v))
         return None
 
     def _newton_intersection(self, ray, u, v, t):
-        for _ in range(50):
-            p = self.surface.point(u, v)
-            F = p - ray.at(t)
-            if not np.all(np.isfinite(F)):
-                return None
-            if float(np.linalg.norm(F)) < 1e-12:
-                return self._accept_intersection(ray, t, u, v, 1e-11)
-            ru, rv = self.surface.tangents(u, v)
-            if not (np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))):
-                return None
-            A = np.column_stack((-ray.direction, ru, rv))
-            try:
-                delta = np.linalg.solve(A, -F)
-            except np.linalg.LinAlgError:
-                return None
-            if not np.all(np.isfinite(delta)):
-                return None
-            scale = max(1.0, abs(t), abs(u), abs(v))
-            step_norm = float(np.linalg.norm(delta))
-            if step_norm > 0.5 * scale:
-                delta = delta * (0.5 * scale / step_norm)
-            t += float(delta[0])
-            u += float(delta[1])
-            v += float(delta[2])
-            if not (np.isfinite(t) and np.isfinite(u) and np.isfinite(v)):
-                return None
-            if step_norm < 1e-14 * scale:
-                return self._accept_intersection(ray, t, u, v, 1e-10)
-        return self._accept_intersection(ray, t, u, v, 1e-10)
+        def residual(x):
+            return self.surface.point(float(x[1]), float(x[2])) - ray.at(float(x[0]))
+
+        def jacobian(x):
+            ru, rv = self.surface.tangents(float(x[1]), float(x[2]))
+            return np.column_stack((-ray.direction, ru, rv))
+
+        x, f_norm, status = _newton(residual, jacobian, (t, u, v), clamp=True)
+        if x is None or f_norm >= _HIT_TOL[status]:
+            return None
+        return self._accept_intersection(ray, float(x[0]), float(x[1]), float(x[2]))

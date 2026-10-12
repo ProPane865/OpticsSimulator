@@ -19,14 +19,7 @@ class SurfaceMesher:
 
     def _valid_uv_array(self, u, v):
         surface = self.surface
-        tu = 1e-9 * max(1.0, abs(surface.u_range[1] - surface.u_range[0]))
-        tv = 1e-9 * max(1.0, abs(surface.v_range[1] - surface.v_range[0]))
-        ok = (
-            (u >= surface.u_range[0] - tu)
-            & (u <= surface.u_range[1] + tu)
-            & (v >= surface.v_range[0] - tv)
-            & (v <= surface.v_range[1] + tv)
-        )
+        ok = surface.in_domain(u, v)
         pts = surface.evaluate_local(u, v)
         ok &= np.all(np.isfinite(pts), axis=-1)
         if surface.aperture is not None:

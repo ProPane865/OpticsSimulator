@@ -1,6 +1,7 @@
 import numpy as np
 
 from optics.ray import Ray
+from optics.surface import Surface
 
 BICONE_S1 = "3 - 0.3*sqrt(x**2 + y**2)"
 BICONE_S2 = "-1 + 2*sqrt(x**2 + y**2)"
@@ -81,3 +82,17 @@ def test_bicone_pavilion_exit(make_element):
 def test_far_miss_returns_none(sphere):
     hit = sphere.surface1.intersect(Ray(np.array([5.0, 0.0, 5.0]), np.array([1.0, 0.0, 0.0]), 1.0))
     assert hit is None
+
+
+def test_multiple_intersections_return_nearest():
+    cylinder = Surface(
+        "cos(u)",
+        "v",
+        "sin(u)",
+        u_range=(0.0, 2.0 * np.pi),
+        v_range=(-1.0, 1.0),
+    )
+    ray = Ray(np.array([3.0, 0.0, 0.0]), np.array([-1.0, 0.0, 0.0]), 1.0)
+    hit = cylinder.intersect(ray)
+    assert hit is not None
+    np.testing.assert_allclose(hit.point, [1.0, 0.0, 0.0], atol=1e-8)

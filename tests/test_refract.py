@@ -4,6 +4,7 @@ import pytest
 from optics.ray import Ray
 from optics.hit import MeshHit
 from optics.refraction import (
+    refract_or_reflect,
     trace_direction,
     trace_stack,
     trace_stack_path,
@@ -26,6 +27,19 @@ def _refract_direction(d_in: np.ndarray, n_face: np.ndarray, eta: float) -> np.n
     cos_t = np.sqrt(k)
     t = eta * d_in + (eta * cos_i - cos_t) * n_face
     return t / np.linalg.norm(t)
+
+
+def test_refract_or_reflect_returns_unit_direction():
+    incident = np.array([1.0, 0.0, -1.0]) / np.sqrt(2.0)
+    normal = np.array([0.0, 0.0, -1.0])
+
+    d, refracted = refract_or_reflect(incident, normal, 1.0, 1.5)
+    assert refracted
+    np.testing.assert_allclose(np.linalg.norm(d), 1.0, atol=1e-12)
+
+    d, refracted = refract_or_reflect(incident, normal, 1.5, 1.0)
+    assert not refracted
+    np.testing.assert_allclose(np.linalg.norm(d), 1.0, atol=1e-12)
 
 
 def test_sphere_on_axis_no_deflection(sphere):

@@ -42,6 +42,23 @@ def test_intersect_parallel_returns_none():
     assert plane.intersect(ray) is None
 
 
+def test_intersect_horizontal_ray_on_tilted_plane():
+    plane = _plane(normal=(0.0, 0.6, 0.8), origin=(0.0, 0.0, 0.0))
+    ray = Ray(np.array([0.0, -5.0, 1.0]), np.array([0.0, 1.0, 0.0]), 1.0)
+    hit = plane.intersect(ray)
+    assert hit is not None
+    point, u, v = hit
+    np.testing.assert_allclose(point, [0.0, -4.0 / 3.0, 1.0], atol=1e-9)
+    assert u == pytest.approx(0.0)
+    assert v == pytest.approx(-4.0 / 3.0)
+
+
+def test_intersect_ray_parallel_to_tilted_plane_returns_none():
+    plane = _plane(normal=(0.0, 0.6, 0.8), origin=(0.0, 0.0, 0.0))
+    ray = Ray(np.array([0.0, -5.0, 1.0]), np.array([1.0, 0.0, 0.0]), 1.0)
+    assert plane.intersect(ray) is None
+
+
 def test_point_satisfies_plane_equation():
     plane = _plane(normal=(0.0, 0.6, 0.8), origin=(0.0, 0.0, 0.0))
     for u, v in ((0.0, 0.0), (1.3, -0.7), (-2.0, 2.0)):

@@ -242,3 +242,41 @@ def test_build_measurement_nodes_attaches_mesh_and_outline():
     assert len(view.added) == 5
     assert type(nodes[0]).__name__ == "Mesh"
     assert all(type(n).__name__ == "Line" for n in nodes[1:])
+
+
+def test_build_ray_nodes_batches_segments_and_markers(make_element):
+    elem = make_element(
+        "sqrt(1 - (x**2) - (y**2))",
+        "-sqrt(1 - (x**2) - (y**2))",
+        aperture_radius=0.5,
+    )
+    rays = [
+        Ray(np.array([x, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0)
+        for x in (-0.2, 0.0, 0.2)
+    ]
+    view = _FakeView()
+    nodes = visualize.build_ray_nodes(view, [elem], rays, ray_length=2.0)
+
+    kinds = [type(n).__name__ for n in nodes]
+    assert kinds.count("Line") == 1
+    assert kinds.count("Mesh") <= 1
+    line = next(n for n in nodes if type(n).__name__ == "Line")
+    assert line.pos.shape[1:] == (2, 3)
+    assert line.pos.shape[0] >= len(rays)
+
+
+def test_build_ray_nodes_empty_rays():
+    view = _FakeView()
+    assert visualize.build_ray_nodes(view, [], []) == []
+    assert view.added == []
+
+
+def test_build_ray_nodes_skips_non_finite_rays():
+    view = _FakeView()
+    bad = types.SimpleNamespace(
+        origin=np.array([np.nan, 0.0, 0.0]),
+        direction=np.array([0.0, 0.0, -1.0]),
+        power=1.0,
+    )
+    assert visualize.build_ray_nodes(view, [], [bad], ray_length=2.0) == []
+    assert view.added == []

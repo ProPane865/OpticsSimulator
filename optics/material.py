@@ -6,7 +6,7 @@ from dataclasses import dataclass
 class Material:
     refractive_index: float
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         n = float(self.refractive_index)
         if not math.isfinite(n) or n <= 0.0:
             raise ValueError("Refractive index must be finite and positive")

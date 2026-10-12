@@ -1,11 +1,16 @@
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
 
 from . import constants as _c
 
+if TYPE_CHECKING:
+    from .surface import Surface
+
 
 class Aperture:
     @staticmethod
-    def from_spec(spec):
+    def from_spec(spec: "Aperture | dict[str, Any] | None") -> "Aperture | None":
         if spec is None:
             return None
         if isinstance(spec, Aperture):
@@ -20,10 +25,18 @@ class Aperture:
             raise ValueError(f"Unknown aperture type: {kind}")
         raise TypeError(f"Unsupported aperture spec: {spec!r}")
 
-    def contains(self, surface, u, v) -> bool:
+    def contains(self, surface: "Surface", u: float, v: float) -> bool:
         raise NotImplementedError
 
-    def mask(self, surface, U, V, X, Y, Z):
+    def mask(
+        self,
+        surface: "Surface",
+        U: np.ndarray,
+        V: np.ndarray,
+        X: np.ndarray,
+        Y: np.ndarray,
+        Z: np.ndarray,
+    ) -> np.ndarray:
         """Vectorized aperture membership over parameter arrays ``U``/``V``.
 
         The default implementation evaluates :meth:`contains` point by point;
@@ -40,15 +53,19 @@ class Aperture:
         )
         return out.reshape(U.shape)
 
-    def boundary(self, surface, n=_c.APERTURE_BOUNDARY_N) -> np.ndarray:
+    def boundary(self, surface: "Surface", n: int = _c.APERTURE_BOUNDARY_N) -> np.ndarray:
         raise NotImplementedError
 
+
 class CircularAperture(Aperture):
-    def __init__(self, radius, center=(0.0, 0.0)):
+    radius: float
+    center: np.ndarray
+
+    def __init__(self, radius: float, center: "tuple[float, float] | list[float]" = (0.0, 0.0)) -> None:
         self.radius = float(radius)
         self.center = np.array(center, dtype=float)
 
-    def contains(self, surface, u, v) -> bool:
+    def contains(self, surface: "Surface", u: float, v: float) -> bool:
         p = surface.evaluate_local(u, v)
 
         if not np.all(np.isfinite(p)):
@@ -59,7 +76,15 @@ class CircularAperture(Aperture):
 
         return dx ** 2 + dy ** 2 <= self.radius ** 2 + _c.APERTURE_EPS
 
-    def mask(self, surface, U, V, X, Y, Z):
+    def mask(
+        self,
+        surface: "Surface",
+        U: np.ndarray,
+        V: np.ndarray,
+        X: np.ndarray,
+        Y: np.ndarray,
+        Z: np.ndarray,
+    ) -> np.ndarray:
         finite = (
             np.isfinite(X)
             & np.isfinite(Y)
@@ -74,7 +99,7 @@ class CircularAperture(Aperture):
             & (dx ** 2 + dy ** 2 <= self.radius ** 2 + _c.APERTURE_EPS)
         )
 
-    def boundary(self, surface, n=_c.APERTURE_BOUNDARY_N):
+    def boundary(self, surface: "Surface", n: int = _c.APERTURE_BOUNDARY_N) -> np.ndarray:
         theta = np.linspace(0, 2.0 * np.pi, n, endpoint=False)
         targets = np.column_stack([
             self.center[0] + self.radius * np.cos(theta),

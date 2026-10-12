@@ -10,7 +10,7 @@ class Transform:
     rotation: np.ndarray
     translation: np.ndarray
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         rotation = np.asarray(self.rotation, dtype=float)
         translation = np.asarray(self.translation, dtype=float)
 
@@ -26,23 +26,23 @@ class Transform:
         object.__setattr__(self, "rotation", rotation)
         object.__setattr__(self, "translation", translation)
 
-    def point_to_world(self, p):
+    def point_to_world(self, p: np.ndarray) -> np.ndarray:
         return self.rotation @ p + self.translation
 
-    def point_to_local(self, p):
+    def point_to_local(self, p: np.ndarray) -> np.ndarray:
         return self.rotation.T @ (p - self.translation)
 
-    def points_to_world(self, points):
+    def points_to_world(self, points: np.ndarray) -> np.ndarray:
         pts = np.asarray(points, dtype=float).T
         return (self.rotation @ pts + self.translation[:, None]).T
 
-    def vector_to_world(self, v):
+    def vector_to_world(self, v: np.ndarray) -> np.ndarray:
         return self.rotation @ v
 
-    def vector_to_local(self, v):
+    def vector_to_local(self, v: np.ndarray) -> np.ndarray:
         return self.rotation.T @ v
 
-    def ray_to_local(self, ray):
+    def ray_to_local(self, ray: Ray) -> Ray:
         return Ray(
             self.point_to_local(ray.origin),
             self.vector_to_local(ray.direction),

@@ -1,23 +1,27 @@
 import functools
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import sympy as sp
 
 from . import constants as _c
 from .aperture import Aperture
+from .hit import Hit
+from .ray import Ray
 from .solver import SurfaceSolver
 from .transform import Transform
 
 
 @functools.lru_cache(maxsize=64)
-def _compile_parametric_surface(x_src, y_src, z_src):
+def _compile_parametric_surface(x_src: str, y_src: str, z_src: str) -> tuple[Any, ...]:
     u = sp.symbols("u")
     v = sp.symbols("v")
     x_expr = sp.parse_expr(x_src)
     y_expr = sp.parse_expr(y_src)
     z_expr = sp.parse_expr(z_src)
 
-    def lam(expr):
+    def lam(expr: sp.Expr) -> Any:
         return sp.lambdify((u, v), expr, modules=["numpy"])
 
     return (
@@ -38,14 +42,14 @@ def _compile_parametric_surface(x_src, y_src, z_src):
 class Surface:
     def __init__(
         self,
-        x_expr,
-        y_expr,
-        z_expr,
-        transform=None,
-        u_range=(-2.0, 2.0),
-        v_range=(-2.0, 2.0),
-        aperture=None
-    ):
+        x_expr: Any,
+        y_expr: Any,
+        z_expr: Any,
+        transform: "Transform | np.ndarray | None" = None,
+        u_range: "Sequence[float]" = (-2.0, 2.0),
+        v_range: "Sequence[float]" = (-2.0, 2.0),
+        aperture: "Aperture | dict[str, Any] | None" = None,
+    ) -> None:
         (
             self.x_expr,
             self.y_expr,
@@ -72,35 +76,47 @@ class Surface:
         self.solver = SurfaceSolver(self)
 
     @property
-    def parameter_range(self):
+    def parameter_range(self) -> "tuple[tuple[float, float], tuple[float, float]]":
         return (self.u_range, self.v_range)
 
-    def point(self, u, v):
+    def point(self, u: float, v: float) -> np.ndarray:
         return self.transform.point_to_world(self.evaluate_local(u, v))
 
-    def tangents(self, u, v):
+    def tangents(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
         ru, rv = self.derivatives_local(u, v)
         return self.transform.vector_to_world(ru), self.transform.vector_to_world(rv)
 
-    def _inside_aperture(self, u, v):
+    def _inside_aperture(self, u: float, v: float) -> bool:
         if self.aperture is None:
             return True
 
         return self.aperture.contains(self, u, v)
 
-    def parameters_at(self, pos):
+    def parameters_at(self, pos: np.ndarray | Sequence[float]) -> "tuple[float, float] | None":
         return self.solver.parameters_at(pos)
 
-    def parameters_at_xy(self, x, y, seed=None):
+    def parameters_at_xy(
+        self,
+        x: float,
+        y: float,
+        seed: "tuple[float, float] | None" = None,
+    ) -> "tuple[float, float] | None":
         return self.solver.parameters_at_xy(x, y, seed=seed)
 
-    def normal_at(self, pos):
+    def normal_at(self, pos: np.ndarray | Sequence[float]) -> np.ndarray | None:
         uv = self.parameters_at(pos)
         if uv is None:
             return None
         return self.normal(uv[0], uv[1])
 
-    def aperture_mask(self, U, V, X, Y, Z):
+    def aperture_mask(
+        self,
+        U: np.ndarray,
+        V: np.ndarray,
+        X: np.ndarray,
+        Y: np.ndarray,
+        Z: np.ndarray,
+    ) -> np.ndarray:
         finite = (
             np.isfinite(X)
             & np.isfinite(Y)
@@ -112,14 +128,14 @@ class Surface:
 
         return self.aperture.mask(self, U, V, X, Y, Z)
 
-    def intersect(self, ray):
+    def intersect(self, ray: Ray) -> Hit | None:
         return self.solver.intersect(ray)
 
-    def evaluate(self, u, v):
+    def evaluate(self, u: float, v: float) -> np.ndarray:
         """World-space point."""
         return self.transform.point_to_world(self.evaluate_local(u, v))
 
-    def evaluate_local(self, U, V):
+    def evaluate_local(self, U: Any, V: Any) -> np.ndarray:
         """Local-space point (can be array)."""
         U = np.asarray(U, dtype=float)
         V = np.asarray(V, dtype=float)
@@ -143,7 +159,7 @@ class Surface:
 
         return np.stack((X, Y, Z), axis=-1)
 
-    def derivatives_local(self, u, v):
+    def derivatives_local(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
         """Return du and dv tangent vectors."""
         u = float(u)
         v = float(v)
@@ -166,7 +182,7 @@ class Surface:
             )
         return ru, rv
 
-    def normal(self, u, v):
+    def normal(self, u: float, v: float) -> np.ndarray | None:
         """World-space unit normal."""
         if not self.accepts_parameters(u, v):
             return None
@@ -178,7 +194,7 @@ class Surface:
             return None
         return self.transform.vector_to_world(n / norm)
 
-    def in_domain(self, u, v):
+    def in_domain(self, u: Any, v: Any) -> Any:
         """Vectorized check whether parameters (u, v) lie in the domain."""
         tu = _c.DOMAIN_TOL * max(1.0, abs(self.u_range[1] - self.u_range[0]))
         tv = _c.DOMAIN_TOL * max(1.0, abs(self.v_range[1] - self.v_range[0]))
@@ -190,11 +206,11 @@ class Surface:
             & (v <= self.v_range[1] + tv)
         )
 
-    def contains_parameters(self, u, v):
+    def contains_parameters(self, u: float, v: float) -> bool:
         """Whether (u,v) is in the surface domain."""
         return bool(self.in_domain(float(u), float(v)))
 
-    def accepts_parameters(self, u, v):
+    def accepts_parameters(self, u: float, v: float) -> bool:
         """Includes aperture restrictions."""
         if not self.contains_parameters(u, v):
             return False

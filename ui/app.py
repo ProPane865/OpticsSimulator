@@ -57,6 +57,59 @@ DEFAULT_MEASUREMENT_CONFIG = {
     "resolution": [64, 64],
 }
 
+PROJECT_VERSION = 1
+
+
+def source_from_config(config):
+    if not isinstance(config, dict):
+        raise ValueError("Source config must be an object")
+    source_type = str(config.get("source_type", SINGLE_POINT))
+    if source_type == POINT_ARRAY:
+        source_type = SINGLE_POINT
+    return PointSource(
+        position=np.asarray(config.get("position", [0.0, 0.0, 3.0]), dtype=float),
+        power=float(config.get("power", 1.0)),
+        num_rays=int(config.get("num_rays", 16)),
+        source_type=source_type,
+        cone_angle=float(config.get("cone_angle", 60.0)),
+    )
+
+
+def source_to_config(source):
+    return {
+        "position": [float(v) for v in source.position],
+        "power": float(source.power),
+        "num_rays": int(source.num_rays),
+        "source_type": str(source.source_type),
+        "cone_angle": float(source.cone_angle),
+    }
+
+
+def plane_from_config(config):
+    if not isinstance(config, dict):
+        raise ValueError("Measurement plane config must be an object")
+    for key in ("origin", "normal", "u_range", "v_range", "resolution"):
+        if key not in config:
+            raise ValueError(f"Missing required key {key!r} in measurement plane config")
+    return MeasurementPlane(
+        origin=np.asarray(config["origin"], dtype=float),
+        normal=np.asarray(config["normal"], dtype=float),
+        u_range=config["u_range"],
+        v_range=config["v_range"],
+        resolution=config["resolution"],
+    )
+
+
+def plane_to_config(name, plane):
+    return {
+        "name": name,
+        "origin": [float(v) for v in plane.o],
+        "normal": [float(v) for v in plane.n],
+        "u_range": [plane.u_min, plane.u_max],
+        "v_range": [plane.v_min, plane.v_max],
+        "resolution": [plane.ru, plane.rv],
+    }
+
 
 def make_display(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_length=6.0):
     canvas = visualize.create_canvas()
@@ -216,11 +269,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def _retrace_rays(self):
         visualize.remove_nodes(self._ray_nodes)
-        self._ray_nodes = []
-        for ray in self._rays:
-            nodes = visualize.draw_ray(self._view, self._elements, ray, ray_length=6.0)
-            if nodes:
-                self._ray_nodes.extend(nodes)
+        self._ray_nodes = visualize.build_ray_nodes(
+            self._view, self._elements, self._rays, ray_length=6.0
+        )
         self._remeasure_planes()
 
     def _remeasure_planes(self):
@@ -437,20 +488,81 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     def planes(self):
         return list(self._planes)
 
+    @staticmethod
+    def _parse_project(document):
+        """Split a project document into ``(elements_config, source, planes)``.
+
+        Files without an ``"elements"`` key are treated as legacy element-only
+        maps; ``source``/``planes`` are then ``None`` meaning "keep current".
+        """
+        if not isinstance(document, dict):
+            raise ValueError("Optical stack must be a JSON object")
+        if "elements" in document:
+            elements_config = document["elements"]
+            source_config = document.get("source")
+            planes_config = document.get("measurement_planes")
+        else:
+            elements_config = document
+            source_config = None
+            planes_config = None
+
+        source = None if source_config is None else source_from_config(source_config)
+
+        planes = None
+        if planes_config is not None:
+            if not isinstance(planes_config, list):
+                raise ValueError("measurement_planes must be a list")
+            planes = []
+            for entry in planes_config:
+                planes.append((str(entry.get("name", "")) if isinstance(entry, dict) else "",
+                               plane_from_config(entry)))
+
+        return elements_config, source, planes
+
+    def _unique_plane_name(self, base, used):
+        if base and base not in used:
+            return base
+        index = 1
+        while f"plane{index}" in used:
+            index += 1
+        return f"plane{index}"
+
     def load_stack(self, path):
         path = Path(path)
         with open(path) as f:
-            schema = json.load(f)
-        self._schema = schema
-        self._elements = stack_from_config(schema)
-        elements = self._elements
+            document = json.load(f)
+        elements_config, source, planes = self._parse_project(document)
+        elements = stack_from_config(elements_config)
+
+        self._schema = elements_config
+        self._elements = elements
+        if source is not None:
+            self._source = source
+            self._rays = source.emit_rays()
 
         visualize.clear_scene(self._view)
         _, self._element_nodes, self._ray_nodes = visualize.build_scene(
             self._view, elements, self._rays, ray_length=6.0
         )
         self._refresh_source()
-        self._remeasure_planes()
+
+        if planes is not None:
+            self._planes = []
+            self._plane_names = []
+            self._plane_nodes = []
+            used = set()
+            for base_name, plane in planes:
+                name = self._unique_plane_name(base_name, used)
+                used.add(name)
+                plane.measure(self._rays, elements)
+                self._planes.append(plane)
+                self._plane_names.append(name)
+                self._plane_nodes.append(
+                    visualize.build_measurement_nodes(self._view, plane)
+                )
+            self._populate_plane_selector()
+        else:
+            self._remeasure_planes()
 
         self._populate_lens_selector()
         self.statusBar().showMessage(f"Loaded {len(elements)} element(s) from {path.name}")
@@ -460,8 +572,17 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         if self._schema is None:
             raise RuntimeError("No optical stack loaded to save")
         path = Path(path)
+        document = {
+            "version": PROJECT_VERSION,
+            "elements": self._schema,
+            "source": source_to_config(self._source),
+            "measurement_planes": [
+                plane_to_config(name, plane)
+                for name, plane in zip(self._plane_names, self._planes)
+            ],
+        }
         with open(path, "w") as f:
-            json.dump(self._schema, f, indent=4)
+            json.dump(document, f, indent=4)
         self.statusBar().showMessage(f"Saved {len(self._schema)} element(s) to {path.name}")
         return path
 

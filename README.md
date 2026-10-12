@@ -46,6 +46,27 @@ another stack and **File → Save As** to write one back.
 - `rendering/` — vispy meshing (`meshing.py`) and scene building (`visualize.py`)
 - `ui/` — PySide6 desktop application (`app.py`, `main.ui`)
 
+## Project file format
+
+**File → Save As** writes a versioned project document that also stores the
+light source and measurement planes:
+
+```json
+{
+  "version": 1,
+  "elements": { "lens1": { ... } },
+  "source": { "position": [0, 0, 3], "power": 1.0, "num_rays": 16,
+              "source_type": "single_point", "cone_angle": 60.0 },
+  "measurement_planes": [
+    { "name": "plane1", "origin": [0, 0, -3], "normal": [0, 0, 1],
+      "u_range": [-2, 2], "v_range": [-2, 2], "resolution": [64, 64] }
+  ]
+}
+```
+
+Files without a top-level `"elements"` key are read as legacy element-only
+stacks; the current source and planes are then kept on load.
+
 ## Optical stack format
 
 A stack is a JSON object mapping element names to element configs:

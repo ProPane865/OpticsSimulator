@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import numpy as np
 
 from .ray import Ray
@@ -8,7 +10,7 @@ POINT_ARRAY = "point_array"
 _GOLDEN_ANGLE = np.pi * (3.0 - np.sqrt(5.0))
 
 
-def fibonacci_cone_directions(count, cone_angle_deg=360.0):
+def fibonacci_cone_directions(count: int, cone_angle_deg: float = 360.0) -> np.ndarray:
     count = int(count)
     if count <= 0:
         return np.empty((0, 3), dtype=float)
@@ -25,19 +27,25 @@ def fibonacci_cone_directions(count, cone_angle_deg=360.0):
     return np.column_stack([r * np.cos(phi), r * np.sin(phi), -c])
 
 
-def fibonacci_sphere_directions(count):
+def fibonacci_sphere_directions(count: int) -> np.ndarray:
     return fibonacci_cone_directions(count, 360.0)
 
 
 class PointSource:
+    position: np.ndarray
+    power: float
+    num_rays: int
+    source_type: str
+    cone_angle: float
+
     def __init__(
         self,
-        position,
-        power=1.0,
-        num_rays=64,
-        source_type=SINGLE_POINT,
-        cone_angle=360.0,
-    ):
+        position: np.ndarray | Sequence[float],
+        power: float = 1.0,
+        num_rays: int = 64,
+        source_type: str = SINGLE_POINT,
+        cone_angle: float = 360.0,
+    ) -> None:
         self.position = np.asarray(position, dtype=float)
         if self.position.shape != (3,):
             raise ValueError("Position must be array of shape (3,)")
@@ -58,7 +66,7 @@ class PointSource:
         if not np.isfinite(self.cone_angle) or not 0.0 <= self.cone_angle <= 360.0:
             raise ValueError("Cone angle must be finite and between 0 and 360 degrees")
 
-    def emit_rays(self):
+    def emit_rays(self) -> list[Ray]:
         if self.source_type == POINT_ARRAY:
             raise NotImplementedError("Point array sources are not implemented")
         if self.source_type != SINGLE_POINT:

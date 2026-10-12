@@ -1,16 +1,19 @@
+from collections.abc import Sequence
+
 import numpy as np
 
 
-def normalize(vector):
+def normalize(vector: np.ndarray | Sequence[float]) -> np.ndarray:
     v = np.array(vector, dtype=float)
     norm = np.linalg.norm(v)
 
     if not np.isfinite(norm) or norm == 0:
         raise ValueError("Vector must be finite and nonzero")
-    
+
     return v / norm
 
-def rotation_from_z(direction):
+
+def rotation_from_z(direction: np.ndarray | Sequence[float]) -> np.ndarray:
     original = np.array([0, 0, 1])
     direction_norm = normalize(direction)
     axis = np.cross(original, direction_norm)

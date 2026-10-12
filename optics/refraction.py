@@ -1,4 +1,6 @@
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -8,6 +10,7 @@ from .material import Material
 from .ray import Ray
 from .sidewall import LensSidewall
 from .surface import Surface
+from .transform import Transform
 from .vector import normalize
 
 _SIDEWALL_UNSET = object()
@@ -16,20 +19,28 @@ _EPSILON = _c.RAY_EPSILON
 _MIN_HIT_T = _c.MIN_HIT_T
 _MAX_INTERNAL_BOUNCES = _c.MAX_INTERNAL_BOUNCES
 
-def _reflect_direction(incident, normal):
+
+def _reflect_direction(incident: np.ndarray, normal: np.ndarray) -> np.ndarray:
     return normalize(incident - 2.0 * float(np.dot(normal, incident)) * normal)
 
-def _refract_direction(incident, normal, eta, cos_i, k):
+
+def _refract_direction(
+    incident: np.ndarray, normal: np.ndarray, eta: float, cos_i: float, k: float
+) -> np.ndarray:
     return normalize(eta * incident + (np.sqrt(k) - eta * cos_i) * normal)
 
-def _orient(normal, incident):
+
+def _orient(normal: np.ndarray, incident: np.ndarray) -> np.ndarray:
     """Align the surface normal with the incident ray direction."""
     normal = np.asarray(normal, dtype=float)
     if float(np.dot(normal, incident)) < 0.0:
         return -normal
     return normal
 
-def refract_or_reflect(incident, normal, n_from, n_to):
+
+def refract_or_reflect(
+    incident: np.ndarray, normal: np.ndarray, n_from: float, n_to: float
+) -> "tuple[np.ndarray, bool]":
     """Return ``(direction, refracted)`` for one interface interaction.
 
     ``normal`` must be oriented so that ``dot(normal, incident) >= 0``.
@@ -44,7 +55,8 @@ def refract_or_reflect(incident, normal, n_from, n_to):
         return _reflect_direction(incident, normal), False
     return _refract_direction(incident, normal, eta, cos_i, k), True
 
-def trace_direction(incident, normal, n_from, n_to):
+
+def trace_direction(incident: np.ndarray, normal: np.ndarray, n_from: float, n_to: float) -> np.ndarray:
     return refract_or_reflect(incident, normal, n_from, n_to)[0]
 
 @dataclass(frozen=True)
@@ -56,8 +68,10 @@ class TraceResult:
     outgoing_ray: Ray | None
 
 
-def _nearest_entry(elements, ray, t_max=np.inf):
-    best = None
+def _nearest_entry(
+    elements: Sequence["RefractiveElement"], ray: Ray, t_max: float = np.inf
+) -> "tuple[float, RefractiveElement] | None":
+    best: tuple[float, RefractiveElement] | None = None
     for element in elements:
         entry = element.first_hit(ray)
         if entry is None or entry[0] >= t_max:
@@ -67,7 +81,11 @@ def _nearest_entry(elements, ray, t_max=np.inf):
     return best
 
 
-def traverse_stack(ray, elements, limit_fn=None):
+def traverse_stack(
+    ray: Ray,
+    elements: Sequence["RefractiveElement"],
+    limit_fn: "Callable[[Ray], float] | None" = None,
+) -> Iterator["tuple[RefractiveElement, TraceResult]"]:
     """Yield ``(element, TraceResult)`` visiting elements in geometric order.
 
     Iteration stops when no remaining element is entered before
@@ -89,29 +107,32 @@ def traverse_stack(ray, elements, limit_fn=None):
         current = result.outgoing_ray
 
 
-def trace_stack(ray, elements):
+def trace_stack(ray: Ray, elements: Sequence["RefractiveElement"]) -> Ray | None:
     """Return the ray leaving a stack of elements, or None if stopped.
 
     Elements are visited in geometric order (nearest entry hit first),
     independent of their order in the stack.
     """
-    current = ray
+    current: Ray | None = ray
     for _, result in traverse_stack(ray, elements):
         current = result.outgoing_ray
     return current
 
 
-def trace_stack_path(ray, elements, ray_length=3.0):
+def trace_stack_path(
+    ray: Ray, elements: Sequence["RefractiveElement"], ray_length: float = 3.0
+) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], Ray | None]":
     """Return ``(segments, final_ray)`` for rendering.
 
     Each segment is a ``(start, end, kind)`` tuple where ``kind`` is
     ``"incident"`` before the first element, ``"internal"`` inside an
     element, and ``"exit"`` after leaving one.
     """
-    segments = []
+    segments: list[tuple[np.ndarray, np.ndarray, str]] = []
     current = ray
     kind = "incident"
     for _, result in traverse_stack(ray, elements):
+        assert result.incident_hit is not None
         segments.append((current.origin, result.incident_hit.point, kind))
         path = result.internal_path
         for i, segment in enumerate(path):
@@ -131,18 +152,22 @@ def trace_stack_path(ray, elements, ray_length=3.0):
     return segments, current
 
 class RefractiveElement:
-    def __init__(self, surface1: Surface, surface2: Surface, material: Material):
+    surface1: Surface
+    surface2: Surface
+    material: Material
+
+    def __init__(self, surface1: Surface, surface2: Surface, material: Material) -> None:
         self.surface1 = surface1
         self.surface2 = surface2
         self.material = material
-        self._sidewall = _SIDEWALL_UNSET
+        self._sidewall: Any = _SIDEWALL_UNSET
 
     @property
-    def transform(self):
+    def transform(self) -> Transform:
         return self.surface1.transform
 
     @property
-    def sidewall(self):
+    def sidewall(self) -> LensSidewall | None:
         if self._sidewall is _SIDEWALL_UNSET:
             if (
                 self.surface1.aperture is None
@@ -169,31 +194,38 @@ class RefractiveElement:
                     self._sidewall = None
         return self._sidewall
 
-    def _candidate_hits(self, ray, min_t=0.0):
-        hits = []
+    def _candidate_hits(
+        self, ray: Ray, min_t: float = 0.0
+    ) -> "tuple[float, RayHit, np.ndarray] | None":
+        hits: list[tuple[float, RayHit, np.ndarray]] = []
         for surface in (self.surface1, self.surface2):
-            hit = surface.intersect(ray)
-            if hit is not None and hit.t > min_t:
-                normal = surface.normal(hit.u, hit.v)
+            surface_hit = surface.intersect(ray)
+            if (
+                surface_hit is not None
+                and surface_hit.t > min_t
+                and surface_hit.u is not None
+                and surface_hit.v is not None
+            ):
+                normal = surface.normal(surface_hit.u, surface_hit.v)
                 if normal is not None:
-                    hits.append((hit.t, hit, np.asarray(normal, dtype=float)))
+                    hits.append((surface_hit.t, surface_hit, np.asarray(normal, dtype=float)))
         wall = self.sidewall
         if wall is not None:
-            hit = wall.intersect(ray)
-            if hit is not None and hit.t > min_t:
-                hits.append((hit.t, hit, wall.normal(hit.face)))
+            wall_hit = wall.intersect(ray)
+            if wall_hit is not None and wall_hit.t > min_t:
+                hits.append((wall_hit.t, wall_hit, wall.normal(wall_hit.face)))
         if not hits:
             return None
         return min(hits, key=lambda item: item[0])
 
-    def first_hit(self, ray):
+    def first_hit(self, ray: Ray) -> "tuple[float, RayHit, np.ndarray] | None":
         """Nearest intersection with any face of the element.
 
         Returns ``(t, hit, normal)`` or None.
         """
         return self._candidate_hits(ray)
 
-    def trace(self, ray) -> TraceResult:
+    def trace(self, ray: Ray) -> TraceResult:
         """Trace a ray through the closed element (surfaces + sidewall).
 
         The ray refracts into the glass at its nearest face, bounces off
@@ -211,7 +243,7 @@ class RefractiveElement:
             ray.direction, _orient(entry_normal, ray.direction), 1.0, n
         )
 
-        path = []
+        path: list[Ray] = []
         current = Ray(entry_hit.point + _EPSILON * d, d, ray.power)
         for _ in range(_MAX_INTERNAL_BOUNCES):
             internal = self._candidate_hits(current, min_t=_MIN_HIT_T)

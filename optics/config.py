@@ -1,4 +1,6 @@
 import json
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
@@ -9,7 +11,7 @@ from .transform import Transform
 from .vector import rotation_from_z
 
 
-def surface_from_config(config, transform):
+def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface:
     if not isinstance(config, dict):
         raise ValueError("Surface config must be an object")
     for key in ("x", "y", "z"):
@@ -25,17 +27,17 @@ def surface_from_config(config, transform):
     )
 
 
-def _require(mapping, key, context):
+def _require(mapping: object, key: str, context: str) -> Any:
     if not isinstance(mapping, dict) or key not in mapping:
         raise ValueError(f"Missing required key {key!r} in {context}")
     return mapping[key]
 
 
 def refractive_element_from_config(
-    config,
-    orientation=None,
-    position=None,
-):
+    config: dict[str, Any],
+    orientation: np.ndarray | Sequence[float] | None = None,
+    position: np.ndarray | Sequence[float] | None = None,
+) -> RefractiveElement:
     if not isinstance(config, dict):
         raise ValueError("Element config must be an object")
     if orientation is None:
@@ -62,10 +64,10 @@ def refractive_element_from_config(
 
 
 def refractive_element_from_json(
-    schema,
-    orientation=None,
-    position=None,
-):
+    schema: str | bytes,
+    orientation: np.ndarray | Sequence[float] | None = None,
+    position: np.ndarray | Sequence[float] | None = None,
+) -> RefractiveElement:
     return refractive_element_from_config(
         json.loads(schema),
         orientation=orientation,
@@ -73,5 +75,5 @@ def refractive_element_from_json(
     )
 
 
-def stack_from_config(stack_config):
+def stack_from_config(stack_config: dict[str, dict[str, Any]]) -> list[RefractiveElement]:
     return [refractive_element_from_config(entry) for entry in stack_config.values()]

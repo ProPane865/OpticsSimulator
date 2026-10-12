@@ -1,7 +1,11 @@
+from collections.abc import Sequence
+from typing import Any
+
 import numpy as np
 
 from . import constants as _c
-from .refraction import traverse_stack
+from .ray import Ray
+from .refraction import RefractiveElement, traverse_stack
 from .vector import normalize
 
 _EPS = _c.PLANE_EPS
@@ -15,7 +19,24 @@ class MeasurementPlane:
     ``origin`` with ``normal``. This requires a non-zero normal Z component.
     """
 
-    def __init__(self, origin, normal, u_range, v_range, resolution):
+    o: np.ndarray
+    n: np.ndarray
+    ru: int
+    rv: int
+    u_min: float
+    u_max: float
+    v_min: float
+    v_max: float
+    grid: np.ndarray
+
+    def __init__(
+        self,
+        origin: np.ndarray | Sequence[float],
+        normal: np.ndarray | Sequence[float],
+        u_range: Sequence[float],
+        v_range: Sequence[float],
+        resolution: Sequence[int],
+    ) -> None:
         self.o = np.asarray(origin, dtype=float)
         if self.o.shape != (3,):
             raise ValueError("Origin must be array of shape (3,)")
@@ -40,18 +61,18 @@ class MeasurementPlane:
         self.grid = np.zeros((self.rv, self.ru), dtype=float)
 
     @property
-    def interval_u(self):
+    def interval_u(self) -> float:
         return self.u_max - self.u_min
 
     @property
-    def interval_v(self):
+    def interval_v(self) -> float:
         return self.v_max - self.v_min
 
     @property
-    def bin_area(self):
+    def bin_area(self) -> float:
         return (self.interval_u / self.ru) * (self.interval_v / self.rv)
 
-    def point(self, u, v):
+    def point(self, u: Any, v: Any) -> np.ndarray:
         """World-space point on the plane for parameters (u, v)."""
         u = np.asarray(u, dtype=float)
         v = np.asarray(v, dtype=float)
@@ -60,7 +81,7 @@ class MeasurementPlane:
         z = self.o[2] - nxnz * (u - self.o[0]) - nynz * (v - self.o[1])
         return np.stack(np.broadcast_arrays(u, v, z), axis=-1)
 
-    def intersect(self, ray):
+    def intersect(self, ray: Ray) -> "tuple[np.ndarray, float, float] | None":
         d = ray.direction
         ro = ray.origin
         if not (np.all(np.isfinite(ro)) and np.all(np.isfinite(d))):
@@ -88,7 +109,7 @@ class MeasurementPlane:
 
         return ray.at(t), float(u), float(v)
 
-    def contains(self, u, v):
+    def contains(self, u: Any, v: Any) -> Any:
         """Boolean mask for parameters inside the plane extent."""
         u = np.asarray(u, dtype=float)
         v = np.asarray(v, dtype=float)
@@ -99,7 +120,7 @@ class MeasurementPlane:
             & (v <= self.v_max)
         )
 
-    def discretize(self, u, v):
+    def discretize(self, u: Any, v: Any) -> "tuple[np.ndarray, np.ndarray]":
         """Map parameters to integer bin indices (i, j)."""
         u = np.asarray(u, dtype=float)
         v = np.asarray(v, dtype=float)
@@ -112,10 +133,10 @@ class MeasurementPlane:
 
         return i, j
 
-    def reset(self):
+    def reset(self) -> None:
         self.grid[:] = 0.0
 
-    def accumulate(self, u, v, power):
+    def accumulate(self, u: Any, v: Any, power: Any) -> float:
         """Add ray power into bins for parameters inside the plane extent."""
         u = np.atleast_1d(np.asarray(u, dtype=float))
         v = np.atleast_1d(np.asarray(v, dtype=float))
@@ -129,45 +150,53 @@ class MeasurementPlane:
         np.add.at(self.grid, (j, i), power[valid])
         return float(np.sum(power[valid]))
 
-    def _entry_limit(self, ray):
+    def _entry_limit(self, ray: Ray) -> float:
         hit = self.intersect(ray)
         if hit is None:
             return -1.0
         return float(np.dot(hit[0] - ray.origin, ray.direction))
 
-    def _trace_to_plane(self, ray, elements):
+    def _trace_to_plane(
+        self, ray: Ray, elements: Sequence[RefractiveElement]
+    ) -> Ray | None:
         """Trace a ray through elements in geometric order up to the plane.
 
         Only elements entered before the plane along the current ray are
         traced, so a plane placed between elements sees the beam at its
         own position regardless of the element list order.
         """
-        current = ray
+        current: Ray | None = ray
         for _, result in traverse_stack(ray, elements, self._entry_limit):
             current = result.outgoing_ray
         return current
 
-    def _measure_element_stack(self, rays, elements=None):
+    def _measure_element_stack(
+        self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
+    ) -> float:
         total = 0.0
         for ray in rays:
             if elements:
-                ray = self._trace_to_plane(ray, elements)
-                if ray is None:
+                traced = self._trace_to_plane(ray, elements)
+                if traced is None:
                     continue
-            hit = self.intersect(ray)
+            else:
+                traced = ray
+            hit = self.intersect(traced)
             if hit is None:
                 continue
             _, u, v = hit
-            total += self.accumulate(u, v, ray.power)
+            total += self.accumulate(u, v, traced.power)
 
         return total
 
-    def measure(self, rays, elements=None):
+    def measure(
+        self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
+    ) -> float:
         """Trace rays through ``elements`` and accumulate power on the grid."""
         self.reset()
         return self._measure_element_stack(rays, elements)
 
-    def irradiance(self):
+    def irradiance(self) -> np.ndarray:
         """Power per unit true plane area for each bin."""
         area = self.bin_area / abs(self.n[2])
         return self.grid / area

@@ -1,10 +1,21 @@
+from collections.abc import Sequence
+
 import numpy as np
 
 from .vector import normalize
 
 
 class Ray:
-    def __init__(self, origin: np.ndarray, direction: np.ndarray, power: float):
+    origin: np.ndarray
+    direction: np.ndarray
+    power: float
+
+    def __init__(
+        self,
+        origin: np.ndarray | Sequence[float],
+        direction: np.ndarray | Sequence[float],
+        power: float,
+    ) -> None:
         origin = np.asarray(origin, dtype=float)
         direction = np.asarray(direction, dtype=float)
         power = float(power)
@@ -34,5 +45,5 @@ class Ray:
         self.direction = normalize(direction)
         self.power = power
 
-    def at(self, t):
+    def at(self, t: float) -> np.ndarray:
         return self.origin + t * self.direction

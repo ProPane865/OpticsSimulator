@@ -334,7 +334,10 @@ def test_save_as_action_writes_file(qt_app, repo_root, tmp_path, monkeypatch):
     assert out_path.exists()
     saved = json.loads(out_path.read_text(encoding="utf-8"))
     expected = json.loads((repo_root / "tests" / "test_stack.json").read_text(encoding="utf-8"))
-    assert saved == expected
+    assert saved["version"] == 1
+    assert saved["elements"] == expected
+    assert saved["source"]["num_rays"] == 16
+    assert saved["measurement_planes"] == []
     assert "Saved" in window.statusBar().currentMessage()
     window.close()
 
@@ -373,13 +376,102 @@ def test_save_as_round_trip_preserves_edits(qt_app, repo_root, tmp_path, monkeyp
     _trigger_save_as(window)
 
     saved = json.loads(out_path.read_text(encoding="utf-8"))
-    assert saved["lens1"]["material"]["refractive_index"] == pytest.approx(1.8)
+    assert saved["elements"]["lens1"]["material"]["refractive_index"] == pytest.approx(1.8)
 
     window2 = OpticsMainWindow(make_display([], []))
     elements = window2.load_stack(out_path)
     assert elements[0].material.refractive_index == pytest.approx(1.8)
     window.close()
     window2.close()
+
+
+def test_save_load_round_trip_preserves_source_and_planes(qt_app, repo_root, tmp_path, monkeypatch):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    source_editor = _source_editor(window)
+    source_editor["rays"].setValue(8)
+    source_editor["cone"].setValue(30.0)
+    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _trigger_measurement_plane(window)
+    plane_editor = _plane_editor(window)
+    plane_editor["pos"][2].setValue(-5.0)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    out_path = tmp_path / "project.json"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *args, **kwargs: (str(out_path), "")),
+    )
+    _trigger_save_as(window)
+
+    window2 = OpticsMainWindow(make_display([], []))
+    window2.load_stack(out_path)
+
+    assert window2.source.num_rays == 8
+    assert window2.source.cone_angle == pytest.approx(30.0)
+    assert len(window2.rays) == 8
+    assert len(window2.planes) == 1
+    assert window2.planes[0].o[2] == pytest.approx(-5.0)
+    selector = window2.findChild(QtWidgets.QComboBox, "planeSelectorCombo")
+    assert [selector.itemText(i) for i in range(selector.count())] == ["plane1"]
+    window.close()
+    window2.close()
+
+
+def test_legacy_stack_keeps_current_source_and_planes(qt_app, repo_root):
+    window = OpticsMainWindow(make_display([], []))
+    editor = _source_editor(window)
+    editor["rays"].setValue(6)
+    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _trigger_measurement_plane(window)
+
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    assert window.source.num_rays == 6
+    assert len(window.planes) == 1
+    window.close()
+
+
+def test_load_project_planes_replace_existing(qt_app, repo_root, tmp_path):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _trigger_measurement_plane(window)
+    _trigger_measurement_plane(window)
+    out_path = tmp_path / "project.json"
+    window.save_stack(out_path)
+    window.close()
+
+    window2 = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window2)
+    window2.load_stack(out_path)
+
+    assert len(window2.planes) == 2
+    assert window2.planes[0].o[2] == pytest.approx(-3.0)
+    assert window2.planes[1].o[2] == pytest.approx(-4.0)
+    window2.close()
+
+
+def test_load_project_invalid_source_keeps_state(qt_app, repo_root, tmp_path):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    elements_before = window.elements
+
+    bad = tmp_path / "bad_project.json"
+    stack = json.loads((repo_root / "tests" / "test_stack.json").read_text(encoding="utf-8"))
+    bad.write_text(json.dumps({
+        "version": 1,
+        "elements": stack,
+        "source": {"cone_angle": 500.0},
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        window.load_stack(bad)
+
+    assert window.elements == elements_before
+    assert len(window.elements) == 2
+    window.close()
 
 
 def test_save_as_empty_stack_warns(qt_app, tmp_path, monkeypatch):

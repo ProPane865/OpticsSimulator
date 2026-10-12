@@ -1,8 +1,14 @@
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, TypedDict
+
 import numpy as np
 
 from . import constants as _c
 from .hit import Hit
 from .ray import Ray
+
+if TYPE_CHECKING:
+    from .surface import Surface
 
 _MAX_NEWTON_ITER = _c.MAX_NEWTON_ITER
 _STEP_REL_TOL = _c.STEP_REL_TOL
@@ -17,8 +23,27 @@ _EXHAUSTED = "exhausted"
 _PARAM_TOL = _c.PARAM_TOL
 _HIT_TOL = _c.HIT_TOL
 
+_Residual = Callable[[np.ndarray], "np.ndarray | None"]
+_Jacobian = Callable[[np.ndarray], "np.ndarray | None"]
 
-def _newton(residual, jacobian, x0, clamp=False):
+
+class _SeedGrid(TypedDict):
+    Uf: np.ndarray
+    Vf: np.ndarray
+    pts: np.ndarray
+    finite: np.ndarray
+    valid: np.ndarray
+    Uf_valid: np.ndarray
+    Vf_valid: np.ndarray
+    P_world: np.ndarray
+
+
+def _newton(
+    residual: _Residual,
+    jacobian: _Jacobian,
+    x0: Sequence[float],
+    clamp: bool = False,
+) -> tuple[np.ndarray, float, str] | None:
     """Damped Newton iteration for ``residual(x) = 0``.
 
     Returns ``(x, f_norm, status)`` where ``status`` is one of
@@ -30,22 +55,22 @@ def _newton(residual, jacobian, x0, clamp=False):
     for _ in range(_MAX_NEWTON_ITER):
         F = residual(x)
         if F is None or not np.all(np.isfinite(F)):
-            return None, None, None
+            return None
         f_norm = float(np.linalg.norm(F))
         if f_norm < _CONVERGED_F_NORM:
             return x, f_norm, _CONVERGED
         J = jacobian(x)
         if J is None or not np.all(np.isfinite(J)):
-            return None, None, None
+            return None
         try:
             if J.shape[0] == J.shape[1]:
                 delta = np.linalg.solve(J, -F)
             else:
                 delta = np.linalg.lstsq(J, -F, rcond=None)[0]
         except np.linalg.LinAlgError:
-            return None, None, None
+            return None
         if not np.all(np.isfinite(delta)):
-            return None, None, None
+            return None
         step_norm = float(np.linalg.norm(delta))
         if clamp:
             clamp_scale = max(1.0, float(np.max(np.abs(x))))
@@ -53,22 +78,24 @@ def _newton(residual, jacobian, x0, clamp=False):
                 delta = delta * (_CLAMP_REL * clamp_scale / step_norm)
         x = x + delta
         if not np.all(np.isfinite(x)):
-            return None, None, None
+            return None
         if step_norm < _STEP_REL_TOL * max(1.0, float(np.max(np.abs(x)))):
             status = _STALLED
             break
     F = residual(x)
     if F is None or not np.all(np.isfinite(F)):
-        return None, None, None
+        return None
     return x, float(np.linalg.norm(F)), status
 
 
 class SurfaceSolver:
-    def __init__(self, surface):
-        self.surface = surface
-        self._grid_cache = {}
+    surface: "Surface"
 
-    def parameters_at(self, pos):
+    def __init__(self, surface: "Surface") -> None:
+        self.surface = surface
+        self._grid_cache: dict[int, _SeedGrid] = {}
+
+    def parameters_at(self, pos: np.ndarray | Sequence[float]) -> "tuple[float, float] | None":
         p = self.surface.transform.point_to_local(np.asarray(pos, dtype=float))
         if not np.all(np.isfinite(p)):
             return None
@@ -89,7 +116,12 @@ class SurfaceSolver:
         v = float(grid["Vf"][idx])
         return self._solve_parameters_point(p, u, v)
 
-    def parameters_at_xy(self, x, y, seed=None):
+    def parameters_at_xy(
+        self,
+        x: float,
+        y: float,
+        seed: "tuple[float, float] | None" = None,
+    ) -> "tuple[float, float] | None":
         x = float(x)
         y = float(y)
 
@@ -121,19 +153,26 @@ class SurfaceSolver:
 
         return None
 
-    def intersect(self, ray):
+    def intersect(self, ray: Ray) -> Hit | None:
         o = np.asarray(ray.origin, dtype=float)
         d = np.asarray(ray.direction, dtype=float)
         if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
             return None
         ray = Ray(o, d, ray.power)
-        hits = []
+        hits: list[Hit] = []
         for u0, v0, t0 in self._intersection_seeds(ray):
             hit = self._newton_intersection(ray, u0, v0, t0)
             if hit is None:
                 continue
             for i, other in enumerate(hits):
-                if abs(hit.u - other.u) < _DEDUP_UV_TOL and abs(hit.v - other.v) < _DEDUP_UV_TOL:
+                if (
+                    hit.u is not None
+                    and other.u is not None
+                    and hit.v is not None
+                    and other.v is not None
+                    and abs(hit.u - other.u) < _DEDUP_UV_TOL
+                    and abs(hit.v - other.v) < _DEDUP_UV_TOL
+                ):
                     if hit.t < other.t:
                         hits[i] = hit
                     break
@@ -143,16 +182,21 @@ class SurfaceSolver:
             return None
         return min(hits, key=lambda h: h.t)
 
-    def _solve_parameters_point(self, p, u, v):
-        def residual(x):
+    def _solve_parameters_point(
+        self, p: np.ndarray, u: float, v: float
+    ) -> "tuple[float, float] | None":
+        def residual(x: np.ndarray) -> np.ndarray:
             return self.surface.evaluate_local(float(x[0]), float(x[1])) - p
 
-        def jacobian(x):
+        def jacobian(x: np.ndarray) -> np.ndarray:
             ru, rv = self.surface.derivatives_local(float(x[0]), float(x[1]))
             return np.column_stack((ru, rv))
 
-        x, f_norm, status = _newton(residual, jacobian, (u, v))
-        if x is None or f_norm >= _PARAM_TOL[status]:
+        result = _newton(residual, jacobian, (u, v))
+        if result is None:
+            return None
+        x, f_norm, status = result
+        if f_norm >= _PARAM_TOL[status]:
             return None
         u = float(x[0])
         v = float(x[1])
@@ -160,20 +204,25 @@ class SurfaceSolver:
             return None
         return u, v
 
-    def _solve_parameters_xy(self, x_target, y_target, u, v):
-        def residual(x):
+    def _solve_parameters_xy(
+        self, x_target: float, y_target: float, u: float, v: float
+    ) -> "tuple[float, float] | None":
+        def residual(x: np.ndarray) -> np.ndarray:
             p = self.surface.evaluate_local(float(x[0]), float(x[1]))
             return np.array([p[0] - x_target, p[1] - y_target])
 
-        def jacobian(x):
+        def jacobian(x: np.ndarray) -> np.ndarray:
             ru, rv = self.surface.derivatives_local(float(x[0]), float(x[1]))
             return np.array([
                 [ru[0], rv[0]],
                 [ru[1], rv[1]],
             ])
 
-        x, f_norm, status = _newton(residual, jacobian, (u, v))
-        if x is None or f_norm >= _PARAM_TOL[status]:
+        result = _newton(residual, jacobian, (u, v))
+        if result is None:
+            return None
+        x, f_norm, status = result
+        if f_norm >= _PARAM_TOL[status]:
             return None
         u = float(x[0])
         v = float(x[1])
@@ -181,14 +230,15 @@ class SurfaceSolver:
             return None
         return u, v
 
-    def _aperture_mask(self, uf, vf, pts):
+    def _aperture_mask(self, uf: np.ndarray, vf: np.ndarray, pts: np.ndarray) -> np.ndarray:
         s = self.surface
+        assert s.aperture is not None
         return np.asarray(
             s.aperture.mask(s, uf, vf, pts[:, 0], pts[:, 1], pts[:, 2]),
             dtype=bool,
         )
 
-    def _grid_mask(self, U, V, pts):
+    def _grid_mask(self, U: np.ndarray, V: np.ndarray, pts: np.ndarray) -> np.ndarray:
         finite = np.all(np.isfinite(pts), axis=1)
         uf = U.ravel()
         vf = V.ravel()
@@ -197,7 +247,7 @@ class SurfaceSolver:
             mask = mask & self._aperture_mask(uf, vf, pts)
         return mask
 
-    def _seed_grid(self, grid_n=_c.SEED_GRID_N):
+    def _seed_grid(self, grid_n: int = _c.SEED_GRID_N) -> _SeedGrid:
         entry = self._grid_cache.get(grid_n)
         if entry is not None:
             return entry
@@ -228,7 +278,13 @@ class SurfaceSolver:
         self._grid_cache[grid_n] = entry
         return entry
 
-    def _intersection_seeds(self, ray, grid_n=_c.SEED_GRID_N, seed_tol=_c.SEED_TOL, max_seeds=_c.MAX_SEEDS):
+    def _intersection_seeds(
+        self,
+        ray: Ray,
+        grid_n: int = _c.SEED_GRID_N,
+        seed_tol: float = _c.SEED_TOL,
+        max_seeds: int = _c.MAX_SEEDS,
+    ) -> list[tuple[float, float, float]]:
         grid = self._seed_grid(grid_n)
         if not grid["valid"].any():
             return []
@@ -254,20 +310,23 @@ class SurfaceSolver:
             for idx in order[:max_seeds]
         ]
 
-    def _accept_intersection(self, ray, t, u, v):
+    def _accept_intersection(self, ray: Ray, t: float, u: float, v: float) -> Hit | None:
         if t > 0.0 and self.surface.accepts_parameters(u, v):
             return Hit(ray.at(t), float(t), float(u), float(v))
         return None
 
-    def _newton_intersection(self, ray, u, v, t):
-        def residual(x):
+    def _newton_intersection(self, ray: Ray, u: float, v: float, t: float) -> Hit | None:
+        def residual(x: np.ndarray) -> np.ndarray:
             return self.surface.point(float(x[1]), float(x[2])) - ray.at(float(x[0]))
 
-        def jacobian(x):
+        def jacobian(x: np.ndarray) -> np.ndarray:
             ru, rv = self.surface.tangents(float(x[1]), float(x[2]))
             return np.column_stack((-ray.direction, ru, rv))
 
-        x, f_norm, status = _newton(residual, jacobian, (t, u, v), clamp=True)
-        if x is None or f_norm >= _HIT_TOL[status]:
+        result = _newton(residual, jacobian, (t, u, v), clamp=True)
+        if result is None:
+            return None
+        x, f_norm, status = result
+        if f_norm >= _HIT_TOL[status]:
             return None
         return self._accept_intersection(ray, float(x[0]), float(x[1]), float(x[2]))

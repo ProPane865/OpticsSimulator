@@ -1,15 +1,19 @@
+from typing import TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from optics.surface import Surface
 
 _MESH_CACHE: "WeakKeyDictionary[object, dict[int, tuple[np.ndarray, np.ndarray]]]" = WeakKeyDictionary()
 
 
 class SurfaceMesher:
-    def __init__(self, surface):
+    def __init__(self, surface: "Surface") -> None:
         self.surface = surface
 
-    def _valid_uv_array(self, u, v):
+    def _valid_uv_array(self, u: np.ndarray, v: np.ndarray) -> np.ndarray:
         surface = self.surface
         ok = surface.in_domain(u, v)
         pts = surface.evaluate_local(u, v)
@@ -23,7 +27,7 @@ class SurfaceMesher:
             )
         return ok
 
-    def _bisect_edges(self, edge_lo, edge_hi):
+    def _bisect_edges(self, edge_lo: list, edge_hi: list) -> np.ndarray:
         surface = self.surface
         lo = np.array(edge_lo, dtype=float)
         hi = np.array(edge_hi, dtype=float)
@@ -34,7 +38,18 @@ class SurfaceMesher:
             hi = np.where(ok, hi, mid)
         return surface.evaluate_local(lo[:, 0], lo[:, 1])
 
-    def _boundary_faces(self, n, U, V, idmap, a, b, c, d, n_interior):
+    def _boundary_faces(
+        self,
+        n: int,
+        U: np.ndarray,
+        V: np.ndarray,
+        idmap: np.ndarray,
+        a: np.ndarray,
+        b: np.ndarray,
+        c: np.ndarray,
+        d: np.ndarray,
+        n_interior: int,
+    ) -> "tuple[np.ndarray, np.ndarray]":
         counts = (
             (a >= 0).astype(np.int64)
             + (b >= 0).astype(np.int64)
@@ -44,9 +59,9 @@ class SurfaceMesher:
         partial = np.flatnonzero((counts >= 1) & (counts <= 3))
         if partial.size == 0:
             return np.empty((0, 3), dtype=float), np.empty((0, 3), dtype=np.int64)
-        edge_index = {}
-        edge_lo = []
-        edge_hi = []
+        edge_index: dict[tuple[int, int, int, int], int] = {}
+        edge_lo: list = []
+        edge_hi: list = []
         faces = []
 
         def crossing_vertex(i0, j0, i1, j1):
@@ -107,7 +122,7 @@ class SurfaceMesher:
             return extra[finite], np.array(clean, dtype=np.int64)
         return extra, np.array(faces, dtype=np.int64)
 
-    def mesh(self, n=128):
+    def mesh(self, n: int = 128) -> "tuple[np.ndarray, np.ndarray]":
         n = int(n)
         per_surface = _MESH_CACHE.get(self.surface)
         if per_surface is None:
@@ -120,7 +135,7 @@ class SurfaceMesher:
         per_surface[n] = result
         return result
 
-    def _compute_mesh(self, n):
+    def _compute_mesh(self, n: int) -> "tuple[np.ndarray, np.ndarray]":
         surface = self.surface
         n = int(n)
         if n < 2:
@@ -144,7 +159,7 @@ class SurfaceMesher:
         b = idmap[i + 1, j]
         c = idmap[i + 1, j + 1]
         d = idmap[i, j + 1]
-        valid = np.minimum.reduce([a, b, c, d]) >= 0
+        valid = (np.minimum(np.minimum(a, b), np.minimum(c, d)) >= 0)
         face_chunks = []
         if valid.any():
             face_chunks.append(np.vstack([

@@ -6,7 +6,10 @@ from .ray import Ray
 
 
 class LensSidewall:
-    def __init__(self, front, rear):
+    front: np.ndarray
+    rear: np.ndarray
+
+    def __init__(self, front: np.ndarray, rear: np.ndarray) -> None:
         self.front = np.array(front, dtype=float)
         self.rear = np.array(rear, dtype=float)
 
@@ -45,14 +48,14 @@ class LensSidewall:
         norms[norms == 0.0] = 1.0
         self._face_normals = normals / norms[:, None]
 
-    def mesh(self):
+    def mesh(self) -> "tuple[np.ndarray, np.ndarray]":
         return self._verts, self._faces
 
-    def normal(self, face):
+    def normal(self, face: int) -> np.ndarray:
         """Outward unit normal of the triangle with the given face index."""
         return self._face_normals[int(face)]
 
-    def intersect(self, ray):
+    def intersect(self, ray: Ray) -> MeshHit | None:
         o = np.asarray(ray.origin, dtype=float)
         d = np.asarray(ray.direction, dtype=float)
 

@@ -1,6 +1,6 @@
 import math
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import numpy as np
 from numba import njit
@@ -30,6 +30,73 @@ _HIT_TOL = _c.HIT_TOL
 
 _Residual = Callable[[np.ndarray], "np.ndarray | None"]
 _Jacobian = Callable[[np.ndarray], "np.ndarray | None"]
+
+# --- Nopython solver path ---
+# Status codes returned by the njit Newton loop (the Python path keeps the
+# string statuses above; these feed the same per-status tolerance tables).
+_S_CONV = 0
+_S_STALL = 1
+_S_EXH = 2
+
+_PARAM_TOL_CONV = _c.PARAM_TOL[_CONVERGED]
+_PARAM_TOL_STALL = _c.PARAM_TOL[_STALLED]
+_PARAM_TOL_EXH = _c.PARAM_TOL[_EXHAUSTED]
+_HIT_TOL_CONV = _c.HIT_TOL[_CONVERGED]
+_HIT_TOL_STALL = _c.HIT_TOL[_STALLED]
+_HIT_TOL_EXH = _c.HIT_TOL[_EXHAUSTED]
+
+_SEED_TOL = _c.SEED_TOL
+_SEED_TOL_FALLBACK = _c.SEED_TOL_FALLBACK
+_MAX_SEEDS = _c.MAX_SEEDS
+_XY_SEEDS = 12
+_APERTURE_EPS = _c.APERTURE_EPS
+_FD_STEP_REL = _c.FD_STEP_REL
+_FD_STEP_SHRINKS = _c.FD_STEP_SHRINKS
+_DERIV_INTERIOR_FRAC = _c.DERIV_INTERIOR_FRAC
+_DERIV_INTERIOR_TRIES = _c.DERIV_INTERIOR_TRIES
+
+# Descriptor tuple layout (Surface.njit_descriptor):
+#   0 eval_cfn, 1 deriv_cfn, 2 u_min, 3 u_max, 4 v_min, 5 v_max,
+#   6 tu, 7 tv, 8 aperture radius (-1 = none), 9 ap_cx, 10 ap_cy,
+#   11 rotation (3,3), 12 translation (3,)
+# The callables are ``numba.cfunc`` pointers with a fixed C signature, so
+# every surface shares one argument type: the kernels below compile (and
+# disk-cache) once in total, not once per surface expression.
+# Grid tuple layout (SurfaceSolver.njit_grid):
+#   0 P_world, 1 Uf_valid, 2 Vf_valid, 3 pts, 4 finite, 5 Uf, 6 Vf
+
+
+@njit(cache=True)
+def _eval_njit(desc: Any, u: float, v: float) -> np.ndarray:
+    out = np.empty(3)
+    desc[0](u, v, out.ctypes.data)
+    return out
+
+
+@njit(cache=True)
+def _deriv_pair_njit(desc: Any, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
+    ru = np.empty(3)
+    rv = np.empty(3)
+    desc[1](u, v, ru.ctypes.data, rv.ctypes.data)
+    return ru, rv
+
+
+def probe_njit_pair(eval_cfn: Any, deriv_cfn: Any) -> bool:
+    """Force-compile the cfunc pair; False when they cannot be used."""
+    try:
+        _probe_pair(eval_cfn, deriv_cfn)
+        return True
+    except Exception:
+        return False
+
+
+@njit(cache=False)  # tiny; recompiled per process alongside the cfuncs
+def _probe_pair(eval_cfn: Any, deriv_cfn: Any) -> None:
+    out = np.empty(3)
+    ru = np.empty(3)
+    rv = np.empty(3)
+    eval_cfn(0.7, 0.35, out.ctypes.data)
+    deriv_cfn(0.7, 0.35, ru.ctypes.data, rv.ctypes.data)
 
 
 class _SeedGrid(TypedDict):
@@ -151,12 +218,482 @@ def _newton(
     return x, float(np.linalg.norm(F)), status
 
 
+@njit(cache=True)
+def _norm(v: np.ndarray) -> float:
+    """Euclidean norm.
+
+    ``np.linalg.norm`` is avoided in nopython paths because its typing pass
+    does not see through ``is None`` narrowing of optional arrays.
+    """
+    return float(math.sqrt(float(np.dot(v, v))))
+
+
+@njit(cache=True)
+def _solve_small(A: np.ndarray, b: np.ndarray) -> "np.ndarray | None":
+    """Solve a 2x2/3x3 system by Gaussian elimination with partial pivoting."""
+    n = A.shape[0]
+    M = A.copy()
+    y = b.copy()
+    for k in range(n):
+        p = k
+        maxv = abs(M[k, k])
+        for i in range(k + 1, n):
+            if abs(M[i, k]) > maxv:
+                maxv = abs(M[i, k])
+                p = i
+        if not math.isfinite(maxv) or maxv <= 0.0:
+            return None
+        if p != k:
+            for j in range(n):
+                tmp = M[k, j]
+                M[k, j] = M[p, j]
+                M[p, j] = tmp
+            tmp = y[k]
+            y[k] = y[p]
+            y[p] = tmp
+        for i in range(k + 1, n):
+            f = M[i, k] / M[k, k]
+            if f != 0.0:
+                for j in range(k, n):
+                    M[i, j] -= f * M[k, j]
+                y[i] -= f * y[k]
+    x = np.empty(n)
+    for k in range(n - 1, -1, -1):
+        s = y[k]
+        for j in range(k + 1, n):
+            s -= M[k, j] * x[j]
+        x[k] = s / M[k, k]
+    if not np.all(np.isfinite(x)):
+        return None
+    return x
+
+
+@njit(cache=True)
+def _newton_delta_njit(J: np.ndarray, F: np.ndarray) -> "np.ndarray | None":
+    """Numpy-free ``_newton_delta``: square solve, else normal equations."""
+    rows, cols = J.shape
+    if rows == cols and (rows == 2 or rows == 3):
+        if _is_nonsingular(J):
+            return _solve_small(J, -F)
+    if cols < 2 or cols > 3 or rows > 3:
+        return None
+    JtJ = J.T @ J
+    if not _is_nonsingular(JtJ):
+        return None
+    return _solve_small(JtJ, J.T @ (-F))
+
+
+_NEWTON_INTERSECT = 0
+_NEWTON_XY = 1
+
+
+@njit(cache=True)
+def _newton_njit(
+    kind: int,
+    desc: Any,
+    o: np.ndarray,
+    d: np.ndarray,
+    x_target: float,
+    y_target: float,
+    x0: np.ndarray,
+    clamp: bool,
+) -> "tuple[np.ndarray, float, int] | None":
+    """Damped Newton iteration in nopython mode; see ``_newton``.
+
+    ``kind`` selects the residual/Jacobian problem (ray/surface
+    intersection or local ``(x, y)`` inversion) by direct dispatch, so this
+    stays a single compiled specialization instead of one per first-class
+    function type.
+    """
+    x = x0.copy()
+    status = _S_EXH
+    damped = 0
+    if kind == _NEWTON_INTERSECT:
+        F = _res_intersect(x, desc, o, d)
+    else:
+        F = _res_xy(x, desc, x_target, y_target)
+    for _ in range(_MAX_NEWTON_ITER):
+        if not np.all(np.isfinite(F)):
+            return None
+        f_norm = float(_norm(F))
+        if f_norm < _CONVERGED_F_NORM:
+            return x, f_norm, _S_CONV
+        if kind == _NEWTON_INTERSECT:
+            J = _jac_intersect(x, desc, o, d)
+        else:
+            J = _jac_xy(x, desc, x_target, y_target)
+        if not np.all(np.isfinite(J)):
+            return None
+        delta = _newton_delta_njit(J, F)
+        if delta is None:
+            return None
+        if not np.all(np.isfinite(delta)):
+            return None
+        if clamp:
+            clamp_scale = max(1.0, float(np.max(np.abs(x))))
+            if float(_norm(delta)) > _CLAMP_REL * clamp_scale:
+                delta = delta * (_CLAMP_REL * clamp_scale / float(_norm(delta)))
+        step = 1.0
+        trial = x + delta
+        if kind == _NEWTON_INTERSECT:
+            Ft = _res_intersect(trial, desc, o, d)
+        else:
+            Ft = _res_xy(trial, desc, x_target, y_target)
+        while not np.all(np.isfinite(Ft)):
+            step *= 0.5
+            if step < _MIN_STEP:
+                return None
+            trial = x + step * delta
+            if kind == _NEWTON_INTERSECT:
+                Ft = _res_intersect(trial, desc, o, d)
+            else:
+                Ft = _res_xy(trial, desc, x_target, y_target)
+        if step < 1.0:
+            damped += 1
+        step_norm = float(_norm(step * delta))
+        x = trial
+        F = Ft
+        if step < _STALL_STEP or damped >= _MAX_DAMPED_STEPS:
+            status = _S_STALL
+            break
+        if step_norm < _STEP_REL_TOL * max(1.0, float(np.max(np.abs(x)))):
+            status = _S_STALL
+            break
+    if not np.all(np.isfinite(F)):
+        return None
+    return x, float(_norm(F)), status
+
+
+@njit(cache=True)
+def _partial_njit(desc: Any, u: float, v: float, du: float, dv: float) -> np.ndarray:
+    """One-sided finite-difference partial derivative (njit ``_partial_local``)."""
+    base = _eval_njit(desc, u, v)
+    if not np.all(np.isfinite(base)):
+        return np.full(3, math.nan)
+    step = _FD_STEP_REL * max(1.0, abs(u), abs(v))
+    for si in range(2):
+        sign = 1.0 if si == 0 else -1.0
+        h = step
+        for _ in range(_FD_STEP_SHRINKS):
+            p = _eval_njit(desc, u + sign * du * h, v + sign * dv * h)
+            if np.all(np.isfinite(p)):
+                return (p - base) / (sign * h)
+            h *= 0.5
+    return np.full(3, math.nan)
+
+
+@njit(cache=True)
+def _accepts_njit(desc: Any, u: float, v: float) -> bool:
+    """Domain + circular-aperture membership (njit ``accepts_parameters``)."""
+    if u < desc[2] - desc[6] or u > desc[3] + desc[6]:
+        return False
+    if v < desc[4] - desc[7] or v > desc[5] + desc[7]:
+        return False
+    if desc[8] >= 0.0:
+        p = _eval_njit(desc, u, v)
+        if not (math.isfinite(p[0]) and math.isfinite(p[1]) and math.isfinite(p[2])):
+            return False
+        dx = p[0] - desc[9]
+        dy = p[1] - desc[10]
+        return bool(dx * dx + dy * dy <= desc[8] * desc[8] + _APERTURE_EPS)
+    return True
+
+
+@njit(cache=True)
+def _derivatives_njit(desc: Any, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
+    """Analytic tangents with the interior pull-back / FD fallback in nopython."""
+    ru, rv = _deriv_pair_njit(desc, u, v)
+    if np.all(np.isfinite(ru)) and np.all(np.isfinite(rv)):
+        return ru, rv
+    u_min = desc[2]
+    u_max = desc[3]
+    v_min = desc[4]
+    v_max = desc[5]
+    du = 0.5 * (u_min + u_max) - u
+    dv = 0.5 * (v_min + v_max) - v
+    if du == 0.0 and dv == 0.0:
+        return (
+            _partial_njit(desc, u, v, 1.0, 0.0),
+            _partial_njit(desc, u, v, 0.0, 1.0),
+        )
+    span = max(abs(u_max - u_min), abs(v_max - v_min), 1.0)
+    length = math.hypot(du, dv)
+    frac = _DERIV_INTERIOR_FRAC * span / length
+    for _ in range(_DERIV_INTERIOR_TRIES):
+        if frac >= 1.0:
+            break
+        uu = u + du * frac
+        vv = v + dv * frac
+        if _accepts_njit(desc, uu, vv):
+            ru, rv = _deriv_pair_njit(desc, uu, vv)
+            if np.all(np.isfinite(ru)) and np.all(np.isfinite(rv)):
+                return ru, rv
+        frac *= 2.0
+    return (
+        _partial_njit(desc, u, v, 1.0, 0.0),
+        _partial_njit(desc, u, v, 0.0, 1.0),
+    )
+
+
+@njit(cache=True)
+def _res_intersect(x: np.ndarray, desc: Any, o: np.ndarray, d: np.ndarray) -> np.ndarray:
+    p = _eval_njit(desc, float(x[1]), float(x[2]))
+    w = desc[11] @ p + desc[12]
+    t = float(x[0])
+    return w - (o + t * d)
+
+
+@njit(cache=True)
+def _jac_intersect(x: np.ndarray, desc: Any, o: np.ndarray, d: np.ndarray) -> np.ndarray:
+    ru, rv = _derivatives_njit(desc, float(x[1]), float(x[2]))
+    R = desc[11]
+    J = np.empty((3, 3))
+    J[:, 0] = -d
+    J[:, 1] = R @ ru
+    J[:, 2] = R @ rv
+    return J
+
+
+@njit(cache=True)
+def _newton_intersection_njit(
+    desc: Any,
+    o: np.ndarray,
+    d: np.ndarray,
+    u: float,
+    v: float,
+    t: float,
+    tol_conv: float,
+    tol_stall: float,
+    tol_exh: float,
+) -> "tuple[float, float, float, bool]":
+    """Full ray/surface Newton solve in nopython mode; returns ``(t, u, v, ok)``."""
+    res = _newton_njit(
+        _NEWTON_INTERSECT, desc, o, d, 0.0, 0.0, np.array([t, u, v]), True
+    )
+    if res is None:
+        return 0.0, 0.0, 0.0, False
+    x, f_norm, status = res
+    if status == _S_CONV:
+        tol = tol_conv
+    elif status == _S_STALL:
+        tol = tol_stall
+    else:
+        tol = tol_exh
+    if f_norm >= tol:
+        return 0.0, 0.0, 0.0, False
+    tt = float(x[0])
+    uu = float(x[1])
+    vv = float(x[2])
+    if tt > 0.0 and _accepts_njit(desc, uu, vv):
+        return tt, uu, vv, True
+    return 0.0, 0.0, 0.0, False
+
+
+@njit(cache=True)
+def _res_xy(x: np.ndarray, desc: Any, x_target: float, y_target: float) -> np.ndarray:
+    p = _eval_njit(desc, float(x[0]), float(x[1]))
+    return np.array([p[0] - x_target, p[1] - y_target])
+
+
+@njit(cache=True)
+def _jac_xy(x: np.ndarray, desc: Any, x_target: float, y_target: float) -> np.ndarray:
+    ru, rv = _derivatives_njit(desc, float(x[0]), float(x[1]))
+    J = np.empty((2, 2))
+    J[0, 0] = ru[0]
+    J[0, 1] = rv[0]
+    J[1, 0] = ru[1]
+    J[1, 1] = rv[1]
+    return J
+
+
+@njit(cache=True)
+def _solve_xy_njit(
+    desc: Any, x_target: float, y_target: float, u: float, v: float
+) -> "tuple[float, float, bool]":
+    """Newton inversion of local ``(x, y)`` to parameters, in nopython mode."""
+    res = _newton_njit(
+        _NEWTON_XY,
+        desc,
+        np.zeros(3),
+        np.zeros(3),
+        x_target,
+        y_target,
+        np.array([u, v]),
+        False,
+    )
+    if res is None:
+        return 0.0, 0.0, False
+    x, f_norm, status = res
+    if status == _S_CONV:
+        tol = _PARAM_TOL_CONV
+    elif status == _S_STALL:
+        tol = _PARAM_TOL_STALL
+    else:
+        tol = _PARAM_TOL_EXH
+    if f_norm >= tol:
+        return 0.0, 0.0, False
+    u = float(x[0])
+    v = float(x[1])
+    if not _accepts_njit(desc, u, v):
+        return 0.0, 0.0, False
+    return u, v, True
+
+
+@njit(cache=True)
+def _parameters_at_xy_njit(
+    desc: Any, grid: Any, x: float, y: float
+) -> "tuple[float, float, bool]":
+    """Grid-seeded local ``(x, y)`` inversion in nopython mode."""
+    pts = grid[3]
+    finite = grid[4]
+    Uf = grid[5]
+    Vf = grid[6]
+    n = pts.shape[0]
+    if n == 0:
+        return 0.0, 0.0, False
+    d2 = np.empty(n)
+    any_fin = False
+    for i in range(n):
+        if finite[i]:
+            dx = pts[i, 0] - x
+            dy = pts[i, 1] - y
+            d2[i] = dx * dx + dy * dy
+            any_fin = True
+        else:
+            d2[i] = np.inf
+    if not any_fin:
+        return 0.0, 0.0, False
+    k = min(_XY_SEEDS, n)
+    order = np.argpartition(d2, k - 1)[:k]
+    order = order[np.argsort(d2[order])]
+    for oi in range(order.shape[0]):
+        idx = int(order[oi])
+        if not finite[idx]:
+            continue
+        u, v, ok = _solve_xy_njit(desc, x, y, float(Uf[idx]), float(Vf[idx]))
+        if ok:
+            return u, v, True
+    return 0.0, 0.0, False
+
+
+@njit(cache=True)
+def _surface_intersect_njit(
+    desc: Any,
+    grid: Any,
+    o: np.ndarray,
+    d: np.ndarray,
+    tol_conv: float,
+    tol_stall: float,
+    tol_exh: float,
+) -> "tuple[float, float, float, bool]":
+    """Seed selection + Newton + dedup, the whole ray/surface intersection.
+
+    Nopython counterpart of ``SurfaceSolver.intersect``; returns the nearest
+    forward hit as ``(t, u, v, ok)``.
+    """
+    P = grid[0]
+    Uf = grid[1]
+    Vf = grid[2]
+    m = P.shape[0]
+    if m == 0:
+        return 0.0, 0.0, 0.0, False
+    ts = np.empty(m)
+    residual = np.empty(m)
+    for i in range(m):
+        rel0 = P[i, 0] - o[0]
+        rel1 = P[i, 1] - o[1]
+        rel2 = P[i, 2] - o[2]
+        t = rel0 * d[0] + rel1 * d[1] + rel2 * d[2]
+        ts[i] = t
+        if t > 0.0:
+            px = o[0] + t * d[0] - P[i, 0]
+            py = o[1] + t * d[1] - P[i, 1]
+            pz = o[2] + t * d[2] - P[i, 2]
+            residual[i] = math.sqrt(px * px + py * py + pz * pz)
+        else:
+            residual[i] = np.inf
+    tol = _SEED_TOL
+    count = 0
+    for i in range(m):
+        if ts[i] > 0.0 and math.isfinite(residual[i]) and residual[i] <= tol:
+            count += 1
+    if count == 0:
+        tol = _SEED_TOL_FALLBACK
+        count = 0
+        for i in range(m):
+            if ts[i] > 0.0 and math.isfinite(residual[i]) and residual[i] <= tol:
+                count += 1
+        if count == 0:
+            return 0.0, 0.0, 0.0, False
+    idx = np.empty(count, dtype=np.int64)
+    c = 0
+    for i in range(m):
+        if ts[i] > 0.0 and math.isfinite(residual[i]) and residual[i] <= tol:
+            idx[c] = i
+            c += 1
+    order = idx[np.argsort(residual[idx])]
+    max_seeds = min(order.shape[0], _MAX_SEEDS)
+    hit_t = np.empty(max_seeds)
+    hit_u = np.empty(max_seeds)
+    hit_v = np.empty(max_seeds)
+    n_hits = 0
+    for k in range(max_seeds):
+        i = int(order[k])
+        t, u, v, ok = _newton_intersection_njit(
+            desc,
+            o,
+            d,
+            float(Uf[i]),
+            float(Vf[i]),
+            float(ts[i]),
+            tol_conv,
+            tol_stall,
+            tol_exh,
+        )
+        if not ok:
+            continue
+        dup = False
+        for h in range(n_hits):
+            if abs(u - hit_u[h]) < _DEDUP_UV_TOL and abs(v - hit_v[h]) < _DEDUP_UV_TOL:
+                if t < hit_t[h]:
+                    hit_t[h] = t
+                    hit_u[h] = u
+                    hit_v[h] = v
+                dup = True
+                break
+        if not dup:
+            hit_t[n_hits] = t
+            hit_u[n_hits] = u
+            hit_v[n_hits] = v
+            n_hits += 1
+    if n_hits == 0:
+        return 0.0, 0.0, 0.0, False
+    best = 0
+    for h in range(1, n_hits):
+        if hit_t[h] < hit_t[best]:
+            best = h
+    return hit_t[best], hit_u[best], hit_v[best], True
+
+
 class SurfaceSolver:
     surface: "Surface"
 
     def __init__(self, surface: "Surface") -> None:
         self.surface = surface
         self._grid_cache: dict[int, _SeedGrid] = {}
+        self._njit_grid_cache: dict[int, tuple[Any, ...]] = {}
+
+    def njit_grid(self, grid_n: int = _c.SEED_GRID_N) -> tuple[Any, ...]:
+        """Seed grid as a flat tuple of contiguous arrays for the njit kernels."""
+        cached = self._njit_grid_cache.get(grid_n)
+        if cached is None:
+            g = self._seed_grid(grid_n)
+            cached = tuple(
+                np.ascontiguousarray(g[key])
+                for key in ("P_world", "Uf_valid", "Vf_valid", "pts", "finite", "Uf", "Vf")
+            )
+            self._njit_grid_cache[grid_n] = cached
+        return cached
 
     def parameters_at(self, pos: np.ndarray | Sequence[float]) -> "tuple[float, float] | None":
         p = self.surface.transform.point_to_local(np.asarray(pos, dtype=float))
@@ -264,6 +801,17 @@ class SurfaceSolver:
         return u, v
 
     def _solve_parameters_xy(
+        self, x_target: float, y_target: float, u: float, v: float
+    ) -> "tuple[float, float] | None":
+        desc = self.surface.njit_descriptor
+        if desc is not None:
+            uu, vv, ok = _solve_xy_njit(desc, x_target, y_target, u, v)
+            if not ok:
+                return None
+            return uu, vv
+        return self._solve_parameters_xy_python(x_target, y_target, u, v)
+
+    def _solve_parameters_xy_python(
         self, x_target: float, y_target: float, u: float, v: float
     ) -> "tuple[float, float] | None":
         def residual(x: np.ndarray) -> np.ndarray:
@@ -375,6 +923,27 @@ class SurfaceSolver:
         return None
 
     def _newton_intersection(self, ray: Ray, u: float, v: float, t: float) -> Hit | None:
+        desc = self.surface.njit_descriptor
+        if desc is not None:
+            tt, uu, vv, ok = _newton_intersection_njit(
+                desc,
+                np.asarray(ray.origin, dtype=float),
+                np.asarray(ray.direction, dtype=float),
+                u,
+                v,
+                t,
+                _HIT_TOL_CONV,
+                _HIT_TOL_STALL,
+                _HIT_TOL_EXH,
+            )
+            if not ok:
+                return None
+            return Hit(ray.at(tt), tt, uu, vv)
+        return self._newton_intersection_python(ray, u, v, t)
+
+    def _newton_intersection_python(
+        self, ray: Ray, u: float, v: float, t: float
+    ) -> Hit | None:
         def residual(x: np.ndarray) -> np.ndarray:
             return self.surface.point(float(x[1]), float(x[2])) - ray.at(float(x[0]))
 

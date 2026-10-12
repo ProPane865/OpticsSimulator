@@ -2,52 +2,23 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 from . import constants as _c
+from .plane import _intersect_kernel
 from .ray import Ray
-from .refraction import RefractiveElement, TraceResult, internal_rays, traverse_stack
+from .refraction import (
+    RefractiveElement,
+    TraceResult,
+    _run_in_chunks,
+    _trace_stack_to_plane_njit,
+    build_trace_context,
+    internal_rays,
+    traverse_stack,
+)
 from .vector import normalize
 
 _EPS = _c.PLANE_EPS
-
-
-@njit(cache=True)
-def _intersect_kernel(
-    ro: np.ndarray,
-    d: np.ndarray,
-    o: np.ndarray,
-    n: np.ndarray,
-    eps: float,
-) -> "tuple[float, float, float, bool]":
-    """Ray/plane intersection; returns ``(u, v, t, ok)`` in plane parameters."""
-    nz = n[2]
-    if abs(nz) <= eps or abs(float(np.dot(d, n))) <= eps:
-        return 0.0, 0.0, 0.0, False
-
-    nxnz = n[0] / nz
-    nynz = n[1] / nz
-    A = np.array([
-        [-1.0, 0.0, d[0]],
-        [0.0, -1.0, d[1]],
-        [nxnz, nynz, d[2]],
-    ])
-    b = np.array([-ro[0], -ro[1], nxnz * o[0] + nynz * o[1] + o[2] - ro[2]])
-
-    det = d[2] + d[1] * nynz + d[0] * nxnz
-    if not np.isfinite(det) or abs(det) <= eps:
-        return 0.0, 0.0, 0.0, False
-
-    sol = np.linalg.solve(A, b)
-    u = float(sol[0])
-    v = float(sol[1])
-    t = float(sol[2])
-
-    if not np.isfinite(t) or t <= 0.0:
-        return 0.0, 0.0, 0.0, False
-    if not (np.isfinite(u) and np.isfinite(v)):
-        return 0.0, 0.0, 0.0, False
-    return u, v, t, True
 
 
 @njit(cache=True)
@@ -88,6 +59,73 @@ def _accumulate_kernel(
         grid[j, i] += pw
         total += pw
     return total
+
+
+@njit(parallel=True, cache=True)
+def _measure_direct_kernel(
+    origins: np.ndarray,
+    dirs: np.ndarray,
+    powers: np.ndarray,
+    o: np.ndarray,
+    n: np.ndarray,
+    eps: float,
+    us: np.ndarray,
+    vs: np.ndarray,
+    pws: np.ndarray,
+) -> None:
+    """Plane-intersect every ray in parallel; write ``(u, v, power)`` per ray."""
+    for i in prange(origins.shape[0]):
+        u, v, t, ok = _intersect_kernel(origins[i], dirs[i], o, n, eps)
+        if ok:
+            us[i] = u
+            vs[i] = v
+            pws[i] = powers[i]
+
+
+@njit(cache=False, nogil=True)
+def _measure_stack_chunk(
+    stack: Any,
+    origins: np.ndarray,
+    dirs: np.ndarray,
+    powers: np.ndarray,
+    o: np.ndarray,
+    n: np.ndarray,
+    eps: float,
+    u_min: float,
+    u_max: float,
+    v_min: float,
+    v_max: float,
+    us: np.ndarray,
+    vs: np.ndarray,
+    pws: np.ndarray,
+    lo: int,
+    hi: int,
+) -> None:
+    """Trace rays ``[lo, hi)`` through the stack, then hit the plane."""
+    for i in range(lo, hi):
+        out_o = np.empty(3)
+        out_d = np.empty(3)
+        found = _trace_stack_to_plane_njit(
+            stack,
+            origins[i],
+            dirs[i],
+            o,
+            n,
+            eps,
+            u_min,
+            u_max,
+            v_min,
+            v_max,
+            out_o,
+            out_d,
+        )
+        if not found:
+            continue
+        u, v, t, ok = _intersect_kernel(out_o, out_d, o, n, eps)
+        if ok:
+            us[i] = u
+            vs[i] = v
+            pws[i] = powers[i]
 
 
 class MeasurementPlane:
@@ -292,9 +330,54 @@ class MeasurementPlane:
     def measure(
         self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
     ) -> float:
-        """Trace rays through ``elements`` and accumulate power on the grid."""
+        """Trace rays through ``elements`` and accumulate power on the grid.
+
+        Rays are traced in parallel (``prange``) through the nopython stack
+        kernel when every surface supports it; bin accumulation stays serial
+        so the grid is deterministic.
+        """
         self.reset()
-        return self._measure_element_stack(rays, elements)
+        if not rays:
+            return 0.0
+        stack: tuple[Any, ...] | None = ()
+        if elements:
+            stack = build_trace_context(elements)
+            if stack is None:
+                return self._measure_element_stack(rays, elements)
+        origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
+        dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
+        powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
+        us = np.full(len(rays), np.nan)
+        vs = np.full(len(rays), np.nan)
+        pws = np.zeros(len(rays))
+        if stack:
+
+            def work(lo: int, hi: int) -> None:
+                _measure_stack_chunk(
+                    stack,
+                    origins,
+                    dirs,
+                    powers,
+                    self.o,
+                    self.n,
+                    _EPS,
+                    self.u_min,
+                    self.u_max,
+                    self.v_min,
+                    self.v_max,
+                    us,
+                    vs,
+                    pws,
+                    lo,
+                    hi,
+                )
+
+            _run_in_chunks(work, len(rays))
+        else:
+            _measure_direct_kernel(
+                origins, dirs, powers, self.o, self.n, _EPS, us, vs, pws
+            )
+        return self.accumulate(us, vs, pws)
 
     def irradiance(self) -> np.ndarray:
         """Power per unit true plane area for each bin."""

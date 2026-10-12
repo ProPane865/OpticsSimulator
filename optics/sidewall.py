@@ -110,6 +110,14 @@ class LensSidewall:
     def mesh(self) -> "tuple[np.ndarray, np.ndarray]":
         return self._verts, self._faces
 
+    def triangles(self) -> np.ndarray:
+        """World-space triangle vertices, shape ``(N, 3, 3)``."""
+        return self._tri
+
+    def face_normals(self) -> np.ndarray:
+        """Unit normal per triangle, matching :meth:`triangles`."""
+        return self._face_normals
+
     def normal(self, face: int) -> np.ndarray:
         """Outward unit normal of the triangle with the given face index."""
         return self._face_normals[int(face)]

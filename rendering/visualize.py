@@ -8,7 +8,7 @@ from vispy.scene import visuals
 
 from optics.measurement_plane import MeasurementPlane
 from optics.ray import Ray
-from optics.refraction import RefractiveElement, trace_stack_path
+from optics.refraction import RefractiveElement, trace_segments_batch, trace_stack_path
 from optics.sidewall import LensSidewall
 from optics.surface import Surface
 
@@ -221,6 +221,29 @@ RAY_SEGMENT_COLORS = {
 }
 
 
+_SEGMENT_KIND_NAMES = ("incident", "internal", "exit")
+
+
+def _append_ray_path(
+    segments: list,
+    markers: list,
+    ray_segments: "Sequence[tuple[np.ndarray, np.ndarray, str]]",
+) -> None:
+    prev_kind = None
+    for start, end, kind in ray_segments:
+        start = np.asarray(start, dtype=float)
+        end = np.asarray(end, dtype=float)
+        if not (np.all(np.isfinite(start)) and np.all(np.isfinite(end))):
+            prev_kind = kind
+            continue
+        segments.append((start, end, kind))
+        if kind == "internal" and prev_kind != "internal":
+            markers.append((start, INCIDENT_COLOR))
+        elif prev_kind == "internal" and kind != "internal":
+            markers.append((start, EXIT_COLOR))
+        prev_kind = kind
+
+
 def _collect_ray_segments(
     elements: Sequence[RefractiveElement],
     rays: Sequence[Ray],
@@ -230,28 +253,45 @@ def _collect_ray_segments(
 
     ``segments`` is a list of ``(start, end, kind)`` tuples and ``markers`` a
     list of ``(position, color)`` tuples for entry/exit transition points.
+    Rays are traced in parallel through the nopython stack kernel when the
+    whole element stack supports it, otherwise one ray at a time.
     """
-    segments = []
-    markers = []
-    for ray in rays:
-        origin = np.asarray(ray.origin, dtype=float)
-        direction = np.asarray(ray.direction, dtype=float)
-        if not (np.all(np.isfinite(origin)) and np.all(np.isfinite(direction))):
-            continue
+    segments: list[tuple[np.ndarray, np.ndarray, str]] = []
+    markers: list[tuple[np.ndarray, tuple[float, float, float, float]]] = []
+    finite_rays = [
+        ray
+        for ray in rays
+        if np.all(np.isfinite(np.asarray(ray.origin, dtype=float)))
+        and np.all(np.isfinite(np.asarray(ray.direction, dtype=float)))
+    ]
+    if finite_rays:
+        batch = trace_segments_batch(
+            elements,
+            np.asarray([r.origin for r in finite_rays], dtype=float),
+            np.asarray([r.direction for r in finite_rays], dtype=float),
+            ray_length=ray_length,
+        )
+    else:
+        batch = None
+    if batch is not None:
+        starts, ends, kinds, counts = batch
+        for i in range(len(finite_rays)):
+            _append_ray_path(
+                segments,
+                markers,
+                [
+                    (
+                        starts[i, k].copy(),
+                        ends[i, k].copy(),
+                        _SEGMENT_KIND_NAMES[int(kinds[i, k])],
+                    )
+                    for k in range(int(counts[i]))
+                ],
+            )
+        return segments, markers
+    for ray in finite_rays:
         ray_segments, _ = trace_stack_path(ray, list(elements), ray_length=ray_length)
-        prev_kind = None
-        for start, end, kind in ray_segments:
-            start = np.asarray(start, dtype=float)
-            end = np.asarray(end, dtype=float)
-            if not (np.all(np.isfinite(start)) and np.all(np.isfinite(end))):
-                prev_kind = kind
-                continue
-            segments.append((start, end, kind))
-            if kind == "internal" and prev_kind != "internal":
-                markers.append((start, INCIDENT_COLOR))
-            elif prev_kind == "internal" and kind != "internal":
-                markers.append((start, EXIT_COLOR))
-            prev_kind = kind
+        _append_ray_path(segments, markers, ray_segments)
     return segments, markers
 
 

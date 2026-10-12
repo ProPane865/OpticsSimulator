@@ -1,15 +1,30 @@
+import math
+import threading
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import numba
 import numpy as np
 from numba import njit
 
 from . import constants as _c
 from .hit import RayHit
 from .material import Material
+from .plane import _intersect_kernel
 from .ray import Ray
-from .sidewall import LensSidewall
+from .sidewall import LensSidewall, _mt_kernel
+from .solver import (
+    _HIT_TOL_CONV,
+    _HIT_TOL_EXH,
+    _HIT_TOL_STALL,
+    _accepts_njit,
+    _derivatives_njit,
+    _eval_njit,
+    _norm,
+    _parameters_at_xy_njit,
+    _surface_intersect_njit,
+)
 from .surface import Surface
 from .transform import Transform
 from .vector import _normalize
@@ -63,6 +78,486 @@ def refract_or_reflect(
 @njit(cache=True)
 def trace_direction(incident: np.ndarray, normal: np.ndarray, n_from: float, n_to: float) -> np.ndarray:
     return refract_or_reflect(incident, normal, n_from, n_to)[0]
+
+
+# --- Nopython element tracing ------------------------------------------------
+# Element context tuple layout (build_trace_context):
+#   0 desc1, 1 desc2, 2 grid1, 3 grid2, 4 refractive index,
+#   5 local AABB lo (3,), 6 local AABB hi (3,),
+#   7 sidewall triangles (K,3,3), 8 sidewall face normals (K,3),
+#   9 surface1 graph-over-XY, 10 surface2 graph-over-XY
+
+_MAX_PATH_PTS = _MAX_INTERNAL_BOUNCES + 2
+_MAX_SEGS_PER_ELEMENT = 2 * _MAX_INTERNAL_BOUNCES + 3
+_PLANE_EPS = _c.PLANE_EPS
+_DET_SINGULAR_EPS = _c.DET_SINGULAR_EPS
+_BARY_TOL = _c.BARY_TOL
+_MIN_FACE_T = _c.MIN_FACE_T
+
+
+@njit(cache=True)
+def _normal_njit(desc: Any, u: float, v: float) -> "tuple[float, float, float, bool]":
+    """World-space unit normal at (u, v); mirrors ``Surface.normal``."""
+    if not _accepts_njit(desc, u, v):
+        return 0.0, 0.0, 0.0, False
+    ru, rv = _derivatives_njit(desc, u, v)
+    n = -np.cross(ru, rv)
+    norm = _norm(n)
+    if not math.isfinite(norm) or norm <= 0.0:
+        return 0.0, 0.0, 0.0, False
+    w = desc[11] @ (n / norm)
+    return float(w[0]), float(w[1]), float(w[2]), True
+
+
+@njit(cache=True)
+def _surface_hit_njit(
+    desc: Any, grid: Any, o: np.ndarray, d: np.ndarray, min_t: float
+) -> "tuple[bool, float, np.ndarray, np.ndarray]":
+    """Nearest surface hit with normal, or ``(False, inf, 0, 0)``."""
+    t, u, v, ok = _surface_intersect_njit(
+        desc, grid, o, d, _HIT_TOL_CONV, _HIT_TOL_STALL, _HIT_TOL_EXH
+    )
+    if ok and t > min_t:
+        nx, ny, nz, nok = _normal_njit(desc, u, v)
+        if nok:
+            bn = np.zeros(3)
+            bn[0] = nx
+            bn[1] = ny
+            bn[2] = nz
+            return True, t, o + t * d, bn
+    return False, np.inf, np.zeros(3), np.zeros(3)
+
+
+@njit(cache=True)
+def _element_first_hit(
+    elem: Any, o: np.ndarray, d: np.ndarray, min_t: float
+) -> "tuple[bool, float, np.ndarray, np.ndarray]":
+    """Nearest face hit (surfaces + sidewall); mirrors ``_candidate_hits``."""
+    best_t = np.inf
+    found = False
+    bp = np.zeros(3)
+    bn = np.zeros(3)
+    f0, t0, p0, n0 = _surface_hit_njit(elem[0], elem[2], o, d, min_t)
+    if f0 and t0 < best_t:
+        best_t = t0
+        found = True
+        bp = p0
+        bn = n0
+    f1, t1, p1, n1 = _surface_hit_njit(elem[1], elem[3], o, d, min_t)
+    if f1 and t1 < best_t:
+        best_t = t1
+        found = True
+        bp = p1
+        bn = n1
+    tri = elem[7]
+    if tri.shape[0] > 0:
+        t, face, bu, bv, ok = _mt_kernel(
+            o, d, tri, _DET_SINGULAR_EPS, _BARY_TOL, _MIN_FACE_T
+        )
+        if ok and t > min_t and t < best_t:
+            best_t = t
+            found = True
+            bp = o + t * d
+            bn = elem[8][int(face)]
+    return found, best_t, bp, bn
+
+
+@njit(cache=True)
+def _local_surface_z_njit(
+    desc: Any, grid: Any, graph: bool, local: np.ndarray
+) -> float:
+    """Local height of a surface above ``(local[0], local[1])``."""
+    u = float(local[0])
+    v = float(local[1])
+    if graph:
+        if not _accepts_njit(desc, u, v):
+            return math.nan
+    else:
+        uu, vv, ok = _parameters_at_xy_njit(desc, grid, u, v)
+        if not ok:
+            return math.nan
+        u = uu
+        v = vv
+    z = float(_eval_njit(desc, u, v)[2])
+    return z if math.isfinite(z) else math.nan
+
+
+@njit(cache=True)
+def _contains_point_njit(elem: Any, p: np.ndarray) -> bool:
+    """Nopython ``RefractiveElement.contains_point``."""
+    desc = elem[0]
+    R = desc[11]
+    T = desc[12]
+    local = R.T @ (p - T)
+    if not np.all(np.isfinite(local)):
+        return False
+    lo = elem[5]
+    hi = elem[6]
+    for i in range(3):
+        if local[i] < lo[i] or local[i] > hi[i]:
+            return False
+    z1 = _local_surface_z_njit(elem[0], elem[2], elem[9], local)
+    z2 = _local_surface_z_njit(elem[1], elem[3], elem[10], local)
+    if math.isnan(z1) or math.isnan(z2):
+        return False
+    return bool(min(z1, z2) < local[2] < max(z1, z2))
+
+
+@njit(cache=True)
+def _trace_element_njit(
+    elem: Any, o: np.ndarray, d: np.ndarray, pts: np.ndarray
+) -> "tuple[np.ndarray, np.ndarray, bool, int, bool, np.ndarray]":
+    """Nopython ``RefractiveElement.trace`` for one closed element.
+
+    Writes the internal polyline (entry point, bounce points, exit point)
+    into ``pts`` and returns ``(exit_o, exit_d, exited, n_pts, has_incident,
+    incident_pt)``.
+    """
+    inside = _contains_point_njit(elem, o)
+    found, t0, hp, hn = _element_first_hit(elem, o, d, 0.0)
+    if not found:
+        if inside:
+            pts[0] = o
+            return o, d, True, 1, False, o
+        return o, d, False, 0, False, o
+    n = elem[4]
+    if inside:
+        cur_o = o
+        cur_d = d
+        has_inc = False
+        ipt = o
+        pts[0] = o
+        n_pts = 1
+    else:
+        has_inc = True
+        ipt = hp
+        d2, _ = refract_or_reflect(d, _orient(hn, d), 1.0, n)
+        cur_o = hp + _EPSILON * d2
+        cur_d = d2
+        pts[0] = hp
+        n_pts = 1
+    for _ in range(_MAX_INTERNAL_BOUNCES):
+        ffound, t1, fp, fn = _element_first_hit(elem, cur_o, cur_d, _MIN_HIT_T)
+        if not ffound:
+            return cur_o, cur_d, False, n_pts, has_inc, ipt
+        pts[n_pts] = fp
+        n_pts += 1
+        d2, refracted = refract_or_reflect(cur_d, _orient(fn, cur_d), n, 1.0)
+        if refracted:
+            return fp, d2, True, n_pts, has_inc, ipt
+        cur_o = fp + _EPSILON * d2
+        cur_d = d2
+    return cur_o, cur_d, False, n_pts, has_inc, ipt
+
+
+@njit(cache=True)
+def _trace_stack_segments_njit(
+    stack: Any,
+    o: np.ndarray,
+    d: np.ndarray,
+    ray_length: float,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    kinds: np.ndarray,
+) -> "tuple[int, bool, np.ndarray, np.ndarray]":
+    """Nopython ``trace_stack_path``; segment kinds 0/1/2 = incident/internal/exit."""
+    m = len(stack)
+    visited = np.zeros(m, np.bool_)
+    cur_o = o
+    cur_d = d
+    kind = 0
+    count = 0
+    pts = np.empty((_MAX_PATH_PTS, 3))
+    cap = starts.shape[0]
+    while True:
+        best_i = -1
+        best_t = np.inf
+        i = 0
+        for elem in stack:
+            if not visited[i]:
+                found, t, hp, hn = _element_first_hit(elem, cur_o, cur_d, 0.0)
+                if found and t < best_t:
+                    best_t = t
+                    best_i = i
+            i += 1
+        if best_i < 0:
+            break
+        visited[best_i] = True
+        exit_o = cur_o
+        exit_d = cur_d
+        exited = False
+        n_pts = 0
+        has_inc = False
+        ipt = cur_o
+        i = 0
+        for elem in stack:
+            if i == best_i:
+                exit_o, exit_d, exited, n_pts, has_inc, ipt = _trace_element_njit(
+                    elem, cur_o, cur_d, pts
+                )
+            i += 1
+        if has_inc and count < cap:
+            starts[count] = cur_o
+            ends[count] = ipt
+            kinds[count] = kind
+            count += 1
+        for k in range(n_pts - 1):
+            if count >= cap:
+                break
+            starts[count] = pts[k]
+            ends[count] = pts[k + 1]
+            kinds[count] = 1
+            count += 1
+        if not exited:
+            return count, False, cur_o, cur_d
+        cur_o = exit_o
+        cur_d = exit_d
+        kind = 2
+    if count < cap:
+        starts[count] = cur_o
+        ends[count] = cur_o + ray_length * cur_d
+        kinds[count] = kind
+        count += 1
+    return count, True, cur_o, cur_d
+
+
+@njit(cache=True)
+def _trace_stack_to_plane_njit(
+    stack: Any,
+    o: np.ndarray,
+    d: np.ndarray,
+    po: np.ndarray,
+    pn: np.ndarray,
+    eps: float,
+    u_min: float,
+    u_max: float,
+    v_min: float,
+    v_max: float,
+    out_o: np.ndarray,
+    out_d: np.ndarray,
+) -> bool:
+    """Nopython ``MeasurementPlane._trace_to_plane``; writes the reaching ray."""
+    m = len(stack)
+    visited = np.zeros(m, np.bool_)
+    cur_o = o
+    cur_d = d
+    pts = np.empty((_MAX_PATH_PTS, 3))
+    while True:
+        _, _, t_max, ok = _intersect_kernel(cur_o, cur_d, po, pn, eps)
+        if not ok:
+            break
+        best_i = -1
+        best_t = np.inf
+        i = 0
+        for elem in stack:
+            if not visited[i]:
+                found, t, hp, hn = _element_first_hit(elem, cur_o, cur_d, 0.0)
+                if found and t < t_max and t < best_t:
+                    best_t = t
+                    best_i = i
+            i += 1
+        if best_i < 0:
+            break
+        visited[best_i] = True
+        exit_o = cur_o
+        exit_d = cur_d
+        exited = False
+        n_pts = 0
+        i = 0
+        for elem in stack:
+            if i == best_i:
+                exit_o, exit_d, exited, n_pts, _, _ = _trace_element_njit(
+                    elem, cur_o, cur_d, pts
+                )
+            i += 1
+        for k in range(n_pts - 1):
+            seg_o = pts[k]
+            diff = pts[k + 1] - seg_o
+            seg_len = _norm(diff)
+            if seg_len <= 0.0:
+                continue
+            seg_d = diff / seg_len
+            u, v, t, pok = _intersect_kernel(seg_o, seg_d, po, pn, eps)
+            if (
+                pok
+                and u_min <= u <= u_max
+                and v_min <= v <= v_max
+                and t <= seg_len
+            ):
+                out_o[:] = seg_o
+                out_d[:] = seg_d
+                return True
+        if not exited:
+            return False
+        cur_o = exit_o
+        cur_d = exit_d
+    out_o[:] = cur_o
+    out_d[:] = cur_d
+    return True
+
+
+def build_trace_context(
+    elements: Sequence["RefractiveElement"],
+) -> "tuple[Any, ...] | None":
+    """Flatten an element stack into plain data for the nopython kernels.
+
+    Returns ``None`` when the stack is empty or any surface lacks the
+    nopython codegen path (or uses an unsupported aperture), so callers can
+    fall back to the Python tracer.
+    """
+    if not elements:
+        return None
+    ctxs: list[Any] = []
+    for el in elements:
+        d1 = el.surface1.njit_descriptor
+        d2 = el.surface2.njit_descriptor
+        if d1 is None or d2 is None:
+            return None
+        g1 = el.surface1.solver.njit_grid()
+        g2 = el.surface2.solver.njit_grid()
+        wall = el.sidewall
+        if wall is None:
+            tri = np.empty((0, 3, 3), dtype=float)
+            normals = np.empty((0, 3), dtype=float)
+        else:
+            tri = np.ascontiguousarray(wall.triangles())
+            normals = np.ascontiguousarray(wall.face_normals())
+        lo, hi = el._local_bounds()
+        ctxs.append(
+            (
+                d1,
+                d2,
+                g1,
+                g2,
+                float(el.material.refractive_index),
+                np.ascontiguousarray(lo),
+                np.ascontiguousarray(hi),
+                tri,
+                normals,
+                bool(el.surface1.is_graph_over_xy),
+                bool(el.surface2.is_graph_over_xy),
+            )
+        )
+    return tuple(ctxs)
+
+
+def _segments_capacity(n_elements: int) -> int:
+    return _MAX_SEGS_PER_ELEMENT * n_elements + 2
+
+
+def _run_in_chunks(work: Callable[[int, int], None], n: int) -> None:
+    """Split ``range(n)`` across GIL-free njit chunk calls on threads.
+
+    ``prange`` cannot carry the element-stack tuple through its gufunc
+    packing, so stack kernels are dispatched as disjoint slices instead;
+    ``nogil=True`` lets the compiled chunks run truly in parallel.
+    """
+    if n <= 0:
+        return
+    nt = max(1, min(numba.get_num_threads(), n))
+    chunk = -(-n // nt)
+    errors: list[BaseException] = []
+
+    def run(lo: int, hi: int) -> None:
+        try:
+            work(lo, hi)
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller
+            errors.append(exc)
+
+    threads = []
+    for t in range(nt):
+        lo = t * chunk
+        if lo >= n:
+            break
+        hi = min(n, lo + chunk)
+        th = threading.Thread(target=run, args=(lo, hi))
+        threads.append(th)
+        th.start()
+    for th in threads:
+        th.join()
+    if errors:
+        raise errors[0]
+
+
+@njit(cache=True, nogil=True)
+def _trace_stack_paths_chunk(
+    stack: Any,
+    origins: np.ndarray,
+    dirs: np.ndarray,
+    ray_length: float,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    kinds: np.ndarray,
+    counts: np.ndarray,
+    lo: int,
+    hi: int,
+) -> None:
+    for i in range(lo, hi):
+        c, ex, fo, fd = _trace_stack_segments_njit(
+            stack, origins[i], dirs[i], ray_length, starts[i], ends[i], kinds[i]
+        )
+        counts[i] = c
+
+
+def trace_segments_batch(
+    elements: Sequence["RefractiveElement"],
+    origins: np.ndarray,
+    dirs: np.ndarray,
+    ray_length: float = 3.0,
+) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None":
+    """Parallel per-ray path tracing for rendering.
+
+    Returns ``(starts, ends, kinds, counts)`` with per-ray segment lists, or
+    ``None`` when the stack cannot run in nopython mode.
+    """
+    ctx = build_trace_context(elements)
+    if ctx is None:
+        return None
+    origins = np.ascontiguousarray(origins, dtype=float)
+    dirs = np.ascontiguousarray(dirs, dtype=float)
+    n = origins.shape[0]
+    cap = _segments_capacity(len(ctx))
+    starts = np.empty((n, cap, 3), dtype=float)
+    ends = np.empty((n, cap, 3), dtype=float)
+    kinds = np.empty((n, cap), dtype=np.int8)
+    counts = np.zeros(n, dtype=np.int64)
+
+    def work(lo: int, hi: int) -> None:
+        _trace_stack_paths_chunk(
+            ctx, origins, dirs, float(ray_length), starts, ends, kinds, counts, lo, hi
+        )
+
+    _run_in_chunks(work, n)
+    return starts, ends, kinds, counts
+
+
+_SEGMENT_KIND_NAMES = ("incident", "internal", "exit")
+
+
+def _trace_stack_path_fast(
+    ray: Ray, ctx: "tuple[Any, ...]", ray_length: float
+) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], Ray | None]":
+    cap = _segments_capacity(len(ctx))
+    starts = np.empty((cap, 3), dtype=float)
+    ends = np.empty((cap, 3), dtype=float)
+    kinds = np.empty(cap, dtype=np.int8)
+    count, exited, fo, fd = _trace_stack_segments_njit(
+        ctx,
+        np.asarray(ray.origin, dtype=float),
+        np.asarray(ray.direction, dtype=float),
+        float(ray_length),
+        starts,
+        ends,
+        kinds,
+    )
+    segments = [
+        (starts[i].copy(), ends[i].copy(), _SEGMENT_KIND_NAMES[int(kinds[i])])
+        for i in range(count)
+    ]
+    if not exited:
+        return segments, None
+    return segments, Ray(fo, fd, ray.power)
+
 
 @dataclass(frozen=True)
 class TraceResult:
@@ -149,7 +644,13 @@ def trace_stack_path(
     Each segment is a ``(start, end, kind)`` tuple where ``kind`` is
     ``"incident"`` before the first element, ``"internal"`` inside an
     element, and ``"exit"`` after leaving one.
+
+    Runs through the nopython stack kernel when every surface supports it,
+    otherwise falls back to the Python traversal below.
     """
+    ctx = build_trace_context(elements)
+    if ctx is not None:
+        return _trace_stack_path_fast(ray, ctx, ray_length)
     segments: list[tuple[np.ndarray, np.ndarray, str]] = []
     current = ray
     kind = "incident"

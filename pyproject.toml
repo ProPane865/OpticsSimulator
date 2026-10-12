@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "optics-simulator"
+version = "0.1.0"
+description = "Interactive parametric ray-tracing optics simulator"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "sympy",
+    "vispy",
+    "PySide6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
+
+[project.scripts]
+opticssim = "ui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["optics*", "rendering*", "ui*"]
+
+[tool.setuptools.package-data]
+ui = ["*.ui"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true

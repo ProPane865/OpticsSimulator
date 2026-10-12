@@ -10,6 +10,10 @@ from .vector import rotation_from_z
 
 
 def surface_from_config(config, transform):
+    if not isinstance(config, dict):
+        raise ValueError("Surface config must be an object")
+    for key in ("x", "y", "z"):
+        _require(config, key, "surface config")
     return Surface(
         config["x"],
         config["y"],
@@ -21,23 +25,34 @@ def surface_from_config(config, transform):
     )
 
 
+def _require(mapping, key, context):
+    if not isinstance(mapping, dict) or key not in mapping:
+        raise ValueError(f"Missing required key {key!r} in {context}")
+    return mapping[key]
+
+
 def refractive_element_from_config(
     config,
     orientation=None,
     position=None,
 ):
-    orientation = (
-        np.array([0.0, 0.0, 1.0])
-        if orientation is None
-        else np.asarray(orientation, dtype=float)
-    )
-    position = np.zeros(3) if position is None else np.asarray(position, dtype=float)
+    if not isinstance(config, dict):
+        raise ValueError("Element config must be an object")
+    if orientation is None:
+        orientation = config.get("orientation", [0.0, 0.0, 1.0])
+    if position is None:
+        position = config.get("position", [0.0, 0.0, 0.0])
+    orientation = np.asarray(orientation, dtype=float)
+    position = np.asarray(position, dtype=float)
     transform = Transform(rotation_from_z(orientation), position)
 
-    surface1 = surface_from_config(config["surface1"], transform)
-    surface2 = surface_from_config(config["surface2"], transform)
+    surface1 = surface_from_config(_require(config, "surface1", "element config"), transform)
+    surface2 = surface_from_config(_require(config, "surface2", "element config"), transform)
 
-    material = Material(refractive_index=float(config["material"]["refractive_index"]))
+    material_config = _require(config, "material", "element config")
+    material = Material(
+        refractive_index=float(_require(material_config, "refractive_index", "material config"))
+    )
 
     return RefractiveElement(
         surface1=surface1,

@@ -6,7 +6,7 @@ from vispy import scene
 from vispy.scene import visuals
 from vispy.color import get_colormap
 
-from rendering.meshing import SurfaceMesher
+from .meshing import SurfaceMesher
 from optics.ray import Ray
 from optics.refraction import RefractiveElement, trace_stack_path
 from optics.config import stack_from_config

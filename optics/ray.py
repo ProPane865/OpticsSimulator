@@ -2,6 +2,7 @@ import numpy as np
 
 from .vector import normalize
 
+
 class Ray:
     def __init__(self, origin: np.ndarray, direction: np.ndarray, power: float):
         origin = np.asarray(origin, dtype=float)

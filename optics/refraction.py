@@ -1,19 +1,20 @@
+from dataclasses import dataclass
+
 import numpy as np
 
-from .surface import Surface
-from .sidewall import LensSidewall
+from . import constants as _c
+from .hit import RayHit
 from .material import Material
-from .hit import Hit, MeshHit
 from .ray import Ray
+from .sidewall import LensSidewall
+from .surface import Surface
 from .vector import normalize
-
-from dataclasses import dataclass
 
 _SIDEWALL_UNSET = object()
 
-_EPSILON = 1e-9
-_MIN_HIT_T = 1e-7
-_MAX_INTERNAL_BOUNCES = 8
+_EPSILON = _c.RAY_EPSILON
+_MIN_HIT_T = _c.MIN_HIT_T
+_MAX_INTERNAL_BOUNCES = _c.MAX_INTERNAL_BOUNCES
 
 def _reflect_direction(incident, normal):
     return normalize(incident - 2.0 * float(np.dot(normal, incident)) * normal)
@@ -48,8 +49,8 @@ def trace_direction(incident, normal, n_from, n_to):
 
 @dataclass(frozen=True)
 class TraceResult:
-    incident_hit: Hit | MeshHit | None
-    exit_hit: Hit | MeshHit | None
+    incident_hit: RayHit | None
+    exit_hit: RayHit | None
     incident_ray: Ray
     internal_path: tuple[Ray, ...]
     outgoing_ray: Ray | None
@@ -111,8 +112,6 @@ def trace_stack_path(ray, elements, ray_length=3.0):
     current = ray
     kind = "incident"
     for _, result in traverse_stack(ray, elements):
-        if result.incident_hit is None:
-            continue
         segments.append((current.origin, result.incident_hit.point, kind))
         path = result.internal_path
         for i, segment in enumerate(path):
@@ -163,7 +162,7 @@ class RefractiveElement:
                     front is not None
                     and rear is not None
                     and front.shape == rear.shape
-                    and not np.allclose(front, rear, atol=1e-6)
+                    and not np.allclose(front, rear, atol=_c.SIDEWALL_MATCH_ATOL)
                 ):
                     self._sidewall = LensSidewall(front, rear)
                 else:

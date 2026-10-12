@@ -3,8 +3,8 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import pytest
 import numpy as np
+import pytest
 import sympy as sp
 
 PySide6 = pytest.importorskip("PySide6")
@@ -115,11 +115,11 @@ def test_open_action_triggers_load(qt_app, repo_root, monkeypatch):
 def _editor(window):
     return {
         "selector": window.findChild(QtWidgets.QComboBox, "lensSelector"),
-        "index": window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox"),
-        "radius": window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_2"),
-        "s1": window.findChild(QtWidgets.QLineEdit, "lineEdit"),
-        "s2": window.findChild(QtWidgets.QLineEdit, "lineEdit_2"),
-        "buttons": window.findChild(QtWidgets.QDialogButtonBox, "buttonBox"),
+        "index": window.findChild(QtWidgets.QDoubleSpinBox, "refractiveIndexSpin"),
+        "radius": window.findChild(QtWidgets.QDoubleSpinBox, "apertureRadiusSpin"),
+        "s1": window.findChild(QtWidgets.QLineEdit, "surface1Edit"),
+        "s2": window.findChild(QtWidgets.QLineEdit, "surface2Edit"),
+        "buttons": window.findChild(QtWidgets.QDialogButtonBox, "lensButtonBox"),
     }
 
 
@@ -408,10 +408,10 @@ def test_save_as_empty_stack_warns(qt_app, tmp_path, monkeypatch):
 
 def _source_editor(window):
     return {
-        "type": window.findChild(QtWidgets.QComboBox, "comboBox"),
-        "power": window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_3"),
-        "cone": window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_4"),
-        "rays": window.findChild(QtWidgets.QSpinBox, "spinBox"),
+        "type": window.findChild(QtWidgets.QComboBox, "sourceTypeCombo"),
+        "power": window.findChild(QtWidgets.QDoubleSpinBox, "sourcePowerSpin"),
+        "cone": window.findChild(QtWidgets.QDoubleSpinBox, "coneAngleSpin"),
+        "rays": window.findChild(QtWidgets.QSpinBox, "numRaysSpin"),
         "x": window.findChild(QtWidgets.QDoubleSpinBox, "sourceX"),
         "y": window.findChild(QtWidgets.QDoubleSpinBox, "sourceY"),
         "z": window.findChild(QtWidgets.QDoubleSpinBox, "sourceZ"),
@@ -613,19 +613,19 @@ def test_measurement_plane_remeasures_on_source_change(qt_app, repo_root):
 
 def _plane_editor(window):
     return {
-        "selector": window.findChild(QtWidgets.QComboBox, "comboBox_2"),
-        "remove": window.findChild(QtWidgets.QPushButton, "pushButton"),
+        "selector": window.findChild(QtWidgets.QComboBox, "planeSelectorCombo"),
+        "remove": window.findChild(QtWidgets.QPushButton, "removePlaneButton"),
         "pos": [
-            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_5"),
-            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_6"),
-            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_7"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "planePosXSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "planePosYSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "planePosZSpin"),
         ],
         "normal": [
-            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_8"),
-            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_9"),
-            window.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_10"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "planeNormalXSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "planeNormalYSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "planeNormalZSpin"),
         ],
-        "buttons": window.findChild(QtWidgets.QDialogButtonBox, "buttonBox_2"),
+        "buttons": window.findChild(QtWidgets.QDialogButtonBox, "planeButtonBox"),
     }
 
 

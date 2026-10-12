@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def normalize(vector):
     v = np.array(vector, dtype=float)
     norm = np.linalg.norm(v)

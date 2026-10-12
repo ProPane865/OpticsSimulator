@@ -3,13 +3,14 @@ from pathlib import Path
 
 import numpy as np
 from vispy import scene
-from vispy.scene import visuals
 from vispy.color import get_colormap
+from vispy.scene import visuals
 
-from .meshing import SurfaceMesher
+from optics.config import stack_from_config
 from optics.ray import Ray
 from optics.refraction import RefractiveElement, trace_stack_path
-from optics.config import stack_from_config
+
+from .meshing import SurfaceMesher
 
 SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
 SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.25)
@@ -319,8 +320,8 @@ def visualize(elements, rays, x_range=(-2.0, 2.0), y_range=(-2.0, 2.0), ray_leng
 
 
 def default_stack():
-    schema_path = Path(__file__).resolve().parent.parent / "tests" / "test_stack.json"
-    with open(schema_path, "r") as f:
+    schema_path = Path(__file__).resolve().parent.parent / "examples" / "doublet.json"
+    with open(schema_path) as f:
         stack = json.load(f)
     return stack_from_config(stack)
 

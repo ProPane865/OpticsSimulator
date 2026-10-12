@@ -100,7 +100,7 @@
          </widget>
         </item>
         <item row="1" column="1">
-         <widget class="QDoubleSpinBox" name="doubleSpinBox"/>
+         <widget class="QDoubleSpinBox" name="refractiveIndexSpin"/>
         </item>
         <item row="2" column="0">
          <widget class="QLabel" name="label_3">
@@ -110,7 +110,7 @@
          </widget>
         </item>
         <item row="2" column="1">
-         <widget class="QDoubleSpinBox" name="doubleSpinBox_2"/>
+         <widget class="QDoubleSpinBox" name="apertureRadiusSpin"/>
         </item>
         <item row="3" column="0">
          <widget class="QLabel" name="label_4">
@@ -120,7 +120,7 @@
          </widget>
         </item>
         <item row="3" column="1">
-         <widget class="QLineEdit" name="lineEdit"/>
+         <widget class="QLineEdit" name="surface1Edit"/>
         </item>
         <item row="4" column="0">
          <widget class="QLabel" name="label_5">
@@ -130,13 +130,13 @@
          </widget>
         </item>
         <item row="4" column="1">
-         <widget class="QLineEdit" name="lineEdit_2"/>
+         <widget class="QLineEdit" name="surface2Edit"/>
         </item>
        </layout>
       </widget>
      </item>
      <item>
-      <widget class="QDialogButtonBox" name="buttonBox">
+      <widget class="QDialogButtonBox" name="lensButtonBox">
        <property name="standardButtons">
         <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
        </property>
@@ -180,7 +180,7 @@
          </widget>
         </item>
         <item row="0" column="1">
-         <widget class="QComboBox" name="comboBox">
+         <widget class="QComboBox" name="sourceTypeCombo">
           <item>
            <property name="text">
             <string>Single Point</string>
@@ -201,7 +201,7 @@
          </widget>
         </item>
         <item row="2" column="1">
-         <widget class="QDoubleSpinBox" name="doubleSpinBox_3"/>
+         <widget class="QDoubleSpinBox" name="sourcePowerSpin"/>
         </item>
         <item row="3" column="0">
          <widget class="QLabel" name="label_10">
@@ -211,7 +211,7 @@
          </widget>
         </item>
         <item row="3" column="1">
-         <widget class="QSpinBox" name="spinBox"/>
+         <widget class="QSpinBox" name="numRaysSpin"/>
         </item>
         <item row="4" column="0">
          <widget class="QLabel" name="label_11">
@@ -255,7 +255,7 @@
          </widget>
         </item>
         <item row="1" column="1">
-         <widget class="QDoubleSpinBox" name="doubleSpinBox_4">
+         <widget class="QDoubleSpinBox" name="coneAngleSpin">
           <property name="maximum">
            <double>360.000000000000000</double>
           </property>
@@ -302,7 +302,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="pushButton">
+      <widget class="QPushButton" name="removePlaneButton">
        <property name="text">
         <string>Remove Plane</string>
        </property>
@@ -319,7 +319,7 @@
          </widget>
         </item>
         <item row="0" column="1">
-         <widget class="QComboBox" name="comboBox_2"/>
+         <widget class="QComboBox" name="planeSelectorCombo"/>
         </item>
         <item row="1" column="0">
          <widget class="QLabel" name="label_15">
@@ -344,13 +344,13 @@
             <number>0</number>
            </property>
            <item>
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_5"/>
+            <widget class="QDoubleSpinBox" name="planePosXSpin"/>
            </item>
            <item>
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_6"/>
+            <widget class="QDoubleSpinBox" name="planePosYSpin"/>
            </item>
            <item>
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_7"/>
+            <widget class="QDoubleSpinBox" name="planePosZSpin"/>
            </item>
           </layout>
          </widget>
@@ -378,13 +378,13 @@
             <number>0</number>
            </property>
            <item>
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_8"/>
+            <widget class="QDoubleSpinBox" name="planeNormalXSpin"/>
            </item>
            <item>
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_9"/>
+            <widget class="QDoubleSpinBox" name="planeNormalYSpin"/>
            </item>
            <item>
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_10"/>
+            <widget class="QDoubleSpinBox" name="planeNormalZSpin"/>
            </item>
           </layout>
          </widget>
@@ -393,7 +393,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QDialogButtonBox" name="buttonBox_2">
+      <widget class="QDialogButtonBox" name="planeButtonBox">
        <property name="standardButtons">
         <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
        </property>

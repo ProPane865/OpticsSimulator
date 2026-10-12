@@ -45,7 +45,13 @@ def offset_lens(offset_lens_schema) -> refraction.RefractiveElement:
 
 @pytest.fixture
 def make_element():
-    def _make(surface1: str, surface2: str, n: float = 1.5, orientation=None, aperture_radius=None) -> refraction.RefractiveElement:
+    def _make(
+        surface1: str,
+        surface2: str,
+        n: float = 1.5,
+        orientation=None,
+        aperture_radius=None,
+    ) -> refraction.RefractiveElement:
         orientation = (
             np.array([0.0, 0.0, 1.0])
             if orientation is None

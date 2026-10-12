@@ -1,9 +1,10 @@
 import numpy as np
 
+from . import constants as _c
 from .refraction import traverse_stack
 from .vector import normalize
 
-_EPS = 1e-12
+_EPS = _c.PLANE_EPS
 
 
 class MeasurementPlane:

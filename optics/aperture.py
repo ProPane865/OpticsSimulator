@@ -1,5 +1,8 @@
 import numpy as np
 
+from . import constants as _c
+
+
 class Aperture:
     @staticmethod
     def from_spec(spec):
@@ -21,9 +24,23 @@ class Aperture:
         raise NotImplementedError
 
     def mask(self, surface, U, V, X, Y, Z):
-        raise NotImplementedError
+        """Vectorized aperture membership over parameter arrays ``U``/``V``.
 
-    def boundary(self, surface, n=128) -> np.ndarray:
+        The default implementation evaluates :meth:`contains` point by point;
+        subclasses override it with a vectorized form for speed. ``X``/``Y``/``Z``
+        are the local-space surface points, available for apertures that test
+        geometry directly.
+        """
+        U = np.asarray(U, dtype=float)
+        V = np.asarray(V, dtype=float)
+        U, V = np.broadcast_arrays(U, V)
+        out = np.array(
+            [bool(self.contains(surface, u, v)) for u, v in zip(U.ravel(), V.ravel())],
+            dtype=bool,
+        )
+        return out.reshape(U.shape)
+
+    def boundary(self, surface, n=_c.APERTURE_BOUNDARY_N) -> np.ndarray:
         raise NotImplementedError
 
 class CircularAperture(Aperture):
@@ -40,7 +57,7 @@ class CircularAperture(Aperture):
         dx = p[0] - self.center[0]
         dy = p[1] - self.center[1]
 
-        return dx ** 2 + dy ** 2 <= self.radius ** 2 + 1e-12
+        return dx ** 2 + dy ** 2 <= self.radius ** 2 + _c.APERTURE_EPS
 
     def mask(self, surface, U, V, X, Y, Z):
         finite = (
@@ -54,10 +71,10 @@ class CircularAperture(Aperture):
 
         return (
             finite
-            & (dx ** 2 + dy ** 2 <= self.radius ** 2 + 1e-12)
+            & (dx ** 2 + dy ** 2 <= self.radius ** 2 + _c.APERTURE_EPS)
         )
 
-    def boundary(self, surface, n=128):
+    def boundary(self, surface, n=_c.APERTURE_BOUNDARY_N):
         theta = np.linspace(0, 2.0 * np.pi, n, endpoint=False)
         targets = np.column_stack([
             self.center[0] + self.radius * np.cos(theta),

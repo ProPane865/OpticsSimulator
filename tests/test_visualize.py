@@ -1,11 +1,13 @@
 import types
-import numpy as np
-import rendering.visualize as visualize
 
-from rendering.meshing import SurfaceMesher
+import numpy as np
+
+import rendering.visualize as visualize
 from optics.measurement_plane import MeasurementPlane
 from optics.ray import Ray
 from optics.surface import Surface
+from rendering.meshing import SurfaceMesher
+
 
 def test_surface_positions_unit_plane(make_element):
     elem = make_element("0", "-2")

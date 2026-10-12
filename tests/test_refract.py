@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from optics.ray import Ray
 from optics.hit import MeshHit
+from optics.ray import Ray
 from optics.refraction import (
     refract_or_reflect,
     trace_direction,
@@ -127,7 +127,7 @@ def test_bicone_launch_is_supercritical(make_element):
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
     hit2 = elem.surface2.intersect(Ray(p1, d1, 1.0))
-    p2, u2, v2 = hit2.point, hit2.u, hit2.v
+    u2, v2 = hit2.u, hit2.v
     n2 = -elem.surface2.normal(u2, v2)
     cos_i2 = -float(np.dot(n2, d1))
 
@@ -145,7 +145,7 @@ def test_total_internal_reflection_reflects_inside_element(make_element):
     d1 = _refract_direction(ray.direction, n1, 1.0 / 1.5)
 
     hit2 = elem.surface2.intersect(Ray(p1, d1, 1.0))
-    p2, u2, v2 = hit2.point, hit2.u, hit2.v
+    u2, v2 = hit2.u, hit2.v
     n2 = -elem.surface2.normal(u2, v2)
     expected = d1 - 2.0 * float(np.dot(n2, d1)) * n2
 

@@ -1,21 +1,13 @@
-import numpy as np
 from weakref import WeakKeyDictionary
 
+import numpy as np
 
-_MESH_CACHE = WeakKeyDictionary()
+_MESH_CACHE: "WeakKeyDictionary[object, dict[int, tuple[np.ndarray, np.ndarray]]]" = WeakKeyDictionary()
 
 
 class SurfaceMesher:
     def __init__(self, surface):
         self.surface = surface
-
-    def _valid_uv(self, u, v):
-        if not self.surface.accepts_parameters(u, v):
-            return False
-
-        return bool(
-            np.all(np.isfinite(self.surface.evaluate_local(u, v)))
-        )
 
     def _valid_uv_array(self, u, v):
         surface = self.surface
@@ -31,34 +23,10 @@ class SurfaceMesher:
             )
         return ok
 
-    def _boundary_point(self, u0, v0, u1, v1):
-        lo_u, lo_v = float(u0), float(v0)
-        hi_u, hi_v = float(u1), float(v1)
-        for _ in range(40):
-            mid_u = 0.5 * (lo_u + hi_u)
-            mid_v = 0.5 * (lo_v + hi_v)
-            if mid_u == lo_u and mid_v == lo_v:
-                break
-            if self._valid_uv(mid_u, mid_v):
-                lo_u, lo_v = mid_u, mid_v
-            else:
-                hi_u, hi_v = mid_u, mid_v
-        return self.surface.evaluate_local(lo_u, lo_v)
-
     def _bisect_edges(self, edge_lo, edge_hi):
         surface = self.surface
         lo = np.array(edge_lo, dtype=float)
         hi = np.array(edge_hi, dtype=float)
-        try:
-            self._valid_uv_array(lo[:, 0], lo[:, 1])
-        except NotImplementedError:
-            return np.array(
-                [
-                    self._boundary_point(lu, lv, hu, hv)
-                    for (lu, lv), (hu, hv) in zip(edge_lo, edge_hi)
-                ],
-                dtype=float,
-            )
         for _ in range(40):
             mid = 0.5 * (lo + hi)
             ok = self._valid_uv_array(mid[:, 0], mid[:, 1])[:, None]
@@ -192,6 +160,15 @@ class SurfaceMesher:
             verts = surface.transform.points_to_world(verts)
             return verts, np.empty((0, 3), dtype=np.int64)
         faces = np.vstack(face_chunks)
+        # Global winding fix. Faces are emitted with a fixed winding, so a
+        # single flip makes the whole patch consistent. We orient each surface
+        # so its geometric normals point "outward" in the rendering sense: away
+        # from the flat side of the patch (the side the surface bulges toward).
+        # This is intentionally the OPPOSITE of Surface.normal (which is
+        # -cross(ru, rv) and points -z for a graph-over-XY surface); refraction
+        # re-orients normals per-ray via _orient, so the two conventions are
+        # independent. The heuristic compares the surface height at the patch
+        # centre to the median height: a convex bulge flips the winding.
         cx = float(np.mean(U[ok]))
         cy = float(np.mean(V[ok]))
         with np.errstate(invalid="ignore", divide="ignore"):

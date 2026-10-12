@@ -1,7 +1,9 @@
 import numpy as np
 
-from .ray import Ray
+from . import constants as _c
 from .hit import MeshHit
+from .ray import Ray
+
 
 class LensSidewall:
     def __init__(self, front, rear):
@@ -67,7 +69,7 @@ class LensSidewall:
         h = np.cross(d, e2)
         det = np.einsum("ij,ij->i", e1, h)
 
-        candidate = np.abs(det) > 1e-14
+        candidate = np.abs(det) > _c.DET_SINGULAR_EPS
 
         inv_det = np.zeros_like(det)
         inv_det[candidate] = 1.0 / det[candidate]
@@ -78,11 +80,11 @@ class LensSidewall:
         v = (q @ d) * inv_det
         t = np.einsum("ij,ij->i", e2, q) * inv_det
 
-        tol = 1e-12
+        tol = _c.BARY_TOL
 
         hit = (
             candidate
-            & (t > 1e-9)
+            & (t > _c.MIN_FACE_T)
             & (u >= -tol)
             & (v >= -tol)
             & (u + v <= 1.0 + tol)

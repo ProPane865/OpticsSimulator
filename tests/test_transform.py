@@ -1,7 +1,7 @@
 import numpy as np
 
-from optics.ray import Ray
 from optics.config import refractive_element_from_config
+from optics.ray import Ray
 from optics.surface import Surface
 from optics.transform import Transform
 from optics.vector import rotation_from_z

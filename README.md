@@ -30,7 +30,7 @@ opticssim
 python -m ui.app
 ```
 
-The window loads `tests/test_stack.json` by default. Use **File → Open** to load
+The window loads `examples/doublet.json` by default. Use **File → Open** to load
 another stack and **File → Save As** to write one back.
 
 ## Architecture

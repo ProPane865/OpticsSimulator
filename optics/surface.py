@@ -3,9 +3,11 @@ import functools
 import numpy as np
 import sympy as sp
 
+from . import constants as _c
 from .aperture import Aperture
 from .solver import SurfaceSolver
 from .transform import Transform
+
 
 @functools.lru_cache(maxsize=64)
 def _compile_parametric_surface(x_src, y_src, z_src):
@@ -178,8 +180,8 @@ class Surface:
 
     def in_domain(self, u, v):
         """Vectorized check whether parameters (u, v) lie in the domain."""
-        tu = 1e-9 * max(1.0, abs(self.u_range[1] - self.u_range[0]))
-        tv = 1e-9 * max(1.0, abs(self.v_range[1] - self.v_range[0]))
+        tu = _c.DOMAIN_TOL * max(1.0, abs(self.u_range[1] - self.u_range[0]))
+        tv = _c.DOMAIN_TOL * max(1.0, abs(self.v_range[1] - self.v_range[0]))
 
         return (
             (u >= self.u_range[0] - tu)

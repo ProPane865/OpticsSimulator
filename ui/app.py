@@ -3,10 +3,8 @@ import json
 from pathlib import Path
 
 import numpy as np
-
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtUiTools import QUiLoader
-
 from vispy import app as vispy_app
 
 import rendering.visualize as visualize
@@ -126,11 +124,11 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def _connect_property_editor(self):
         self._lens_selector = self.findChild(QtWidgets.QComboBox, "lensSelector")
-        self._index_spin = self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox")
-        self._radius_spin = self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_2")
-        self._surface1_edit = self.findChild(QtWidgets.QLineEdit, "lineEdit")
-        self._surface2_edit = self.findChild(QtWidgets.QLineEdit, "lineEdit_2")
-        self._button_box = self.findChild(QtWidgets.QDialogButtonBox, "buttonBox")
+        self._index_spin = self.findChild(QtWidgets.QDoubleSpinBox, "refractiveIndexSpin")
+        self._radius_spin = self.findChild(QtWidgets.QDoubleSpinBox, "apertureRadiusSpin")
+        self._surface1_edit = self.findChild(QtWidgets.QLineEdit, "surface1Edit")
+        self._surface2_edit = self.findChild(QtWidgets.QLineEdit, "surface2Edit")
+        self._button_box = self.findChild(QtWidgets.QDialogButtonBox, "lensButtonBox")
 
         self._index_spin.setRange(1.0, 3.0)
         self._index_spin.setSingleStep(0.01)
@@ -232,10 +230,10 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._plane_nodes[index] = visualize.build_measurement_nodes(self._view, plane)
 
     def _connect_source_editor(self):
-        self._source_type_combo = self.findChild(QtWidgets.QComboBox, "comboBox")
-        self._power_spin = self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_3")
-        self._cone_angle_spin = self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_4")
-        self._num_rays_spin = self.findChild(QtWidgets.QSpinBox, "spinBox")
+        self._source_type_combo = self.findChild(QtWidgets.QComboBox, "sourceTypeCombo")
+        self._power_spin = self.findChild(QtWidgets.QDoubleSpinBox, "sourcePowerSpin")
+        self._cone_angle_spin = self.findChild(QtWidgets.QDoubleSpinBox, "coneAngleSpin")
+        self._num_rays_spin = self.findChild(QtWidgets.QSpinBox, "numRaysSpin")
         self._source_x_spin = self.findChild(QtWidgets.QDoubleSpinBox, "sourceX")
         self._source_y_spin = self.findChild(QtWidgets.QDoubleSpinBox, "sourceY")
         self._source_z_spin = self.findChild(QtWidgets.QDoubleSpinBox, "sourceZ")
@@ -314,19 +312,19 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._source_nodes = visualize.build_source_nodes(self._view, self._source)
 
     def _connect_plane_editor(self):
-        self._plane_selector = self.findChild(QtWidgets.QComboBox, "comboBox_2")
-        self._plane_remove_button = self.findChild(QtWidgets.QPushButton, "pushButton")
+        self._plane_selector = self.findChild(QtWidgets.QComboBox, "planeSelectorCombo")
+        self._plane_remove_button = self.findChild(QtWidgets.QPushButton, "removePlaneButton")
         self._plane_pos_spins = (
-            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_5"),
-            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_6"),
-            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_7"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "planePosXSpin"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "planePosYSpin"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "planePosZSpin"),
         )
         self._plane_normal_spins = (
-            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_8"),
-            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_9"),
-            self.findChild(QtWidgets.QDoubleSpinBox, "doubleSpinBox_10"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "planeNormalXSpin"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "planeNormalYSpin"),
+            self.findChild(QtWidgets.QDoubleSpinBox, "planeNormalZSpin"),
         )
-        self._plane_button_box = self.findChild(QtWidgets.QDialogButtonBox, "buttonBox_2")
+        self._plane_button_box = self.findChild(QtWidgets.QDialogButtonBox, "planeButtonBox")
 
         for spin in self._plane_pos_spins:
             spin.setRange(-100.0, 100.0)
@@ -441,7 +439,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def load_stack(self, path):
         path = Path(path)
-        with open(path, "r") as f:
+        with open(path) as f:
             schema = json.load(f)
         self._schema = schema
         self._elements = stack_from_config(schema)
@@ -575,7 +573,7 @@ def main():
 
     canvas = make_display([], [])
     window = OpticsMainWindow(canvas)
-    window.load_stack(Path(__file__).resolve().parent.parent / "tests" / "test_stack.json")
+    window.load_stack(Path(__file__).resolve().parent.parent / "examples" / "doublet.json")
     window.show()
     return QtWidgets.QApplication.instance().exec()
 

@@ -1,7 +1,9 @@
 from dataclasses import dataclass
-from .ray import Ray
 
 import numpy as np
+
+from .ray import Ray
+
 
 @dataclass(frozen=True)
 class Transform:

@@ -1,20 +1,21 @@
 import numpy as np
 
-from .ray import Ray
+from . import constants as _c
 from .hit import Hit
+from .ray import Ray
 
-_MAX_NEWTON_ITER = 50
-_STEP_REL_TOL = 1e-14
-_CLAMP_REL = 0.5
-_CONVERGED_F_NORM = 1e-12
-_DEDUP_UV_TOL = 1e-6
+_MAX_NEWTON_ITER = _c.MAX_NEWTON_ITER
+_STEP_REL_TOL = _c.STEP_REL_TOL
+_CLAMP_REL = _c.CLAMP_REL
+_CONVERGED_F_NORM = _c.CONVERGED_F_NORM
+_DEDUP_UV_TOL = _c.DEDUP_UV_TOL
 
 _CONVERGED = "converged"
 _STALLED = "stalled"
 _EXHAUSTED = "exhausted"
 
-_PARAM_TOL = {_CONVERGED: 1e-11, _STALLED: 1e-9, _EXHAUSTED: 1e-8}
-_HIT_TOL = {_CONVERGED: 1e-11, _STALLED: 1e-10, _EXHAUSTED: 1e-10}
+_PARAM_TOL = _c.PARAM_TOL
+_HIT_TOL = _c.HIT_TOL
 
 
 def _newton(residual, jacobian, x0, clamp=False):
@@ -75,7 +76,7 @@ class SurfaceSolver:
         v0 = float(p[1])
         if self.surface.accepts_parameters(u0, v0):
             puv = self.surface.evaluate_local(u0, v0)
-            if np.all(np.isfinite(puv)) and float(np.linalg.norm(puv - p)) < 1e-8:
+            if np.all(np.isfinite(puv)) and float(np.linalg.norm(puv - p)) < _c.POINT_MATCH_TOL:
                 return u0, v0
         grid = self._seed_grid()
         pts = grid["pts"]
@@ -182,16 +183,10 @@ class SurfaceSolver:
 
     def _aperture_mask(self, uf, vf, pts):
         s = self.surface
-        try:
-            return np.asarray(
-                s.aperture.mask(s, uf, vf, pts[:, 0], pts[:, 1], pts[:, 2]),
-                dtype=bool,
-            )
-        except NotImplementedError:
-            return np.array(
-                [bool(s.aperture.contains(s, u, v)) for u, v in zip(uf, vf)],
-                dtype=bool,
-            )
+        return np.asarray(
+            s.aperture.mask(s, uf, vf, pts[:, 0], pts[:, 1], pts[:, 2]),
+            dtype=bool,
+        )
 
     def _grid_mask(self, U, V, pts):
         finite = np.all(np.isfinite(pts), axis=1)
@@ -202,7 +197,7 @@ class SurfaceSolver:
             mask = mask & self._aperture_mask(uf, vf, pts)
         return mask
 
-    def _seed_grid(self, grid_n=64):
+    def _seed_grid(self, grid_n=_c.SEED_GRID_N):
         entry = self._grid_cache.get(grid_n)
         if entry is not None:
             return entry
@@ -233,7 +228,7 @@ class SurfaceSolver:
         self._grid_cache[grid_n] = entry
         return entry
 
-    def _intersection_seeds(self, ray, grid_n=64, seed_tol=0.75, max_seeds=12):
+    def _intersection_seeds(self, ray, grid_n=_c.SEED_GRID_N, seed_tol=_c.SEED_TOL, max_seeds=_c.MAX_SEEDS):
         grid = self._seed_grid(grid_n)
         if not grid["valid"].any():
             return []
@@ -247,7 +242,7 @@ class SurfaceSolver:
         residual = np.linalg.norm(P - proj, axis=1)
         mask = forward & np.isfinite(residual) & (residual <= seed_tol)
         if not mask.any():
-            mask = forward & np.isfinite(residual) & (residual <= 2.0)
+            mask = forward & np.isfinite(residual) & (residual <= _c.SEED_TOL_FALLBACK)
             if not mask.any():
                 return []
         indices = np.where(mask)[0]

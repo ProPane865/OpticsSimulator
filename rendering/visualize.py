@@ -24,6 +24,7 @@ SOURCE_COLOR = (1.0, 0.85, 0.25, 1.0)
 MEASUREMENT_COLOR = (0.5, 0.5, 0.55, 0.35)
 MEASUREMENT_OUTLINE_COLOR = (0.75, 0.35, 0.85, 1.0)
 MEASUREMENT_COLORMAP = "viridis"
+SHOW_RAY_INTERSECTION_MARKERS = False
 AXIS_COLORS = {
     "x": (0.85, 0.15, 0.15, 1.0),
     "y": (0.15, 0.65, 0.2, 1.0),
@@ -327,8 +328,16 @@ def build_ray_nodes(
     elements: "RefractiveElement | Sequence[RefractiveElement]",
     rays: Sequence[Ray],
     ray_length: float = 3.0,
+    show_markers: "bool | None" = None,
 ) -> list[Any]:
-    """Draw all rays as one batched line node plus one merged marker mesh."""
+    """Draw all rays as one batched line node plus one merged marker mesh.
+
+    Entry/exit intersection markers are disabled by default; set
+    ``SHOW_RAY_INTERSECTION_MARKERS`` to ``True`` or pass ``show_markers``
+    to enable them.
+    """
+    if show_markers is None:
+        show_markers = SHOW_RAY_INTERSECTION_MARKERS
     if isinstance(elements, RefractiveElement):
         elements = [elements]
     segments, markers = _collect_ray_segments(list(elements), rays, ray_length=ray_length)
@@ -343,7 +352,7 @@ def build_ray_nodes(
         line = visuals.Line(pos=pos, connect="segments", color=colors, width=3)
         line.update_gl_state(depth_test=False)
         nodes.append(_attach(view, line))
-    if markers:
+    if markers and show_markers:
         mesh = _make_markers_mesh(markers)
         if mesh is not None:
             nodes.append(_attach(view, mesh))

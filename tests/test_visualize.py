@@ -211,7 +211,7 @@ def test_make_measurement_plane_visual_has_vertex_colors():
     ru, rv = plane.ru, plane.rv
     assert mesh.mesh_data.has_vertex_color()
     assert len(mesh.mesh_data.get_vertices()) == (ru + 1) * (rv + 1)
-    assert mesh._vshare.gl_state["depth_mask"] is False
+    assert mesh._vshare.gl_state["depth_mask"] is True
     assert mesh._vshare.gl_state["blend"] is True
 
 

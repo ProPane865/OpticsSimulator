@@ -3,6 +3,7 @@ import pytest
 
 from optics.measurement_plane import MeasurementPlane
 from optics.ray import Ray
+from optics.refraction import trace_stack
 
 
 def _plane(resolution=(4, 4), normal=(0.0, 0.0, 1.0), origin=(0.0, 0.0, -3.0)):
@@ -144,3 +145,90 @@ def test_measure_works_for_intermediate_elements(make_element):
 
     assert measurement == pytest.approx(1.0)
     assert measurement == pytest.approx(baseline)
+
+
+@pytest.mark.parametrize(
+    "order",
+    [
+        (0, 1),
+        (1, 0),
+    ],
+)
+def test_measurement_independent_of_element_list_order(make_element, order):
+    elements = [
+        make_element("0", "-1"),
+        make_element("-4", "-5"),
+    ]
+    elements = [elements[i] for i in order]
+
+    plane = _plane()
+    ray = Ray(np.array([0.3, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+
+    assert plane.measure([ray], elements) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    "order",
+    [
+        (0, 1),
+        pytest.param(
+            (1, 0),
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="prefix heuristic truncates elements instead of ordering them; reversed list measures the unrefracted ray",
+            ),
+        ),
+    ],
+)
+def test_measurement_uses_geometric_order_not_list_order(make_element, order):
+    lens = make_element("sqrt(1 - (x**2) - (y**2))", "-1")
+    plate = make_element("-4", "-5")
+    elements = [lens, plate]
+    elements = [elements[i] for i in order]
+
+    plane = _plane()
+    ray = Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+
+    refracted = trace_stack(ray, [lens])
+    _, u, v = plane.intersect(refracted)
+    i, j = plane.discretize(u, v)
+
+    total = plane.measure([ray], elements)
+    assert total == pytest.approx(1.0)
+    assert plane.grid[int(j), int(i)] == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "detector_before_lens",
+        "detector_after_lens",
+        "detector_between_lenses",
+        "misses_detector",
+        "outside_detector",
+    ],
+)
+def test_measurement_position_cases(make_element, case):
+    plane = _plane()
+    ray = Ray(np.array([0.3, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+    elements = None
+    expected = 0.0
+
+    if case == "detector_before_lens":
+        elements = [make_element("-4", "-5")]
+        expected = 1.0
+    elif case == "detector_after_lens":
+        elements = [make_element("0", "-1")]
+        expected = 1.0
+    elif case == "detector_between_lenses":
+        elements = [make_element("0", "-1"), make_element("-4", "-5")]
+        expected = 1.0
+    elif case == "misses_detector":
+        elements = [make_element("0", "-1")]
+        ray = Ray(np.array([3.5, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+        expected = 0.0
+    elif case == "outside_detector":
+        ray = Ray(np.array([3.5, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
+        expected = 0.0
+
+    assert plane.measure([ray], elements) == pytest.approx(expected)

@@ -121,6 +121,7 @@ def test_ray_segment_rendered_above_surfaces():
         np.array([0.0, 0.0, 3.0]),
         np.array([0.0, 0.0, 0.5]),
         (1.0, 0.0, 0.0, 1.0),
+        1
     )
     assert line is not None
     subvisual = line._subvisuals[0]
@@ -134,7 +135,7 @@ def test_ray_marker_rendered_above_surfaces():
 
 
 def test_make_segment_rejects_non_finite_points():
-    assert visualize._make_segment(np.array([np.nan, 0.0, 0.0]), np.zeros(3), (1.0, 0.0, 0.0, 1.0)) is None
+    assert visualize._make_segment(np.array([np.nan, 0.0, 0.0]), np.zeros(3), (1.0, 0.0, 0.0, 1.0), 1) is None
 
 
 def test_surface_mesh_reaches_vertical_wall_boundary():

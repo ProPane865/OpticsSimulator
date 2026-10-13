@@ -108,7 +108,7 @@ def probe_njit_pair(eval_cfn: Any, deriv_cfn: Any) -> bool:
         return False
 
 
-@njit(cache=False)  # tiny; recompiled per process alongside the cfuncs
+@njit(cache=True)  # cfunc arg types are uniform, so one disk-cache entry fits all
 def _probe_pair(eval_cfn: Any, deriv_cfn: Any) -> None:
     out = np.empty(3)
     ru = np.empty(3)

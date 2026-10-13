@@ -23,7 +23,9 @@ from ._kernels import (
     E_LO,
     E_NORMALS,
     E_TRI,
+    build_descriptor,
     build_element_context,
+    build_grid,
 )
 from .hit import RayHit
 from .material import Material
@@ -408,10 +410,85 @@ def _trace_stack_to_plane_njit(
     return True
 
 
+_NULL_ELEMENT_CTX: "tuple[Any, ...] | None" = None
+
+# The stack argument of the trace kernels is a Numba tuple whose *length* is
+# part of the static signature: without padding, adding one element changes
+# the tuple type and forces a full re-JIT of the whole stack kernel chain
+# (~10-20 s) on the calling thread. Contexts are therefore padded to a fixed
+# capacity with inert elements so the signature depends only on the capacity.
+# The kernels iterate the tuple statically, so compile cost grows with the
+# capacity; 4 keeps the one-time compile on par with tracing a 4-element
+# stack directly, and capacities only change every 4th stack size.
+_CTX_PAD = 4
+
+
+def _padded_capacity(n_elements: int) -> int:
+    return max(_CTX_PAD, -(-n_elements // _CTX_PAD) * _CTX_PAD)
+
+
+def _null_element_context() -> "tuple[Any, ...]":
+    """Inert element context used to pad trace stacks to a fixed capacity.
+
+    Its seed grids are empty and its local bounds are inverted, so the
+    kernels' hit/containment scans exit immediately and the descriptor's
+    cfuncs are never called; they only have to carry the right types.
+    """
+    global _NULL_ELEMENT_CTX
+    if _NULL_ELEMENT_CTX is None:
+        from .surface import null_surface_cfuncs
+
+        eval_cfn, deriv_cfn = null_surface_cfuncs()
+        desc = build_descriptor(
+            eval_cfn,
+            deriv_cfn,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+            -1.0,
+            0.0,
+            0.0,
+            np.eye(3, 3),
+            np.zeros(3),
+        )
+        grid = build_grid(
+            np.zeros((0, 3)),
+            np.zeros(0),
+            np.zeros(0),
+            np.zeros((0, 3)),
+            np.zeros(0, dtype=bool),
+            np.zeros(0),
+            np.zeros(0),
+        )
+        _NULL_ELEMENT_CTX = build_element_context(
+            desc,
+            desc,
+            grid,
+            grid,
+            1.0,
+            np.ones(3),
+            -np.ones(3),
+            np.zeros((0, 3, 3)),
+            np.zeros((0, 3)),
+            True,
+            True,
+        )
+    return _NULL_ELEMENT_CTX
+
+
 def build_trace_context(
     elements: Sequence["RefractiveElement"],
 ) -> "tuple[Any, ...] | None":
     """Flatten an element stack into plain data for the nopython kernels.
+
+    The returned tuple is padded with inert contexts up to
+    ``_padded_capacity(len(elements))`` so the stack-tuple length stays a
+    compile-time constant across element additions (see ``_CTX_PAD``).
+    Callers that need the real stack size (e.g. segment buffers) must use
+    ``len(elements)``, not ``len`` of the returned tuple.
 
     Returns ``None`` when the stack is empty or any surface lacks the
     nopython codegen path (or uses an unsupported aperture), so callers can
@@ -450,6 +527,9 @@ def build_trace_context(
                 el.surface2.is_graph_over_xy,
             )
         )
+    null = _null_element_context()
+    target = _padded_capacity(len(ctxs))
+    ctxs.extend([null] * (target - len(ctxs)))
     return tuple(ctxs)
 
 
@@ -528,7 +608,7 @@ def trace_segments_batch(
     origins = np.ascontiguousarray(origins, dtype=float)
     dirs = np.ascontiguousarray(dirs, dtype=float)
     n = origins.shape[0]
-    cap = _segments_capacity(len(ctx))
+    cap = _segments_capacity(len(elements))
     starts = np.empty((n, cap, 3), dtype=float)
     ends = np.empty((n, cap, 3), dtype=float)
     kinds = np.empty((n, cap), dtype=np.int8)
@@ -547,9 +627,9 @@ _SEGMENT_KIND_NAMES = ("incident", "internal", "exit")
 
 
 def _trace_stack_path_fast(
-    ray: Ray, ctx: "tuple[Any, ...]", ray_length: float
+    ray: Ray, ctx: "tuple[Any, ...]", ray_length: float, n_elements: int
 ) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], Ray | None]":
-    cap = _segments_capacity(len(ctx))
+    cap = _segments_capacity(n_elements)
     starts = np.empty((cap, 3), dtype=float)
     ends = np.empty((cap, 3), dtype=float)
     kinds = np.empty(cap, dtype=np.int8)
@@ -662,7 +742,7 @@ def trace_stack_path(
     """
     ctx = build_trace_context(elements)
     if ctx is not None:
-        return _trace_stack_path_fast(ray, ctx, ray_length)
+        return _trace_stack_path_fast(ray, ctx, ray_length, len(elements))
     segments: list[tuple[np.ndarray, np.ndarray, str]] = []
     current = ray
     kind = "incident"

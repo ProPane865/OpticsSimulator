@@ -1,5 +1,6 @@
 import copy
 import json
+import threading
 from collections.abc import Sequence
 from importlib.resources import as_file, files
 from pathlib import Path
@@ -696,6 +697,29 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Save Failed", f"Could not save optical stack:\n{exc}")
 
 
+def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
+    """Precompile the fixed-capacity Numba stack kernels off the GUI thread.
+
+    The trace/measure kernels compile once per capacity, not per element
+    count, so priming them once after startup keeps the first
+    add-element/apply-properties interaction from paying the compile cost
+    synchronously. Best-effort: any failure just leaves on-demand compiles.
+    """
+    from optics.refraction import trace_segments_batch
+
+    try:
+        if not elements:
+            elements = [refractive_element_from_config(DEFAULT_ELEMENT_CONFIG)]
+        rays = PointSource(**DEFAULT_SOURCE_CONFIG).emit_rays()
+        origins = np.asarray([r.origin for r in rays], dtype=float)
+        dirs = np.asarray([r.direction for r in rays], dtype=float)
+        trace_segments_batch(elements, origins, dirs, ray_length=6.0)
+        plane = MeasurementPlane(**DEFAULT_MEASUREMENT_CONFIG)
+        plane.measure(rays, list(elements))
+    except Exception:
+        pass
+
+
 def main() -> int:
     qapp = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     vispy_app.use_app("pyside6")
@@ -705,6 +729,9 @@ def main() -> int:
     with as_file(files("optics") / "examples" / "doublet.json") as example_path:
         window.load_stack(example_path)
     window.show()
+    threading.Thread(
+        target=_warm_trace_kernels, args=(window.elements,), daemon=True
+    ).start()
     return qapp.exec()
 
 

@@ -213,6 +213,26 @@ def _build_njit_functions(
         return None, None, None, None
 
 
+@functools.lru_cache(maxsize=1)
+def null_surface_cfuncs() -> "tuple[Any, Any]":
+    """``(eval_cfn, deriv_cfn)`` pair for a constant-zero surface.
+
+    Gives inert padded element contexts (``refraction._null_element_context``)
+    the same ``cfunc`` types as real surfaces so the padded stack tuple keeps
+    one Numba signature. The pair is never executed; it only has to exist
+    with the right C signature, exactly like every other surface's pair.
+    """
+    x_expr = sp.parse_expr("u")
+    y_expr = sp.parse_expr("v")
+    z_expr = sp.parse_expr("0.0")
+    _, _, eval_cfn, deriv_cfn = _build_njit_functions(
+        x_expr, y_expr, z_expr, "u", "v", "0.0"
+    )
+    if eval_cfn is None or deriv_cfn is None:
+        raise RuntimeError("Could not compile inert surface cfuncs")
+    return eval_cfn, deriv_cfn
+
+
 @functools.lru_cache(maxsize=64)
 def _compile_parametric_surface(x_src: str, y_src: str, z_src: str) -> tuple[Any, ...]:
     u = sp.symbols("u")

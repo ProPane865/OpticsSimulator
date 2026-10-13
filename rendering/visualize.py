@@ -206,7 +206,7 @@ def _add_marker(view: Any, pos: np.ndarray, color: Any, radius: float = 0.03) ->
     return _attach(view, _make_marker(pos, color, radius=radius))
 
 
-def _make_segment(a: np.ndarray, b: np.ndarray, color: Any, width: int = 3) -> Any:
+def _make_segment(a: np.ndarray, b: np.ndarray, color: Any, width: int) -> Any:
     if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
         return None
     segment = visuals.Line(pos=np.array([a, b]), color=color, width=width)
@@ -214,14 +214,14 @@ def _make_segment(a: np.ndarray, b: np.ndarray, color: Any, width: int = 3) -> A
     return segment
 
 
-def _add_segment(view: Any, a: np.ndarray, b: np.ndarray, color: Any, width: int = 3) -> Any:
+def _add_segment(view: Any, a: np.ndarray, b: np.ndarray, color: Any, width: int) -> Any:
     segment = _make_segment(a, b, color, width=width)
     if segment is None:
         return None
     return _attach(view, segment)
 
 
-def _add_axes(view: Any, length: float = 2.0, width: int = 2) -> None:
+def _add_axes(view: Any, width: int, length: float) -> None:
     origin = np.zeros(3)
     for name, ix in (("x", 0), ("y", 1), ("z", 2)):
         end = np.zeros(3)
@@ -370,7 +370,7 @@ def build_ray_nodes(
         for i, (_, _, kind) in enumerate(segments):
             colors[2 * i] = RAY_SEGMENT_COLORS[kind]
             colors[2 * i + 1] = RAY_SEGMENT_COLORS[kind]
-        line = visuals.Line(pos=pos, connect="segments", color=colors, width=3)
+        line = visuals.Line(pos=pos, connect="segments", color=colors, width=1)
         line.update_gl_state(depth_test=True, depth_mask=True)
         nodes.append(_attach(view, line))
     if markers and show_markers:
@@ -430,7 +430,7 @@ def build_scene(
         element_list = list(elements)
 
     axis_len = max(abs(x_range[0]), abs(x_range[1]), abs(y_range[0]), abs(y_range[1]))
-    _add_axes(view, length=axis_len)
+    _add_axes(view, width=2, length=axis_len)
     element_nodes = []
     for element in element_list:
         element_nodes.append(build_element_nodes(view, element))

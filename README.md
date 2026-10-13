@@ -41,12 +41,16 @@ python -m rendering.demo
 
 ## Architecture
 
-- `optics/`: numerics core (no GUI/OpenGL dependencies):
+- `optics/`: numerics core (NumPy/Numba, no GUI/OpenGL dependencies):
   - `surface.py`: parametric surfaces compiled from SymPy expressions
   - `solver.py`: damped-Newton ray/surface intersection and parameter inversion
   - `refraction.py`: refraction/reflection, closed-element tracing, stack traversal
   - `sidewall.py`: vectorized Möller–Trumbore intersection for lens rims
+  - `plane.py`: Numba ray/plane intersection kernel
   - `measurement_plane.py`: planar detector accumulating ray power
+  - `hit.py`: frozen ray/surface and ray/mesh hit dataclasses
+  - `_kernels.py`: flat-tuple data layouts shared with the nopython kernels
+  - `constants.py`: numerical tolerances and solver defaults
   - `source.py`, `ray.py`, `aperture.py`, `material.py`, `transform.py`, `vector.py`
   - `config.py`: JSON → element/stack loading
   - `project.py`: versioned project documents (elements + source + measurement planes)

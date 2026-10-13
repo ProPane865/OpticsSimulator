@@ -119,6 +119,16 @@ def _editor(window):
         "radius": window.findChild(QtWidgets.QDoubleSpinBox, "apertureRadiusSpin"),
         "s1": window.findChild(QtWidgets.QLineEdit, "surface1Edit"),
         "s2": window.findChild(QtWidgets.QLineEdit, "surface2Edit"),
+        "pos": [
+            window.findChild(QtWidgets.QDoubleSpinBox, "elementPosXSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "elementPosYSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "elementPosZSpin"),
+        ],
+        "normal": [
+            window.findChild(QtWidgets.QDoubleSpinBox, "elementNormalXSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "elementNormalYSpin"),
+            window.findChild(QtWidgets.QDoubleSpinBox, "elementNormalZSpin"),
+        ],
         "buttons": window.findChild(QtWidgets.QDialogButtonBox, "lensButtonBox"),
     }
 
@@ -131,6 +141,8 @@ def _click(window, role):
 def test_property_editor_disabled_without_stack(qt_app):
     window = OpticsMainWindow(make_display([], []))
     assert not _editor(window)["selector"].isEnabled()
+    assert not _editor(window)["pos"][0].isEnabled()
+    assert not _editor(window)["normal"][0].isEnabled()
     assert not _editor(window)["buttons"].isEnabled()
     window.close()
 
@@ -189,6 +201,66 @@ def test_ok_applies_surface_expressions(qt_app, repo_root):
 
     assert str(window.elements[0].surface1.z_expr) == "0"
     assert window.elements[0].surface2.z_expr == sp.parse_expr("4.6 - sqrt(9 - (u**2) - (v**2))")
+    window.close()
+
+
+def test_ok_applies_position_and_normal(qt_app, repo_root):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    editor = _editor(window)
+    assert [spin.value() for spin in editor["pos"]] == [0.0, 0.0, 0.0]
+    assert [spin.value() for spin in editor["normal"]] == [0.0, 0.0, 1.0]
+
+    editor["pos"][0].setValue(1.0)
+    editor["pos"][2].setValue(-2.0)
+    editor["normal"][0].setValue(1.0)
+    editor["normal"][2].setValue(0.0)
+    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    transform = window.elements[0].transform
+    np.testing.assert_allclose(transform.translation, [1.0, 0.0, -2.0], atol=1e-9)
+    np.testing.assert_allclose(
+        transform.rotation @ np.array([0.0, 0.0, 1.0]), [1.0, 0.0, 0.0], atol=1e-9
+    )
+    assert "Updated properties for lens1" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_lens_position_repopulates_on_switch(qt_app, repo_root):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    editor = _editor(window)
+    editor["pos"][1].setValue(2.5)
+    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    editor["selector"].setCurrentText("lens2")
+    assert editor["pos"][1].value() == pytest.approx(0.0)
+    editor["selector"].setCurrentText("lens1")
+    assert editor["pos"][1].value() == pytest.approx(2.5)
+    window.close()
+
+
+def test_zero_element_normal_warns_and_keeps(qt_app, repo_root, monkeypatch):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    warnings = []
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: warnings.append(args)),
+    )
+
+    editor = _editor(window)
+    editor["normal"][2].setValue(0.0)
+    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert warnings, "expected a warning for a zero element normal"
+    np.testing.assert_allclose(window.elements[0].transform.translation, [0.0, 0.0, 0.0], atol=1e-9)
+    np.testing.assert_allclose(window.elements[0].transform.rotation, np.eye(3), atol=1e-9)
+    assert "Updated properties" not in window.statusBar().currentMessage()
     window.close()
 
 
@@ -416,6 +488,42 @@ def test_save_load_round_trip_preserves_source_and_planes(qt_app, repo_root, tmp
     assert window2.planes[0].o[2] == pytest.approx(-5.0)
     selector = window2.findChild(QtWidgets.QComboBox, "planeSelectorCombo")
     assert [selector.itemText(i) for i in range(selector.count())] == ["plane1"]
+    window.close()
+    window2.close()
+
+
+def test_save_load_round_trip_preserves_position_and_resolution(
+    qt_app, repo_root, tmp_path, monkeypatch
+):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    editor = _editor(window)
+    editor["pos"][2].setValue(1.5)
+    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _trigger_measurement_plane(window)
+    plane_editor = _plane_editor(window)
+    plane_editor["resolution"][0].setValue(8)
+    plane_editor["resolution"][1].setValue(4)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    out_path = tmp_path / "project.json"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *args, **kwargs: (str(out_path), "")),
+    )
+    _trigger_save_as(window)
+
+    saved = json.loads(out_path.read_text(encoding="utf-8"))
+    assert saved["elements"]["lens1"]["position"] == [0.0, 0.0, 1.5]
+    assert saved["elements"]["lens1"]["orientation"] == [0.0, 0.0, 1.0]
+    assert saved["measurement_planes"][0]["resolution"] == [8, 4]
+
+    window2 = OpticsMainWindow(make_display([], []))
+    elements = window2.load_stack(out_path)
+    assert elements[0].transform.translation[2] == pytest.approx(1.5)
+    assert window2.planes[0].grid.shape == (4, 8)
     window.close()
     window2.close()
 
@@ -743,6 +851,10 @@ def _plane_editor(window):
             window.findChild(QtWidgets.QDoubleSpinBox, "planeNormalYSpin"),
             window.findChild(QtWidgets.QDoubleSpinBox, "planeNormalZSpin"),
         ],
+        "resolution": [
+            window.findChild(QtWidgets.QSpinBox, "planeResUSpin"),
+            window.findChild(QtWidgets.QSpinBox, "planeResVSpin"),
+        ],
         "buttons": window.findChild(QtWidgets.QDialogButtonBox, "planeButtonBox"),
     }
 
@@ -756,6 +868,7 @@ def test_plane_editor_disabled_without_planes(qt_app):
     editor = _plane_editor(window)
     assert not editor["selector"].isEnabled()
     assert not editor["remove"].isEnabled()
+    assert not editor["resolution"][0].isEnabled()
     assert not editor["buttons"].isEnabled()
     window.close()
 
@@ -769,6 +882,7 @@ def test_add_plane_populates_selector_and_fields(qt_app):
     assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane1"]
     assert editor["pos"][2].value() == pytest.approx(-3.0)
     assert editor["normal"][2].value() == pytest.approx(1.0)
+    assert [spin.value() for spin in editor["resolution"]] == [64, 64]
     window.close()
 
 
@@ -794,6 +908,39 @@ def test_plane_ok_applies_normal(qt_app):
     _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
 
     assert window.planes[0].n[2] == pytest.approx(1.0)
+    window.close()
+
+
+def test_plane_ok_applies_resolution(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["resolution"][0].setValue(32)
+    editor["resolution"][1].setValue(16)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert window.planes[0].ru == 32
+    assert window.planes[0].rv == 16
+    assert window.planes[0].grid.shape == (16, 32)
+    assert "Updated properties for plane1" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_plane_resolution_repopulates_on_switch(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["selector"].setCurrentText("plane1")
+    editor["resolution"][0].setValue(8)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    editor["selector"].setCurrentText("plane2")
+    assert editor["resolution"][0].value() == 64
+    editor["selector"].setCurrentText("plane1")
+    assert editor["resolution"][0].value() == 8
     window.close()
 
 

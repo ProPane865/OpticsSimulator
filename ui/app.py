@@ -108,6 +108,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     _radius_spin: QtWidgets.QDoubleSpinBox
     _surface1_edit: QtWidgets.QLineEdit
     _surface2_edit: QtWidgets.QLineEdit
+    _element_pos_spins: "tuple[QtWidgets.QDoubleSpinBox, ...]"
+    _element_normal_spins: "tuple[QtWidgets.QDoubleSpinBox, ...]"
     _button_box: QtWidgets.QDialogButtonBox
     _source_type_combo: QtWidgets.QComboBox
     _power_spin: QtWidgets.QDoubleSpinBox
@@ -121,6 +123,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     _plane_remove_button: QtWidgets.QPushButton
     _plane_pos_spins: "tuple[QtWidgets.QDoubleSpinBox, ...]"
     _plane_normal_spins: "tuple[QtWidgets.QDoubleSpinBox, ...]"
+    _plane_resolution_spins: "tuple[QtWidgets.QSpinBox, ...]"
     _plane_button_box: QtWidgets.QDialogButtonBox
 
     def __init__(
@@ -183,12 +186,29 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._radius_spin = _find_child(self, QtWidgets.QDoubleSpinBox, "apertureRadiusSpin")
         self._surface1_edit = _find_child(self, QtWidgets.QLineEdit, "surface1Edit")
         self._surface2_edit = _find_child(self, QtWidgets.QLineEdit, "surface2Edit")
+        self._element_pos_spins = (
+            _find_child(self, QtWidgets.QDoubleSpinBox, "elementPosXSpin"),
+            _find_child(self, QtWidgets.QDoubleSpinBox, "elementPosYSpin"),
+            _find_child(self, QtWidgets.QDoubleSpinBox, "elementPosZSpin"),
+        )
+        self._element_normal_spins = (
+            _find_child(self, QtWidgets.QDoubleSpinBox, "elementNormalXSpin"),
+            _find_child(self, QtWidgets.QDoubleSpinBox, "elementNormalYSpin"),
+            _find_child(self, QtWidgets.QDoubleSpinBox, "elementNormalZSpin"),
+        )
         self._button_box = _find_child(self, QtWidgets.QDialogButtonBox, "lensButtonBox")
 
         self._index_spin.setRange(1.0, 3.0)
         self._index_spin.setSingleStep(0.01)
         self._radius_spin.setRange(0.01, 10.0)
         self._radius_spin.setSingleStep(0.05)
+        for spin in self._element_pos_spins:
+            spin.setRange(-100.0, 100.0)
+            spin.setSingleStep(0.1)
+        for spin in self._element_normal_spins:
+            spin.setRange(-1.0, 1.0)
+            spin.setSingleStep(0.1)
+            spin.setDecimals(3)
 
         self._lens_selector.currentIndexChanged.connect(self._populate_properties)
         self._button_box.accepted.connect(self._apply_properties)
@@ -202,6 +222,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._radius_spin,
             self._surface1_edit,
             self._surface2_edit,
+            *self._element_pos_spins,
+            *self._element_normal_spins,
             self._button_box,
         )
 
@@ -233,6 +255,12 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._radius_spin.setValue(float(aperture["radius"]))
         self._surface1_edit.setText(str(config["surface1"]["z"]))
         self._surface2_edit.setText(str(config["surface2"]["z"]))
+        position = config.get("position", [0.0, 0.0, 0.0])
+        orientation = config.get("orientation", [0.0, 0.0, 1.0])
+        for spin, value in zip(self._element_pos_spins, position):
+            spin.setValue(float(value))
+        for spin, value in zip(self._element_normal_spins, orientation):
+            spin.setValue(float(value))
 
     def _apply_properties(self) -> None:
         if not self._schema:
@@ -245,6 +273,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             config["material"]["refractive_index"] = float(self._index_spin.value())
             config["surface1"]["z"] = self._surface1_edit.text()
             config["surface2"]["z"] = self._surface2_edit.text()
+            config["position"] = [float(spin.value()) for spin in self._element_pos_spins]
+            config["orientation"] = [float(spin.value()) for spin in self._element_normal_spins]
             radius = float(self._radius_spin.value())
             for key in ("surface1", "surface2"):
                 aperture = config[key].get("aperture")
@@ -379,6 +409,10 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             _find_child(self, QtWidgets.QDoubleSpinBox, "planeNormalYSpin"),
             _find_child(self, QtWidgets.QDoubleSpinBox, "planeNormalZSpin"),
         )
+        self._plane_resolution_spins = (
+            _find_child(self, QtWidgets.QSpinBox, "planeResUSpin"),
+            _find_child(self, QtWidgets.QSpinBox, "planeResVSpin"),
+        )
         self._plane_button_box = _find_child(self, QtWidgets.QDialogButtonBox, "planeButtonBox")
 
         for spin in self._plane_pos_spins:
@@ -388,6 +422,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             spin.setRange(-1.0, 1.0)
             spin.setSingleStep(0.1)
             spin.setDecimals(3)
+        for res_spin in self._plane_resolution_spins:
+            res_spin.setRange(1, 512)
 
         self._plane_selector.currentIndexChanged.connect(self._populate_plane_properties)
         self._plane_remove_button.clicked.connect(self._remove_plane)
@@ -401,6 +437,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             self._plane_remove_button,
             *self._plane_pos_spins,
             *self._plane_normal_spins,
+            *self._plane_resolution_spins,
             self._plane_button_box,
         )
 
@@ -433,6 +470,8 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             spin.setValue(float(value))
         for spin, value in zip(self._plane_normal_spins, plane.n):
             spin.setValue(float(value))
+        for res_spin, value in zip(self._plane_resolution_spins, (plane.ru, plane.rv)):
+            res_spin.setValue(int(value))
 
     def _apply_plane_properties(self) -> None:
         index = self._plane_selector.currentIndex()
@@ -445,7 +484,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
                 normal=np.array([spin.value() for spin in self._plane_normal_spins]),
                 u_range=(plane.u_min, plane.u_max),
                 v_range=(plane.v_min, plane.v_max),
-                resolution=(plane.ru, plane.rv),
+                resolution=[spin.value() for spin in self._plane_resolution_spins],
             )
             updated.measure(self._rays, self._elements)
         except Exception as exc:

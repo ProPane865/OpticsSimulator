@@ -14,22 +14,34 @@ from optics.surface import Surface
 
 from .meshing import SurfaceMesher
 
-SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.25)
-SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.25)
-SIDEWALL_COLOR = (0.55, 0.55, 0.65, 0.3)
-INCIDENT_COLOR = (0.9, 0.2, 0.2, 1.0)
-INTERNAL_COLOR = (1.0, 0.6, 0.1, 1.0)
-EXIT_COLOR = (0.2, 0.75, 0.3, 1.0)
+SURFACE1_COLOR = (0.35, 0.65, 1.0, 0.5)
+SURFACE2_COLOR = (0.2, 0.45, 0.9, 0.5)
+SIDEWALL_COLOR = (0.55, 0.55, 0.65, 0.6)
+
 SOURCE_COLOR = (1.0, 0.85, 0.25, 1.0)
+
+INCIDENT_COLOR = (1.0, 1.0, 0.0, 0.2)
+INTERNAL_COLOR = (1.0, 1.0, 0.0, 0.2)
+EXIT_COLOR = (1.0, 1.0, 0.0, 0.2)
+
 MEASUREMENT_COLOR = (0.5, 0.5, 0.55, 0.35)
 MEASUREMENT_OUTLINE_COLOR = (0.75, 0.35, 0.85, 1.0)
 MEASUREMENT_COLORMAP = "viridis"
+MEASUREMENT_MESH_ORDER = -10
+
 SHOW_RAY_INTERSECTION_MARKERS = False
+USE_DEBUG_COLORS = False
+
 AXIS_COLORS = {
     "x": (0.85, 0.15, 0.15, 1.0),
     "y": (0.15, 0.65, 0.2, 1.0),
     "z": (0.15, 0.3, 0.85, 1.0),
 }
+
+if USE_DEBUG_COLORS:
+    INCIDENT_COLOR = (0.9, 0.2, 0.2, 1.0)
+    INTERNAL_COLOR = (1.0, 0.6, 0.1, 1.0)
+    EXIT_COLOR = (0.2, 0.75, 0.3, 1.0)
 
 
 def surface_positions(surface: Surface, n: int = 128) -> "tuple[np.ndarray, np.ndarray]":
@@ -143,7 +155,9 @@ def _measurement_outline(plane: MeasurementPlane) -> list[np.ndarray]:
 
 
 def build_measurement_nodes(view: Any, plane: MeasurementPlane) -> list[Any]:
-    nodes = [_attach(view, make_measurement_plane_visual(plane))]
+    plane_mesh = make_measurement_plane_visual(plane)
+    plane_mesh.order = MEASUREMENT_MESH_ORDER
+    nodes = [_attach(view, plane_mesh)]
     outline = _measurement_outline(plane)
     for a, b in zip(outline[0::2], outline[1::2]):
         segment = _add_segment(view, a, b, MEASUREMENT_OUTLINE_COLOR, width=2)
@@ -319,8 +333,15 @@ def _make_markers_mesh(
         vertex_colors=np.vstack(colors_chunks),
         shading="flat",
     )
-    mesh.update_gl_state(depth_test=False)
+    mesh.update_gl_state(depth_test=True)
     return mesh
+
+
+def send_to_back(nodes: Sequence[Any], base: int = -2) -> None:
+    """Draw the given nodes before their siblings so surfaces blend over them."""
+    for offset, node in enumerate(nodes):
+        if node is not None:
+            node.order = base + offset
 
 
 def build_ray_nodes(
@@ -350,12 +371,13 @@ def build_ray_nodes(
             colors[2 * i] = RAY_SEGMENT_COLORS[kind]
             colors[2 * i + 1] = RAY_SEGMENT_COLORS[kind]
         line = visuals.Line(pos=pos, connect="segments", color=colors, width=3)
-        line.update_gl_state(depth_test=False)
+        line.update_gl_state(depth_test=True, depth_mask=True)
         nodes.append(_attach(view, line))
     if markers and show_markers:
         mesh = _make_markers_mesh(markers)
         if mesh is not None:
             nodes.append(_attach(view, mesh))
+    send_to_back(nodes)
     return nodes
 
 
@@ -364,7 +386,7 @@ def create_canvas(width: int = 900, height: int = 700) -> Any:
         keys="interactive",
         size=(width, height),
         show=False,
-        bgcolor=(1.0, 1.0, 1.0, 1.0),
+        bgcolor=(0.1, 0.1, 0.1, 1.0),
         title="OpticsSimulator",
     )
 

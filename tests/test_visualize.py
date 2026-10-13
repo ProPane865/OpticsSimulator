@@ -1,6 +1,7 @@
 import types
 
 import numpy as np
+from vispy import scene
 
 import rendering.visualize as visualize
 from optics.measurement_plane import MeasurementPlane
@@ -263,6 +264,48 @@ def test_build_ray_nodes_batches_segments_and_markers(make_element):
     line = next(n for n in nodes if type(n).__name__ == "Line")
     assert line.pos.shape[1:] == (2, 3)
     assert line.pos.shape[0] >= len(rays)
+
+
+def test_build_ray_nodes_line_is_depth_tested(make_element):
+    elem = make_element(
+        "sqrt(1 - (x**2) - (y**2))",
+        "-sqrt(1 - (x**2) - (y**2))",
+        aperture_radius=0.5,
+    )
+    rays = [Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0)]
+    view = _FakeView()
+    nodes = visualize.build_ray_nodes(view, [elem], rays, ray_length=2.0)
+
+    line = next(n for n in nodes if type(n).__name__ == "Line")
+    gl_state = line._subvisuals[0]._vshare.gl_state
+    assert gl_state["depth_test"] is True
+    assert gl_state["depth_mask"] is True
+    assert line.order < 0
+
+
+def test_send_to_back_orders_nodes_before_siblings():
+    first = scene.Node()
+    second = scene.Node()
+    visualize.send_to_back([first, second])
+    assert first.order < second.order < 0
+
+
+def test_measurement_mesh_draws_before_rays(make_element):
+    elem = make_element(
+        "sqrt(1 - (x**2) - (y**2))",
+        "-sqrt(1 - (x**2) - (y**2))",
+        aperture_radius=0.5,
+    )
+    rays = [Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0)]
+    ray_view = _FakeView()
+    ray_nodes = visualize.build_ray_nodes(ray_view, [elem], rays, ray_length=2.0)
+    line = next(n for n in ray_nodes if type(n).__name__ == "Line")
+
+    plane_view = _FakeView()
+    plane_nodes = visualize.build_measurement_nodes(plane_view, _measurement_plane())
+    plane_mesh = next(n for n in plane_nodes if type(n).__name__ == "Mesh")
+
+    assert plane_mesh.order < line.order < 0
 
 
 def test_build_ray_nodes_empty_rays():

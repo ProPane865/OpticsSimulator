@@ -6,6 +6,29 @@ import numpy as np
 from numba import njit
 
 from . import constants as _c
+from ._kernels import (
+    D_AP_CX,
+    D_AP_CY,
+    D_AP_R,
+    D_DERIV,
+    D_EVAL,
+    D_ROT,
+    D_TRANS,
+    D_TU,
+    D_TV,
+    D_U_MAX,
+    D_U_MIN,
+    D_V_MAX,
+    D_V_MIN,
+    G_FINITE,
+    G_P_WORLD,
+    G_PTS,
+    G_UF,
+    G_UF_VALID,
+    G_VF,
+    G_VF_VALID,
+    build_grid,
+)
 from .hit import Hit
 from .ray import Ray
 
@@ -55,21 +78,16 @@ _FD_STEP_SHRINKS = _c.FD_STEP_SHRINKS
 _DERIV_INTERIOR_FRAC = _c.DERIV_INTERIOR_FRAC
 _DERIV_INTERIOR_TRIES = _c.DERIV_INTERIOR_TRIES
 
-# Descriptor tuple layout (Surface.njit_descriptor):
-#   0 eval_cfn, 1 deriv_cfn, 2 u_min, 3 u_max, 4 v_min, 5 v_max,
-#   6 tu, 7 tv, 8 aperture radius (-1 = none), 9 ap_cx, 10 ap_cy,
-#   11 rotation (3,3), 12 translation (3,)
-# The callables are ``numba.cfunc`` pointers with a fixed C signature, so
-# every surface shares one argument type: the kernels below compile (and
-# disk-cache) once in total, not once per surface expression.
-# Grid tuple layout (SurfaceSolver.njit_grid):
-#   0 P_world, 1 Uf_valid, 2 Vf_valid, 3 pts, 4 finite, 5 Uf, 6 Vf
+# Descriptor and seed-grid tuple layouts (and their index constants) live in
+# ``_kernels.py``; the callables in a descriptor are ``numba.cfunc`` pointers
+# with a fixed C signature, so every surface shares one argument type: the
+# kernels below compile (and disk-cache) once in total, not once per surface.
 
 
 @njit(cache=True)
 def _eval_njit(desc: Any, u: float, v: float) -> np.ndarray:
     out = np.empty(3)
-    desc[0](u, v, out.ctypes.data)
+    desc[D_EVAL](u, v, out.ctypes.data)
     return out
 
 
@@ -77,7 +95,7 @@ def _eval_njit(desc: Any, u: float, v: float) -> np.ndarray:
 def _deriv_pair_njit(desc: Any, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
     ru = np.empty(3)
     rv = np.empty(3)
-    desc[1](u, v, ru.ctypes.data, rv.ctypes.data)
+    desc[D_DERIV](u, v, ru.ctypes.data, rv.ctypes.data)
     return ru, rv
 
 
@@ -385,17 +403,17 @@ def _partial_njit(desc: Any, u: float, v: float, du: float, dv: float) -> np.nda
 @njit(cache=True)
 def _accepts_njit(desc: Any, u: float, v: float) -> bool:
     """Domain + circular-aperture membership (njit ``accepts_parameters``)."""
-    if u < desc[2] - desc[6] or u > desc[3] + desc[6]:
+    if u < desc[D_U_MIN] - desc[D_TU] or u > desc[D_U_MAX] + desc[D_TU]:
         return False
-    if v < desc[4] - desc[7] or v > desc[5] + desc[7]:
+    if v < desc[D_V_MIN] - desc[D_TV] or v > desc[D_V_MAX] + desc[D_TV]:
         return False
-    if desc[8] >= 0.0:
+    if desc[D_AP_R] >= 0.0:
         p = _eval_njit(desc, u, v)
         if not (math.isfinite(p[0]) and math.isfinite(p[1]) and math.isfinite(p[2])):
             return False
-        dx = p[0] - desc[9]
-        dy = p[1] - desc[10]
-        return bool(dx * dx + dy * dy <= desc[8] * desc[8] + _APERTURE_EPS)
+        dx = p[0] - desc[D_AP_CX]
+        dy = p[1] - desc[D_AP_CY]
+        return bool(dx * dx + dy * dy <= desc[D_AP_R] * desc[D_AP_R] + _APERTURE_EPS)
     return True
 
 
@@ -405,10 +423,10 @@ def _derivatives_njit(desc: Any, u: float, v: float) -> "tuple[np.ndarray, np.nd
     ru, rv = _deriv_pair_njit(desc, u, v)
     if np.all(np.isfinite(ru)) and np.all(np.isfinite(rv)):
         return ru, rv
-    u_min = desc[2]
-    u_max = desc[3]
-    v_min = desc[4]
-    v_max = desc[5]
+    u_min = desc[D_U_MIN]
+    u_max = desc[D_U_MAX]
+    v_min = desc[D_V_MIN]
+    v_max = desc[D_V_MAX]
     du = 0.5 * (u_min + u_max) - u
     dv = 0.5 * (v_min + v_max) - v
     if du == 0.0 and dv == 0.0:
@@ -438,7 +456,7 @@ def _derivatives_njit(desc: Any, u: float, v: float) -> "tuple[np.ndarray, np.nd
 @njit(cache=True)
 def _res_intersect(x: np.ndarray, desc: Any, o: np.ndarray, d: np.ndarray) -> np.ndarray:
     p = _eval_njit(desc, float(x[1]), float(x[2]))
-    w = desc[11] @ p + desc[12]
+    w = desc[D_ROT] @ p + desc[D_TRANS]
     t = float(x[0])
     return w - (o + t * d)
 
@@ -446,7 +464,7 @@ def _res_intersect(x: np.ndarray, desc: Any, o: np.ndarray, d: np.ndarray) -> np
 @njit(cache=True)
 def _jac_intersect(x: np.ndarray, desc: Any, o: np.ndarray, d: np.ndarray) -> np.ndarray:
     ru, rv = _derivatives_njit(desc, float(x[1]), float(x[2]))
-    R = desc[11]
+    R = desc[D_ROT]
     J = np.empty((3, 3))
     J[:, 0] = -d
     J[:, 1] = R @ ru
@@ -544,10 +562,10 @@ def _parameters_at_xy_njit(
     desc: Any, grid: Any, x: float, y: float
 ) -> "tuple[float, float, bool]":
     """Grid-seeded local ``(x, y)`` inversion in nopython mode."""
-    pts = grid[3]
-    finite = grid[4]
-    Uf = grid[5]
-    Vf = grid[6]
+    pts = grid[G_PTS]
+    finite = grid[G_FINITE]
+    Uf = grid[G_UF]
+    Vf = grid[G_VF]
     n = pts.shape[0]
     if n == 0:
         return 0.0, 0.0, False
@@ -591,9 +609,9 @@ def _surface_intersect_njit(
     Nopython counterpart of ``SurfaceSolver.intersect``; returns the nearest
     forward hit as ``(t, u, v, ok)``.
     """
-    P = grid[0]
-    Uf = grid[1]
-    Vf = grid[2]
+    P = grid[G_P_WORLD]
+    Uf = grid[G_UF_VALID]
+    Vf = grid[G_VF_VALID]
     m = P.shape[0]
     if m == 0:
         return 0.0, 0.0, 0.0, False
@@ -688,9 +706,14 @@ class SurfaceSolver:
         cached = self._njit_grid_cache.get(grid_n)
         if cached is None:
             g = self._seed_grid(grid_n)
-            cached = tuple(
-                np.ascontiguousarray(g[key])
-                for key in ("P_world", "Uf_valid", "Vf_valid", "pts", "finite", "Uf", "Vf")
+            cached = build_grid(
+                g["P_world"],
+                g["Uf_valid"],
+                g["Vf_valid"],
+                g["pts"],
+                g["finite"],
+                g["Uf"],
+                g["Vf"],
             )
             self._njit_grid_cache[grid_n] = cached
         return cached

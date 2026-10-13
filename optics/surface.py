@@ -13,6 +13,7 @@ import numpy as np
 import sympy as sp
 
 from . import constants as _c
+from ._kernels import build_descriptor
 from .aperture import Aperture, CircularAperture
 from .hit import Hit
 from .ray import Ray
@@ -316,7 +317,7 @@ class Surface:
         (u_min, u_max), (v_min, v_max) = self.parameter_range
         tu = _c.DOMAIN_TOL * max(1.0, u_max - u_min)
         tv = _c.DOMAIN_TOL * max(1.0, v_max - v_min)
-        return (
+        return build_descriptor(
             self._eval_cfn,
             self._deriv_cfn,
             u_min,
@@ -328,8 +329,8 @@ class Surface:
             ap_r,
             ap_cx,
             ap_cy,
-            np.ascontiguousarray(self.transform.rotation),
-            np.ascontiguousarray(self.transform.translation),
+            self.transform.rotation,
+            self.transform.translation,
         )
 
     @property

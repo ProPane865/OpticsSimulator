@@ -24,6 +24,27 @@ def repo_root() -> Path:
 
 
 @pytest.fixture
+def force_python_path():
+    """Return a callable that pins the given elements to the pure-Python path.
+
+    Nulling each surface's cached ``njit_descriptor`` makes every downstream
+    entry point fall back to its reference implementation: the Python solver
+    (``SurfaceSolver.intersect`` / ``parameters_at_xy``), the serial element
+    tracer (``RefractiveElement.trace``), the Python stack traversal
+    (``build_trace_context`` returns ``None``), and the serial measurement
+    path. Used to differentially test the nopython kernels against this oracle.
+    """
+
+    def _force(elements) -> None:
+        for element in elements:
+            for surface in (element.surface1, element.surface2):
+                surface._njit_desc = None
+                surface._njit_desc_built = True
+
+    return _force
+
+
+@pytest.fixture
 def sphere_schema(repo_root) -> str:
     return (repo_root / "tests/test_geometry.json").read_text()
 

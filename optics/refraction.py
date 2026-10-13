@@ -9,6 +9,22 @@ import numpy as np
 from numba import njit
 
 from . import constants as _c
+from ._kernels import (
+    D_ROT,
+    D_TRANS,
+    E_DESC1,
+    E_DESC2,
+    E_GRAPH1,
+    E_GRAPH2,
+    E_GRID1,
+    E_GRID2,
+    E_HI,
+    E_INDEX,
+    E_LO,
+    E_NORMALS,
+    E_TRI,
+    build_element_context,
+)
 from .hit import RayHit
 from .material import Material
 from .plane import _intersect_kernel
@@ -81,11 +97,7 @@ def trace_direction(incident: np.ndarray, normal: np.ndarray, n_from: float, n_t
 
 
 # --- Nopython element tracing ------------------------------------------------
-# Element context tuple layout (build_trace_context):
-#   0 desc1, 1 desc2, 2 grid1, 3 grid2, 4 refractive index,
-#   5 local AABB lo (3,), 6 local AABB hi (3,),
-#   7 sidewall triangles (K,3,3), 8 sidewall face normals (K,3),
-#   9 surface1 graph-over-XY, 10 surface2 graph-over-XY
+# Element context tuple layout (and its index constants) live in ``_kernels.py``.
 
 _MAX_PATH_PTS = _MAX_INTERNAL_BOUNCES + 2
 _MAX_SEGS_PER_ELEMENT = 2 * _MAX_INTERNAL_BOUNCES + 3
@@ -105,7 +117,7 @@ def _normal_njit(desc: Any, u: float, v: float) -> "tuple[float, float, float, b
     norm = _norm(n)
     if not math.isfinite(norm) or norm <= 0.0:
         return 0.0, 0.0, 0.0, False
-    w = desc[11] @ (n / norm)
+    w = desc[D_ROT] @ (n / norm)
     return float(w[0]), float(w[1]), float(w[2]), True
 
 
@@ -137,19 +149,19 @@ def _element_first_hit(
     found = False
     bp = np.zeros(3)
     bn = np.zeros(3)
-    f0, t0, p0, n0 = _surface_hit_njit(elem[0], elem[2], o, d, min_t)
+    f0, t0, p0, n0 = _surface_hit_njit(elem[E_DESC1], elem[E_GRID1], o, d, min_t)
     if f0 and t0 < best_t:
         best_t = t0
         found = True
         bp = p0
         bn = n0
-    f1, t1, p1, n1 = _surface_hit_njit(elem[1], elem[3], o, d, min_t)
+    f1, t1, p1, n1 = _surface_hit_njit(elem[E_DESC2], elem[E_GRID2], o, d, min_t)
     if f1 and t1 < best_t:
         best_t = t1
         found = True
         bp = p1
         bn = n1
-    tri = elem[7]
+    tri = elem[E_TRI]
     if tri.shape[0] > 0:
         t, face, bu, bv, ok = _mt_kernel(
             o, d, tri, _DET_SINGULAR_EPS, _BARY_TOL, _MIN_FACE_T
@@ -158,7 +170,7 @@ def _element_first_hit(
             best_t = t
             found = True
             bp = o + t * d
-            bn = elem[8][int(face)]
+            bn = elem[E_NORMALS][int(face)]
     return found, best_t, bp, bn
 
 
@@ -185,19 +197,19 @@ def _local_surface_z_njit(
 @njit(cache=True)
 def _contains_point_njit(elem: Any, p: np.ndarray) -> bool:
     """Nopython ``RefractiveElement.contains_point``."""
-    desc = elem[0]
-    R = desc[11]
-    T = desc[12]
+    desc = elem[E_DESC1]
+    R = desc[D_ROT]
+    T = desc[D_TRANS]
     local = R.T @ (p - T)
     if not np.all(np.isfinite(local)):
         return False
-    lo = elem[5]
-    hi = elem[6]
+    lo = elem[E_LO]
+    hi = elem[E_HI]
     for i in range(3):
         if local[i] < lo[i] or local[i] > hi[i]:
             return False
-    z1 = _local_surface_z_njit(elem[0], elem[2], elem[9], local)
-    z2 = _local_surface_z_njit(elem[1], elem[3], elem[10], local)
+    z1 = _local_surface_z_njit(elem[E_DESC1], elem[E_GRID1], elem[E_GRAPH1], local)
+    z2 = _local_surface_z_njit(elem[E_DESC2], elem[E_GRID2], elem[E_GRAPH2], local)
     if math.isnan(z1) or math.isnan(z2):
         return False
     return bool(min(z1, z2) < local[2] < max(z1, z2))
@@ -220,7 +232,7 @@ def _trace_element_njit(
             pts[0] = o
             return o, d, True, 1, False, o
         return o, d, False, 0, False, o
-    n = elem[4]
+    n = elem[E_INDEX]
     if inside:
         cur_o = o
         cur_d = d
@@ -420,22 +432,22 @@ def build_trace_context(
             tri = np.empty((0, 3, 3), dtype=float)
             normals = np.empty((0, 3), dtype=float)
         else:
-            tri = np.ascontiguousarray(wall.triangles())
-            normals = np.ascontiguousarray(wall.face_normals())
+            tri = wall.triangles()
+            normals = wall.face_normals()
         lo, hi = el._local_bounds()
         ctxs.append(
-            (
+            build_element_context(
                 d1,
                 d2,
                 g1,
                 g2,
                 float(el.material.refractive_index),
-                np.ascontiguousarray(lo),
-                np.ascontiguousarray(hi),
+                lo,
+                hi,
                 tri,
                 normals,
-                bool(el.surface1.is_graph_over_xy),
-                bool(el.surface2.is_graph_over_xy),
+                el.surface1.is_graph_over_xy,
+                el.surface2.is_graph_over_xy,
             )
         )
     return tuple(ctxs)

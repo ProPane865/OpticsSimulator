@@ -157,10 +157,6 @@ class Surface:
         t, u, v = hit
         return Hit(ray.at(t), t, u, v)
 
-    def evaluate(self, u: float, v: float) -> np.ndarray:
-        """World-space point."""
-        return self.transform.point_to_world(self.evaluate_local(u, v))
-
     def evaluate_local(self, U: Any, V: Any) -> np.ndarray:
         """Local-space point (can be array)."""
         U = np.asarray(U, dtype=float)

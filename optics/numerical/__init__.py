@@ -11,6 +11,7 @@ from .intersect import surface_intersect_njit
 from .invert import parameters_at_xy_njit
 from .linalg import norm
 from .mesh import mesh_intersect_kernel
+from .parallel import run_in_chunks
 from .plane import plane_intersect_kernel
 from .solver import SurfaceSolver
 from .vector import normalize, normalize_vector, rotation_from_z
@@ -29,5 +30,6 @@ __all__ = [
     "plane_intersect_kernel",
     "probe_njit_pair",
     "rotation_from_z",
+    "run_in_chunks",
     "surface_intersect_njit",
 ]

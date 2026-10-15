@@ -1,6 +1,6 @@
 """Data layouts shared between the Python builders and the nopython kernels.
 
-The nopython solver/tracer (``intersect.py``, ``invert.py``, ``refraction.py``)
+The nopython solver/tracer (``intersect.py``, ``invert.py``, ``tracing/``)
 passes surfaces, seed grids and element stacks into ``@njit`` code as flat
 tuples of plain data. Those tuples are indexed positionally inside nopython functions, where a wrong
 index fails silently, so the layout is defined exactly once here: the integer
@@ -97,7 +97,7 @@ def build_grid(
     )
 
 
-# --- Element context (``refraction.build_trace_context``) -------------------
+# --- Element context (``tracing.context.build_trace_context``) --------------
 # One closed refractive element flattened for the stack-tracing kernels.
 E_DESC1 = 0     # front surface descriptor
 E_DESC2 = 1     # rear surface descriptor

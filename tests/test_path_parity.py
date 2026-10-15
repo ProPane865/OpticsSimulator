@@ -1,7 +1,7 @@
 """Differential tests: nopython kernels vs the pure-Python reference path.
 
 The nopython solver/tracer is the production path, but its only oracle is the
-hand-maintained Python twin in ``solver.py`` / ``refraction.py``. These tests
+hand-maintained Python twin in ``solver.py`` / ``tracing``. These tests
 run the same rays through both paths (the Python one forced via the
 ``force_python_path`` fixture) and assert they agree, so a divergence in either
 implementation -- or a wrong descriptor/grid/element tuple index -- fails here
@@ -13,7 +13,7 @@ import json
 import numpy as np
 import pytest
 
-from optics import refraction as rf
+from optics import tracing as rf
 from optics.config import refractive_element_from_json, stack_from_config
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray, Surface

@@ -8,7 +8,7 @@ import numpy as np
 
 from optics.config import stack_from_config
 from optics.primitive import Ray
-from optics.refraction import RefractiveElement
+from optics.tracing import RefractiveElement
 
 from . import visualize as _visualize
 

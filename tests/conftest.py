@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import sympy as sp
 
-import optics.refraction as refraction
+import optics.tracing as tracing
 from optics.config import (
     refractive_element_from_config,
     refractive_element_from_json,
@@ -50,7 +50,7 @@ def sphere_schema(repo_root) -> str:
 
 
 @pytest.fixture
-def sphere(sphere_schema) -> refraction.RefractiveElement:
+def sphere(sphere_schema) -> tracing.RefractiveElement:
     return refractive_element_from_json(sphere_schema)
 
 
@@ -60,7 +60,7 @@ def offset_lens_schema(repo_root) -> str:
 
 
 @pytest.fixture
-def offset_lens(offset_lens_schema) -> refraction.RefractiveElement:
+def offset_lens(offset_lens_schema) -> tracing.RefractiveElement:
     return refractive_element_from_json(offset_lens_schema)
 
 
@@ -72,7 +72,7 @@ def make_element():
         n: float = 1.5,
         orientation=None,
         aperture_radius=None,
-    ) -> refraction.RefractiveElement:
+    ) -> tracing.RefractiveElement:
         orientation = (
             np.array([0.0, 0.0, 1.0])
             if orientation is None

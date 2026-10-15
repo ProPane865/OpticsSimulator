@@ -5,18 +5,18 @@ import numpy as np
 from numba import njit, prange
 
 from . import constants as _c
+from .numerical.parallel import run_in_chunks
 from .numerical.plane import plane_intersect_kernel
 from .numerical.vector import normalize
 from .primitive import Ray
-from .refraction import (
+from .tracing import (
     RefractiveElement,
     TraceResult,
-    _run_in_chunks,
-    _trace_stack_to_plane_njit,
-    build_trace_context,
     internal_rays,
     traverse_stack,
 )
+from .tracing.context import build_trace_context
+from .tracing.kernels import trace_stack_to_plane_njit
 
 _EPS = _c.PLANE_EPS
 
@@ -105,7 +105,7 @@ def _measure_stack_chunk(
     for i in range(lo, hi):
         out_o = np.empty(3)
         out_d = np.empty(3)
-        found = _trace_stack_to_plane_njit(
+        found = trace_stack_to_plane_njit(
             stack,
             origins[i],
             dirs[i],
@@ -372,7 +372,7 @@ class MeasurementPlane:
                     hi,
                 )
 
-            _run_in_chunks(work, len(rays))
+            run_in_chunks(work, len(rays))
         else:
             _measure_direct_kernel(
                 origins, dirs, powers, self.o, self.n, _EPS, us, vs, pws

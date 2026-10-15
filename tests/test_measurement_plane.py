@@ -3,7 +3,7 @@ import pytest
 
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray
-from optics.refraction import trace_stack
+from optics.tracing import trace_stack
 
 
 def _plane(resolution=(4, 4), normal=(0.0, 0.0, 1.0), origin=(0.0, 0.0, -3.0)):

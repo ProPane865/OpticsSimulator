@@ -26,8 +26,8 @@ from optics.project import (
     source_from_config,
     source_to_config,
 )
-from optics.refraction import RefractiveElement
 from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource
+from optics.tracing import RefractiveElement
 
 __all__ = [
     "DEFAULT_ELEMENT_CONFIG",
@@ -705,7 +705,7 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
     add-element/apply-properties interaction from paying the compile cost
     synchronously. Best-effort: any failure just leaves on-demand compiles.
     """
-    from optics.refraction import trace_segments_batch
+    from optics.tracing import trace_segments_batch
 
     try:
         if not elements:

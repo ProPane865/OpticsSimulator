@@ -242,7 +242,7 @@ def _build_njit_functions(
 def null_surface_cfuncs() -> "tuple[Any, Any]":
     """``(eval_cfn, deriv_cfn)`` pair for a constant-zero surface.
 
-    Gives inert padded element contexts (``refraction._null_element_context``)
+    Gives inert padded element contexts (``tracing.context._null_element_context``)
     the same ``cfunc`` types as real surfaces so the padded stack tuple keeps
     one Numba signature. The pair is never executed; it only has to exist
     with the right C signature, exactly like every other surface's pair.

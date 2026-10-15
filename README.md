@@ -52,8 +52,14 @@ python -m rendering.demo
     `desc.py` (descriptor access kernels), `_kernels.py` (flat-tuple data
     layouts shared with the nopython kernels), `mesh.py` (ray/mesh kernel),
     `plane.py` (Numba ray/plane intersection kernel), `linalg.py`,
-    `vector.py`
-  - `refraction.py`: refraction/reflection, closed-element tracing, stack traversal
+    `vector.py`, `parallel.py` (chunked GIL-free dispatch)
+  - `tracing/`: refraction/reflection and element/stack tracing —
+    `direction.py` (refraction/total-internal-reflection direction kernels),
+    `element.py` (`RefractiveElement`: containment, face hits, closed-element
+    Python tracing), `kernels.py` (nopython element/stack walk),
+    `context.py` (flattened, capacity-padded stack contexts and batched
+    parallel tracing), `stack.py` (geometric-order stack traversal and
+    rendering path building)
   - `measurement_plane.py`: planar detector accumulating ray power
   - `constants.py`: numerical tolerances and solver defaults
   - `source.py`: point sources and ray emission

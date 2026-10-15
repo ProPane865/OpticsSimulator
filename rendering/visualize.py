@@ -8,7 +8,7 @@ from vispy.scene import visuals
 
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import LensSidewall, Ray, Surface
-from optics.refraction import RefractiveElement, trace_segments_batch, trace_stack_path
+from optics.tracing import RefractiveElement, trace_segments_batch, trace_stack_path
 
 from .meshing import SurfaceMesher
 

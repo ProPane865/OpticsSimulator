@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from optics.primitive import MeshHit, Ray
-from optics.refraction import (
+from optics.tracing import (
     refract_or_reflect,
     trace_direction,
     trace_stack,

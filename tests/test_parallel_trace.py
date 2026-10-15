@@ -1,9 +1,11 @@
 import numpy as np
 import pytest
 
-import optics.refraction as rf
+import optics.tracing as rf
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray
+from optics.tracing import stack as stack_mod
+from optics.tracing.context import _SEGMENT_KIND_NAMES
 
 
 def _rays(n=24, seed=3):
@@ -45,7 +47,7 @@ def test_measure_is_deterministic(sphere):
 def test_trace_stack_path_fast_matches_serial(sphere, monkeypatch):
     ray = Ray(np.array([0.2, 0.1, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
     fast_segs, fast_final = rf.trace_stack_path(ray, [sphere])
-    monkeypatch.setattr(rf, "build_trace_context", lambda elements: None)
+    monkeypatch.setattr(stack_mod, "build_trace_context", lambda elements: None)
     slow_segs, slow_final = rf.trace_stack_path(ray, [sphere])
     assert len(fast_segs) == len(slow_segs)
     for (a0, b0, k0), (a1, b1, k1) in zip(fast_segs, slow_segs):
@@ -74,7 +76,7 @@ def test_trace_segments_batch_matches_trace_stack_path(sphere):
         for j, (a, b, kind) in enumerate(segs):
             np.testing.assert_allclose(starts[i, j], a, atol=1e-9)
             np.testing.assert_allclose(ends[i, j], b, atol=1e-9)
-            assert rf._SEGMENT_KIND_NAMES[kinds[i, j]] == kind
+            assert _SEGMENT_KIND_NAMES[kinds[i, j]] == kind
 
 
 def test_empty_stack_is_not_accelerated():

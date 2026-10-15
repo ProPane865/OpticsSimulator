@@ -14,7 +14,7 @@ from vispy import app as vispy_app
 import rendering.visualize as visualize
 from optics.config import refractive_element_from_config, stack_from_config
 from optics.measurement_plane import MeasurementPlane
-from optics.primitive.ray import Ray
+from optics.primitive import Ray
 from optics.project import (
     DEFAULT_MEASUREMENT_CONFIG,
     DEFAULT_SOURCE_CONFIG,

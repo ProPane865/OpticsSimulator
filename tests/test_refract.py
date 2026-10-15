@@ -1,8 +1,7 @@
 import numpy as np
 import pytest
 
-from optics.primitive.hit import MeshHit
-from optics.primitive.ray import Ray
+from optics.primitive import MeshHit, Ray
 from optics.refraction import (
     refract_or_reflect,
     trace_direction,

@@ -1,7 +1,6 @@
 import numpy as np
 
-from optics.primitive.ray import Ray
-from optics.primitive.surface import Surface
+from optics.primitive import Ray, Surface
 
 BICONE_S1 = "3 - 0.3*sqrt(x**2 + y**2)"
 BICONE_S2 = "-1 + 2*sqrt(x**2 + y**2)"

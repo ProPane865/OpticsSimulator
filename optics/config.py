@@ -5,11 +5,8 @@ from typing import Any
 import numpy as np
 
 from .numerical.vector import rotation_from_z
-from .primitive.aperture import Aperture, CircularAperture
-from .primitive.material import Material
-from .primitive.surface import Surface
+from .primitive import Aperture, CircularAperture, Material, Surface, Transform
 from .refraction import RefractiveElement
-from .primitive.transform import Transform
 
 
 def aperture_from_config(config: dict[str, Any]) -> Aperture:

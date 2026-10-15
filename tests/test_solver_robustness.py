@@ -3,9 +3,7 @@ import pytest
 
 from optics.measurement_plane import MeasurementPlane
 from optics.numerical.newton import _CONVERGED, _STALLED, _newton
-from optics.primitive.aperture import CircularAperture
-from optics.primitive.ray import Ray
-from optics.primitive.surface import Surface
+from optics.primitive import CircularAperture, Ray, Surface
 
 GRAZING_ORIGINS = [
     [0.0, 0.0, 0.0],

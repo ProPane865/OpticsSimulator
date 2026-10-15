@@ -7,7 +7,7 @@ from numba import njit, prange
 from . import constants as _c
 from .numerical.plane import plane_intersect_kernel
 from .numerical.vector import normalize
-from .primitive.ray import Ray
+from .primitive import Ray
 from .refraction import (
     RefractiveElement,
     TraceResult,

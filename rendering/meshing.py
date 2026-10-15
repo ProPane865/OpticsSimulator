@@ -4,7 +4,7 @@ from weakref import WeakKeyDictionary
 import numpy as np
 
 if TYPE_CHECKING:
-    from optics.primitive.surface import Surface
+    from optics.primitive import Surface
 
 _MESH_CACHE: "WeakKeyDictionary[object, dict[int, tuple[np.ndarray, np.ndarray]]]" = WeakKeyDictionary()
 

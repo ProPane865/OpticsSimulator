@@ -34,12 +34,7 @@ from .numerical.linalg import norm
 from .numerical.mesh import mesh_intersect_kernel
 from .numerical.plane import plane_intersect_kernel
 from .numerical.vector import normalize_vector
-from .primitive.hit import RayHit
-from .primitive.material import Material
-from .primitive.ray import Ray
-from .primitive.sidewall import LensSidewall
-from .primitive.surface import Surface
-from .primitive.transform import Transform
+from .primitive import LensSidewall, Material, Ray, RayHit, Surface, Transform
 
 _SIDEWALL_UNSET = object()
 

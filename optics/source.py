@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from .primitive.ray import Ray
+from .primitive import Ray
 
 SINGLE_POINT = "single_point"
 POINT_ARRAY = "point_array"

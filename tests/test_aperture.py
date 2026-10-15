@@ -6,11 +6,7 @@ from optics.config import (
     refractive_element_from_config,
     surface_from_config,
 )
-from optics.primitive.aperture import CircularAperture
-from optics.primitive.ray import Ray
-from optics.primitive.sidewall import LensSidewall
-from optics.primitive.surface import Surface
-from optics.primitive.transform import Transform
+from optics.primitive import CircularAperture, LensSidewall, Ray, Surface, Transform
 from rendering.meshing import SurfaceMesher
 
 APERTURE_RADIUS = 0.5

@@ -2,9 +2,7 @@ import numpy as np
 
 from optics.config import refractive_element_from_config
 from optics.numerical.vector import rotation_from_z
-from optics.primitive.ray import Ray
-from optics.primitive.surface import Surface
-from optics.primitive.transform import Transform
+from optics.primitive import Ray, Surface, Transform
 from rendering.meshing import SurfaceMesher
 
 ROT = rotation_from_z([1.0, 1.0, 1.0])

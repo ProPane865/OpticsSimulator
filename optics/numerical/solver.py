@@ -18,7 +18,7 @@ from .invert import _solve_xy_njit, parameters_at_xy_njit
 from .newton import _newton
 
 if TYPE_CHECKING:
-    from ..primitive.surface import Surface
+    from ..primitive import Surface
 
 
 class _SeedGrid(TypedDict):

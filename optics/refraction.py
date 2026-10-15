@@ -31,12 +31,13 @@ from .numerical.desc import accepts_njit, derivatives_njit, eval_njit
 from .numerical.intersect import surface_intersect_njit
 from .numerical.invert import parameters_at_xy_njit
 from .numerical.linalg import norm
+from .numerical.mesh import mesh_intersect_kernel
 from .numerical.plane import plane_intersect_kernel
 from .numerical.vector import normalize_vector
 from .primitive.hit import RayHit
 from .primitive.material import Material
 from .primitive.ray import Ray
-from .primitive.sidewall import LensSidewall, _mt_kernel
+from .primitive.sidewall import LensSidewall
 from .primitive.surface import Surface
 from .transform import Transform
 
@@ -156,7 +157,7 @@ def _element_first_hit(
         bn = n1
     tri = elem[E_TRI]
     if tri.shape[0] > 0:
-        t, face, bu, bv, ok = _mt_kernel(
+        t, face, bu, bv, ok = mesh_intersect_kernel(
             o, d, tri, _DET_SINGULAR_EPS, _BARY_TOL, _MIN_FACE_T
         )
         if ok and t > min_t and t < best_t:

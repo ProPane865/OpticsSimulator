@@ -58,6 +58,14 @@ class Aperture:
     def boundary(self, surface: "Surface", n: int = _c.APERTURE_BOUNDARY_N) -> np.ndarray:
         raise NotImplementedError
 
+    def njit_params(self) -> "tuple[float, float, float] | None":
+        """Circular slots ``(radius, cx, cy)`` for the nopython kernels.
+
+        ``None`` for aperture types the kernels cannot encode, which keeps
+        the surface on the Python solver path.
+        """
+        return None
+
 
 class CircularAperture(Aperture):
     radius: float
@@ -133,3 +141,6 @@ class CircularAperture(Aperture):
             points.append(p)
         
         return np.array(points, dtype=float)
+
+    def njit_params(self) -> "tuple[float, float, float]":
+        return self.radius, float(self.center[0]), float(self.center[1])

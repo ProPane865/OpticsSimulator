@@ -6,10 +6,11 @@ depends on :mod:`optics.constants`, never on :mod:`optics.primitive`.
 """
 
 from ._kernels import build_descriptor, build_element_context, build_grid
-from .desc import probe_njit_pair
+from .desc import build_surface_descriptor, probe_njit_pair
 from .intersect import surface_intersect_njit
 from .invert import parameters_at_xy_njit
 from .linalg import norm
+from .mesh import mesh_intersect_kernel
 from .plane import plane_intersect_kernel
 from .solver import SurfaceSolver
 from .vector import normalize, normalize_vector, rotation_from_z
@@ -19,6 +20,8 @@ __all__ = [
     "build_descriptor",
     "build_element_context",
     "build_grid",
+    "build_surface_descriptor",
+    "mesh_intersect_kernel",
     "normalize",
     "normalize_vector",
     "norm",

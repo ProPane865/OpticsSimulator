@@ -19,12 +19,51 @@ from ._kernels import (
     D_U_MIN,
     D_V_MAX,
     D_V_MIN,
+    build_descriptor,
 )
 
 # Descriptor and seed-grid tuple layouts (and their index constants) live in
 # ``_kernels.py``; the callables in a descriptor are ``numba.cfunc`` pointers
 # with a fixed C signature, so every surface shares one argument type: the
 # kernels below compile (and disk-cache) once in total, not once per surface.
+
+
+def build_surface_descriptor(surface: Any) -> "tuple[Any, ...] | None":
+    """Flatten a ``Surface`` into the kernel descriptor layout.
+
+    ``surface`` is duck-typed (cfunc pair, aperture, parameter range,
+    transform) so this module keeps no import-time dependency on
+    :mod:`optics.primitive`. Returns ``None`` when the surface has no
+    codegen cfuncs or carries an aperture the kernels cannot encode
+    (see :meth:`~optics.primitive.aperture.Aperture.njit_params`).
+    """
+    if surface._eval_cfn is None or surface._deriv_cfn is None:
+        return None
+    if surface.aperture is None:
+        ap_r, ap_cx, ap_cy = -1.0, 0.0, 0.0
+    else:
+        params = surface.aperture.njit_params()
+        if params is None:
+            return None
+        ap_r, ap_cx, ap_cy = params
+    (u_min, u_max), (v_min, v_max) = surface.parameter_range
+    tu = _c.DOMAIN_TOL * max(1.0, u_max - u_min)
+    tv = _c.DOMAIN_TOL * max(1.0, v_max - v_min)
+    return build_descriptor(
+        surface._eval_cfn,
+        surface._deriv_cfn,
+        u_min,
+        u_max,
+        v_min,
+        v_max,
+        tu,
+        tv,
+        ap_r,
+        ap_cx,
+        ap_cy,
+        surface.transform.rotation,
+        surface.transform.translation,
+    )
 
 
 @njit(cache=True)

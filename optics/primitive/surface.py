@@ -4,11 +4,11 @@ from typing import Any
 import numpy as np
 
 from .. import constants as _c
-from ..numerical._kernels import build_descriptor
 from ..numerical.codegen import compile_parametric_surface
+from ..numerical.desc import build_surface_descriptor
 from ..numerical.solver import SurfaceSolver
 from ..transform import Transform
-from .aperture import Aperture, CircularAperture
+from .aperture import Aperture
 from .hit import Hit
 from .ray import Ray
 
@@ -68,34 +68,7 @@ class Surface:
         return self._njit_desc
 
     def _build_njit_descriptor(self) -> "tuple[Any, ...] | None":
-        if self._eval_cfn is None or self._deriv_cfn is None:
-            return None
-        if self.aperture is None:
-            ap_r, ap_cx, ap_cy = -1.0, 0.0, 0.0
-        elif isinstance(self.aperture, CircularAperture):
-            ap_r = self.aperture.radius
-            ap_cx = float(self.aperture.center[0])
-            ap_cy = float(self.aperture.center[1])
-        else:
-            return None
-        (u_min, u_max), (v_min, v_max) = self.parameter_range
-        tu = _c.DOMAIN_TOL * max(1.0, u_max - u_min)
-        tv = _c.DOMAIN_TOL * max(1.0, v_max - v_min)
-        return build_descriptor(
-            self._eval_cfn,
-            self._deriv_cfn,
-            u_min,
-            u_max,
-            v_min,
-            v_max,
-            tu,
-            tv,
-            ap_r,
-            ap_cx,
-            ap_cy,
-            self.transform.rotation,
-            self.transform.translation,
-        )
+        return build_surface_descriptor(self)
 
     @property
     def is_graph_over_xy(self) -> bool:

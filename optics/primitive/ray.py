@@ -1,24 +1,21 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 
 from ..numerical.vector import normalize
 
 
+@dataclass(frozen=True, eq=False)
 class Ray:
     origin: np.ndarray
     direction: np.ndarray
     power: float
 
-    def __init__(
-        self,
-        origin: np.ndarray | Sequence[float],
-        direction: np.ndarray | Sequence[float],
-        power: float,
-    ) -> None:
-        origin = np.asarray(origin, dtype=float)
-        direction = np.asarray(direction, dtype=float)
-        power = float(power)
+    def __post_init__(self) -> None:
+        origin = np.asarray(self.origin, dtype=float)
+        direction = np.asarray(self.direction, dtype=float)
+        power = float(self.power)
 
         if origin.shape != (3,):
             raise ValueError("Origin must be array of shape (3,)")
@@ -41,9 +38,9 @@ class Ray:
         if power < 0:
             raise ValueError("Power cannot be negative")
 
-        self.origin = origin
-        self.direction = normalize(direction)
-        self.power = power
+        object.__setattr__(self, "origin", origin)
+        object.__setattr__(self, "direction", normalize(direction))
+        object.__setattr__(self, "power", power)
 
     def at(self, t: float) -> np.ndarray:
         return self.origin + t * self.direction

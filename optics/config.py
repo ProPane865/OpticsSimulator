@@ -5,10 +5,23 @@ from typing import Any
 import numpy as np
 
 from .numerical.vector import rotation_from_z
+from .primitive.aperture import Aperture, CircularAperture
 from .primitive.material import Material
 from .primitive.surface import Surface
 from .refraction import RefractiveElement
 from .primitive.transform import Transform
+
+
+def aperture_from_config(config: dict[str, Any]) -> Aperture:
+    if not isinstance(config, dict):
+        raise ValueError("Aperture config must be an object")
+    kind = str(config.get("type", "circular")).lower()
+    if kind != "circular":
+        raise ValueError(f"Unknown aperture type: {kind}")
+    return CircularAperture(
+        _require(config, "radius", "aperture config"),
+        config.get("center", (0.0, 0.0)),
+    )
 
 
 def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface:
@@ -16,6 +29,7 @@ def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface
         raise ValueError("Surface config must be an object")
     for key in ("x", "y", "z"):
         _require(config, key, "surface config")
+    aperture_config = config.get("aperture")
     return Surface(
         config["x"],
         config["y"],
@@ -23,7 +37,7 @@ def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface
         transform=transform,
         u_range=config.get("u_range", (-2.0, 2.0)),
         v_range=config.get("v_range", (-2.0, 2.0)),
-        aperture=config.get("aperture"),
+        aperture=None if aperture_config is None else aperture_from_config(aperture_config),
     )
 
 

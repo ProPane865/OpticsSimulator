@@ -1,11 +1,16 @@
 import numpy as np
 import pytest
 
-from optics.config import refractive_element_from_config
-from optics.primitive.aperture import Aperture, CircularAperture
+from optics.config import (
+    aperture_from_config,
+    refractive_element_from_config,
+    surface_from_config,
+)
+from optics.primitive.aperture import CircularAperture
 from optics.primitive.ray import Ray
 from optics.primitive.sidewall import LensSidewall
 from optics.primitive.surface import Surface
+from optics.primitive.transform import Transform
 from rendering.meshing import SurfaceMesher
 
 APERTURE_RADIUS = 0.5
@@ -21,9 +26,7 @@ def make_surface(aperture_radius=APERTURE_RADIUS):
         "sqrt(1 - u**2 - v**2)",
         u_range=(-1.0, 1.0),
         v_range=(-1.0, 1.0),
-        aperture={
-            "radius": aperture_radius,
-        },
+        aperture=CircularAperture(aperture_radius),
     )
 
 
@@ -415,16 +418,16 @@ def test_circular_aperture_boundary_sphere():
     )
 
 
-def test_aperture_from_spec_dict():
-    aperture = Aperture.from_spec({"radius": 0.25})
+def test_aperture_from_config_dict():
+    aperture = aperture_from_config({"radius": 0.25})
 
     assert isinstance(aperture, CircularAperture)
     assert np.isclose(aperture.radius, 0.25)
     assert np.allclose(aperture.center, [0.0, 0.0])
 
 
-def test_aperture_from_spec_dict_with_type_and_center():
-    aperture = Aperture.from_spec({
+def test_aperture_from_config_with_type_and_center():
+    aperture = aperture_from_config({
         "type": "circular",
         "radius": 0.5,
         "center": [0.1, -0.2],
@@ -435,24 +438,14 @@ def test_aperture_from_spec_dict_with_type_and_center():
     assert np.allclose(aperture.center, [0.1, -0.2])
 
 
-def test_aperture_from_spec_passthrough():
-    aperture = CircularAperture(0.5)
-
-    assert Aperture.from_spec(aperture) is aperture
-
-
-def test_aperture_from_spec_none():
-    assert Aperture.from_spec(None) is None
-
-
-def test_aperture_from_spec_unknown_type():
+def test_aperture_from_config_unknown_type():
     with pytest.raises(ValueError):
-        Aperture.from_spec({"type": "rectangular", "width": 1.0})
+        aperture_from_config({"type": "rectangular", "width": 1.0})
 
 
-def test_aperture_from_spec_missing_radius():
+def test_aperture_from_config_missing_radius():
     with pytest.raises(ValueError, match="radius"):
-        Aperture.from_spec({"type": "circular"})
+        aperture_from_config({"type": "circular"})
 
 
 @pytest.mark.parametrize("radius", [0.0, -0.5, float("nan"), float("inf")])
@@ -467,8 +460,11 @@ def test_circular_aperture_rejects_invalid_center(center):
         CircularAperture(0.5, center)
 
 
-def test_surface_accepts_dict_aperture():
-    surface = Surface("u", "v", "0", aperture={"radius": APERTURE_RADIUS})
+def test_surface_from_config_aperture():
+    surface = surface_from_config(
+        {"x": "u", "y": "v", "z": "0", "aperture": {"radius": APERTURE_RADIUS}},
+        Transform(np.eye(3, 3), np.zeros(3)),
+    )
 
     assert isinstance(surface.aperture, CircularAperture)
     assert np.isclose(surface.aperture.radius, APERTURE_RADIUS)
@@ -696,7 +692,7 @@ def test_aperture_does_not_change_surface_evaluation():
 
     with_aperture = Surface(
         "u", "v", "sqrt(1 - u**2 - v**2)",
-        aperture={"radius": 0.5},
+        aperture=CircularAperture(0.5),
     )
 
     for u, v in [(0, 0), (0.25, 0.25), (2, 2)]:

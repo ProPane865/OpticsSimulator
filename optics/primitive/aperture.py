@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -9,24 +9,6 @@ if TYPE_CHECKING:
 
 
 class Aperture:
-    @staticmethod
-    def from_spec(spec: "Aperture | dict[str, Any] | None") -> "Aperture | None":
-        if spec is None:
-            return None
-        if isinstance(spec, Aperture):
-            return spec
-        if isinstance(spec, dict):
-            kind = str(spec.get("type", "circular")).lower()
-            if kind == "circular":
-                if "radius" not in spec:
-                    raise ValueError("Missing required key 'radius' in aperture config")
-                return CircularAperture(
-                    spec["radius"],
-                    spec.get("center", (0.0, 0.0)),
-                )
-            raise ValueError(f"Unknown aperture type: {kind}")
-        raise TypeError(f"Unsupported aperture spec: {spec!r}")
-
     def contains(self, surface: "Surface", u: float, v: float) -> bool:
         raise NotImplementedError
 

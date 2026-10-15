@@ -3,6 +3,7 @@ import pytest
 
 from optics.measurement_plane import MeasurementPlane
 from optics.numerical.newton import _CONVERGED, _STALLED, _newton
+from optics.primitive.aperture import CircularAperture
 from optics.primitive.ray import Ray
 from optics.primitive.surface import Surface
 
@@ -80,7 +81,7 @@ def test_newton_uses_least_squares_for_rank_deficient_jacobian():
 
 
 def test_normal_at_aperture_rim_is_finite_and_radial():
-    surface = Surface("u", "v", "sqrt(1 - u**2 - v**2)", aperture={"radius": 1.0})
+    surface = Surface("u", "v", "sqrt(1 - u**2 - v**2)", aperture=CircularAperture(1.0))
     normal = surface.normal(1.0, 0.0)
     assert normal is not None
     assert np.all(np.isfinite(normal))

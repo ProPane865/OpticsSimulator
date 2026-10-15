@@ -21,7 +21,7 @@ class Surface:
         transform: "Transform | np.ndarray | None" = None,
         u_range: "Sequence[float]" = (-2.0, 2.0),
         v_range: "Sequence[float]" = (-2.0, 2.0),
-        aperture: "Aperture | dict[str, Any] | None" = None,
+        aperture: "Aperture | None" = None,
     ) -> None:
         fns = compile_parametric_surface(str(x_expr), str(y_expr), str(z_expr))
         self.x_expr = fns.x_expr
@@ -48,7 +48,7 @@ class Surface:
             self.transform = Transform(np.asarray(transform, dtype=float), np.zeros(3))
         self.u_range = (float(u_range[0]), float(u_range[1]))
         self.v_range = (float(v_range[0]), float(v_range[1]))
-        self.aperture = Aperture.from_spec(aperture)
+        self.aperture = aperture
         self.solver = SurfaceSolver(self)
         self._graph_xy: bool | None = None
         self._njit_desc: tuple[Any, ...] | None = None

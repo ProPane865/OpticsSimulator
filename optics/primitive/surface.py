@@ -14,11 +14,12 @@ import sympy as sp
 
 from .. import constants as _c
 from ..numerical._kernels import build_descriptor
+from ..numerical.desc import probe_njit_pair
+from ..numerical.solver import SurfaceSolver
+from ..transform import Transform
 from .aperture import Aperture, CircularAperture
 from .hit import Hit
 from .ray import Ray
-from ..numerical.solver import SurfaceSolver, probe_njit_pair
-from ..transform import Transform
 
 _CODEGEN_TAG = "3"
 _CODEGEN_DIR = os.path.join(tempfile.gettempdir(), "optics_codegen")
@@ -434,7 +435,11 @@ class Surface:
         return self.aperture.mask(self, U, V, X, Y, Z)
 
     def intersect(self, ray: Ray) -> Hit | None:
-        return self.solver.intersect(ray)
+        hit = self.solver.intersect(ray.origin, ray.direction)
+        if hit is None:
+            return None
+        t, u, v = hit
+        return Hit(ray.at(t), t, u, v)
 
     def evaluate(self, u: float, v: float) -> np.ndarray:
         """World-space point."""

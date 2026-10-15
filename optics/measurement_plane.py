@@ -5,7 +5,8 @@ import numpy as np
 from numba import njit, prange
 
 from . import constants as _c
-from .numerical.plane import _intersect_kernel
+from .numerical.plane import plane_intersect_kernel
+from .numerical.vector import normalize
 from .primitive.ray import Ray
 from .refraction import (
     RefractiveElement,
@@ -16,7 +17,6 @@ from .refraction import (
     internal_rays,
     traverse_stack,
 )
-from .numerical.vector import normalize
 
 _EPS = _c.PLANE_EPS
 
@@ -75,7 +75,7 @@ def _measure_direct_kernel(
 ) -> None:
     """Plane-intersect every ray in parallel; write ``(u, v, power)`` per ray."""
     for i in prange(origins.shape[0]):
-        u, v, t, ok = _intersect_kernel(origins[i], dirs[i], o, n, eps)
+        u, v, t, ok = plane_intersect_kernel(origins[i], dirs[i], o, n, eps)
         if ok:
             us[i] = u
             vs[i] = v
@@ -121,7 +121,7 @@ def _measure_stack_chunk(
         )
         if not found:
             continue
-        u, v, t, ok = _intersect_kernel(out_o, out_d, o, n, eps)
+        u, v, t, ok = plane_intersect_kernel(out_o, out_d, o, n, eps)
         if ok:
             us[i] = u
             vs[i] = v
@@ -204,7 +204,7 @@ class MeasurementPlane:
         if not (np.all(np.isfinite(ro)) and np.all(np.isfinite(d))):
             return None
 
-        u, v, t, ok = _intersect_kernel(
+        u, v, t, ok = plane_intersect_kernel(
             np.asarray(ro, dtype=float), np.asarray(d, dtype=float), self.o, self.n, _EPS
         )
         if not ok:

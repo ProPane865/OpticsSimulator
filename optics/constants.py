@@ -1,5 +1,7 @@
 """Numerical tolerances and solver defaults shared across the optics core."""
 
+import numpy as np
+
 # --- Damped Newton iteration (solver) ---
 MAX_NEWTON_ITER = 50
 STEP_REL_TOL = 1e-14
@@ -19,9 +21,15 @@ NEWTON_STALL_STEP = 1e-3
 # runs that need many of them are almost never recoverable.
 NEWTON_MAX_DAMPED_STEPS = 3
 
-# Per-status acceptance tolerances, keyed by the solver status labels.
-PARAM_TOL = {"converged": 1e-11, "stalled": 1e-9, "exhausted": 1e-8}
-HIT_TOL = {"converged": 1e-11, "stalled": 1e-10, "exhausted": 1e-10}
+# Outcome codes of the damped Newton iteration, shared by the Python and
+# nopython solver paths; they index the per-status tolerance tables below.
+SOLVER_CONV = 0
+SOLVER_STALL = 1
+SOLVER_EXH = 2
+
+# Per-status acceptance tolerances, indexed by the solver outcome codes.
+PARAM_TOLS = np.array([1e-11, 1e-9, 1e-8])
+HIT_TOLS = np.array([1e-11, 1e-10, 1e-10])
 DEDUP_UV_TOL = 1e-6
 
 # --- Seed grid for intersection / parameter inversion ---
@@ -29,6 +37,8 @@ SEED_GRID_N = 64
 SEED_TOL = 0.75
 SEED_TOL_FALLBACK = 2.0
 MAX_SEEDS = 12
+# Grid samples used to seed the local (x, y) -> (u, v) inversion.
+XY_SEEDS = 12
 POINT_MATCH_TOL = 1e-8
 
 # --- Refraction / element tracing ---
@@ -47,6 +57,11 @@ APERTURE_BOUNDARY_N = 128
 DET_SINGULAR_EPS = 1e-14
 BARY_TOL = 1e-12
 MIN_FACE_T = 1e-9
+
+# --- Vector helpers ---
+# Cross-product magnitude below which two unit vectors count as parallel
+# (or antiparallel) in the z-axis alignment rotation.
+VECTOR_PARALLEL_TOL = 1e-12
 
 # --- Surface domain / measurement plane ---
 DOMAIN_TOL = 1e-9

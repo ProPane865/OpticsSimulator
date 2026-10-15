@@ -1,8 +1,8 @@
 """Data layouts shared between the Python builders and the nopython kernels.
 
-The nopython solver/tracer (``solver.py``, ``refraction.py``) passes surfaces,
-seed grids and element stacks into ``@njit`` code as flat tuples of plain data.
-Those tuples are indexed positionally inside nopython functions, where a wrong
+The nopython solver/tracer (``intersect.py``, ``invert.py``, ``refraction.py``)
+passes surfaces, seed grids and element stacks into ``@njit`` code as flat
+tuples of plain data. Those tuples are indexed positionally inside nopython functions, where a wrong
 index fails silently, so the layout is defined exactly once here: the integer
 constants are the single source of truth for both the builders (Python side) and
 the kernels (nopython side).
@@ -89,6 +89,8 @@ def build_grid(
     vf: np.ndarray,
 ) -> "tuple[Any, ...]":
     """Assemble a seed-grid tuple in the layout above (contiguous arrays)."""
+    assert p_world.shape[0] == uf_valid.size == vf_valid.size
+    assert pts.shape[0] == finite.size == uf.size == vf.size
     return tuple(
         np.ascontiguousarray(a)
         for a in (p_world, uf_valid, vf_valid, pts, finite, uf, vf)

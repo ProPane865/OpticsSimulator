@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from optics.primitive.aperture import Aperture, CircularAperture
 from optics.config import refractive_element_from_config
+from optics.primitive.aperture import Aperture, CircularAperture
 from optics.primitive.ray import Ray
 from optics.primitive.sidewall import LensSidewall
 from optics.primitive.surface import Surface

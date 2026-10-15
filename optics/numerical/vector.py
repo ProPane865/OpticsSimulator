@@ -3,9 +3,11 @@ from collections.abc import Sequence
 import numpy as np
 from numba import njit
 
+from .. import constants as _c
+
 
 @njit(cache=True)
-def _normalize(v: np.ndarray) -> np.ndarray:
+def normalize_vector(v: np.ndarray) -> np.ndarray:
     norm = float(np.linalg.norm(v))
 
     if not np.isfinite(norm) or norm == 0.0:
@@ -15,32 +17,30 @@ def _normalize(v: np.ndarray) -> np.ndarray:
 
 
 def normalize(vector: np.ndarray | Sequence[float]) -> np.ndarray:
-    return _normalize(np.asarray(vector, dtype=float))
+    return normalize_vector(np.asarray(vector, dtype=float))
 
 
 def rotation_from_z(direction: np.ndarray | Sequence[float]) -> np.ndarray:
-    original = np.array([0, 0, 1])
+    """Rodrigues rotation matrix mapping the +Z axis onto ``direction``.
+
+    The rotation axis is the (unnormalized) cross product of +Z with the
+    target direction; near-parallel targets need no rotation and
+    antiparallel ones a 180-degree turn about X.
+    """
+    z_axis = np.array([0.0, 0.0, 1.0])
     direction_norm = normalize(direction)
-    axis = np.cross(original, direction_norm)
-    axis_norm = np.linalg.norm(axis)
-    axis_inner = np.inner(original, direction_norm)
+    axis = np.cross(z_axis, direction_norm)
+    axis_norm = float(np.linalg.norm(axis))
+    cos_theta = float(np.inner(z_axis, direction_norm))
 
-    if axis_norm < 1e-12:
-        if axis_inner < 0:
-            r_matrix = np.array([
-                [1.0, 0.0, 0.0],
-                [0.0, -1.0, 0.0],
-                [0.0, 0.0, -1.0]
-            ])
-        else:
-            r_matrix = np.eye(3, 3)
-    else:
-        axis_mat = np.array([
-            [0, -axis[2], axis[1]],
-            [axis[2], 0, -axis[0]],
-            [-axis[1], axis[0], 0]
-        ])
+    if axis_norm < _c.VECTOR_PARALLEL_TOL:
+        if cos_theta < 0.0:
+            return np.array([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]])
+        return np.eye(3)
 
-        r_matrix = np.eye(3, 3) + axis_mat + np.matmul(axis_mat, axis_mat) * ((1 - axis_inner) / axis_norm**2)
-
-    return r_matrix
+    skew = np.array([
+        [0.0, -axis[2], axis[1]],
+        [axis[2], 0.0, -axis[0]],
+        [-axis[1], axis[0], 0.0],
+    ])
+    return np.eye(3) + skew + (skew @ skew) * ((1.0 - cos_theta) / axis_norm**2)

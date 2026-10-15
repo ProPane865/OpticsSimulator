@@ -304,3 +304,43 @@ def test_parameters_at_xy_parity_non_graph(force_python_path):
             continue
         assert fu[0] == pytest.approx(suv[0], abs=1e-7)
         assert fu[1] == pytest.approx(suv[1], abs=1e-7)
+
+
+def test_parameters_at_parity_graph(make_element, force_python_path):
+    def make_surface():
+        return make_element("0.1*(x**2) + 0.2*(y**2)", "-1").surface1
+
+    points = [
+        np.array([x, y, 0.1 * x * x + 0.2 * y * y])
+        for x, y in [(0.3, 0.2), (-0.7, 0.4), (0.0, 0.0), (1.1, -0.9)]
+    ]
+    fast_surface = make_surface()
+    fast = [fast_surface.parameters_at(p) for p in points]
+    slow_surface = make_surface()
+    force_python_path([_SurfaceHolder(slow_surface)])
+    slow = [slow_surface.parameters_at(p) for p in points]
+    for fu, suv in zip(fast, slow):
+        assert fu is not None and suv is not None
+        assert fu[0] == pytest.approx(suv[0], abs=1e-7)
+        assert fu[1] == pytest.approx(suv[1], abs=1e-7)
+
+
+def test_parameters_at_parity_non_graph(force_python_path):
+    def make_surface():
+        return Surface(
+            "cos(u)", "v", "sin(u)", u_range=(0.0, 2 * np.pi), v_range=(-1.0, 1.0)
+        )
+
+    params = [(0.7, 0.3), (2.5, -0.6), (5.5, 0.1)]
+    points = [np.array([np.cos(u), v, np.sin(u)]) for u, v in params]
+    fast_surface = make_surface()
+    fast = [fast_surface.parameters_at(p) for p in points]
+    slow_surface = make_surface()
+    force_python_path([_SurfaceHolder(slow_surface)])
+    slow = [slow_surface.parameters_at(p) for p in points]
+    for (u, v), fu, suv in zip(params, fast, slow):
+        assert fu is not None and suv is not None
+        assert fu[0] == pytest.approx(u, abs=1e-7)
+        assert fu[1] == pytest.approx(v, abs=1e-7)
+        assert suv[0] == pytest.approx(u, abs=1e-7)
+        assert suv[1] == pytest.approx(v, abs=1e-7)

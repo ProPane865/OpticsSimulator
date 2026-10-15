@@ -3,16 +3,26 @@
 import numpy as np
 from numba import njit
 
+from .linalg import _solve_small
+
 
 @njit(cache=True)
-def _intersect_kernel(
+def plane_intersect_kernel(
     ro: np.ndarray,
     d: np.ndarray,
     o: np.ndarray,
     n: np.ndarray,
     eps: float,
 ) -> "tuple[float, float, float, bool]":
-    """Ray/plane intersection; returns ``(u, v, t, ok)`` in plane parameters."""
+    """Ray/plane intersection; returns ``(u, v, t, ok)`` in plane parameters.
+
+    Solves the ray/parametrization equations for ``(u, v, t)`` with the
+    plane taken as a graph over ``(u, v) = (x, y)``, dividing the plane
+    equation by ``-n.z`` (guarded by the ``nz`` check above)::
+
+        u = ro.x + t d.x,   v = ro.y + t d.y,
+        (n.x/n.z)(u - o.x) + (n.y/n.z)(v - o.y) + (ro.z + t d.z - o.z) = 0
+    """
     nz = n[2]
     if abs(nz) <= eps or abs(float(np.dot(d, n))) <= eps:
         return 0.0, 0.0, 0.0, False
@@ -30,7 +40,9 @@ def _intersect_kernel(
     if not np.isfinite(det) or abs(det) <= eps:
         return 0.0, 0.0, 0.0, False
 
-    sol = np.linalg.solve(A, b)
+    sol = _solve_small(A, b)
+    if sol is None:
+        return 0.0, 0.0, 0.0, False
     u = float(sol[0])
     v = float(sol[1])
     t = float(sol[2])

@@ -27,25 +27,18 @@ from .numerical._kernels import (
     build_element_context,
     build_grid,
 )
+from .numerical.desc import accepts_njit, derivatives_njit, eval_njit
+from .numerical.intersect import surface_intersect_njit
+from .numerical.invert import parameters_at_xy_njit
+from .numerical.linalg import norm
+from .numerical.plane import plane_intersect_kernel
+from .numerical.vector import normalize_vector
 from .primitive.hit import RayHit
 from .primitive.material import Material
-from .numerical.plane import _intersect_kernel
 from .primitive.ray import Ray
 from .primitive.sidewall import LensSidewall, _mt_kernel
-from .numerical.solver import (
-    _HIT_TOL_CONV,
-    _HIT_TOL_EXH,
-    _HIT_TOL_STALL,
-    _accepts_njit,
-    _derivatives_njit,
-    _eval_njit,
-    _norm,
-    _parameters_at_xy_njit,
-    _surface_intersect_njit,
-)
 from .primitive.surface import Surface
 from .transform import Transform
-from .numerical.vector import _normalize
 
 _SIDEWALL_UNSET = object()
 
@@ -56,14 +49,14 @@ _MAX_INTERNAL_BOUNCES = _c.MAX_INTERNAL_BOUNCES
 
 @njit(cache=True)
 def _reflect_direction(incident: np.ndarray, normal: np.ndarray) -> np.ndarray:
-    return _normalize(incident - 2.0 * float(np.dot(normal, incident)) * normal)
+    return normalize_vector(incident - 2.0 * float(np.dot(normal, incident)) * normal)
 
 
 @njit(cache=True)
 def _refract_direction(
     incident: np.ndarray, normal: np.ndarray, eta: float, cos_i: float, k: float
 ) -> np.ndarray:
-    return _normalize(eta * incident + (np.sqrt(k) - eta * cos_i) * normal)
+    return normalize_vector(eta * incident + (np.sqrt(k) - eta * cos_i) * normal)
 
 
 @njit(cache=True)
@@ -112,14 +105,14 @@ _MIN_FACE_T = _c.MIN_FACE_T
 @njit(cache=True)
 def _normal_njit(desc: Any, u: float, v: float) -> "tuple[float, float, float, bool]":
     """World-space unit normal at (u, v); mirrors ``Surface.normal``."""
-    if not _accepts_njit(desc, u, v):
+    if not accepts_njit(desc, u, v):
         return 0.0, 0.0, 0.0, False
-    ru, rv = _derivatives_njit(desc, u, v)
+    ru, rv = derivatives_njit(desc, u, v)
     n = -np.cross(ru, rv)
-    norm = _norm(n)
-    if not math.isfinite(norm) or norm <= 0.0:
+    norm_len = norm(n)
+    if not math.isfinite(norm_len) or norm_len <= 0.0:
         return 0.0, 0.0, 0.0, False
-    w = desc[D_ROT] @ (n / norm)
+    w = desc[D_ROT] @ (n / norm_len)
     return float(w[0]), float(w[1]), float(w[2]), True
 
 
@@ -128,9 +121,7 @@ def _surface_hit_njit(
     desc: Any, grid: Any, o: np.ndarray, d: np.ndarray, min_t: float
 ) -> "tuple[bool, float, np.ndarray, np.ndarray]":
     """Nearest surface hit with normal, or ``(False, inf, 0, 0)``."""
-    t, u, v, ok = _surface_intersect_njit(
-        desc, grid, o, d, _HIT_TOL_CONV, _HIT_TOL_STALL, _HIT_TOL_EXH
-    )
+    t, u, v, ok = surface_intersect_njit(desc, grid, o, d)
     if ok and t > min_t:
         nx, ny, nz, nok = _normal_njit(desc, u, v)
         if nok:
@@ -184,15 +175,15 @@ def _local_surface_z_njit(
     u = float(local[0])
     v = float(local[1])
     if graph:
-        if not _accepts_njit(desc, u, v):
+        if not accepts_njit(desc, u, v):
             return math.nan
     else:
-        uu, vv, ok = _parameters_at_xy_njit(desc, grid, u, v)
+        uu, vv, ok = parameters_at_xy_njit(desc, grid, u, v)
         if not ok:
             return math.nan
         u = uu
         v = vv
-    z = float(_eval_njit(desc, u, v)[2])
+    z = float(eval_njit(desc, u, v)[2])
     return z if math.isfinite(z) else math.nan
 
 
@@ -357,7 +348,7 @@ def _trace_stack_to_plane_njit(
     cur_d = d
     pts = np.empty((_MAX_PATH_PTS, 3))
     while True:
-        _, _, t_max, ok = _intersect_kernel(cur_o, cur_d, po, pn, eps)
+        _, _, t_max, ok = plane_intersect_kernel(cur_o, cur_d, po, pn, eps)
         if not ok:
             break
         best_i = -1
@@ -387,11 +378,11 @@ def _trace_stack_to_plane_njit(
         for k in range(n_pts - 1):
             seg_o = pts[k]
             diff = pts[k + 1] - seg_o
-            seg_len = _norm(diff)
+            seg_len = norm(diff)
             if seg_len <= 0.0:
                 continue
             seg_d = diff / seg_len
-            u, v, t, pok = _intersect_kernel(seg_o, seg_d, po, pn, eps)
+            u, v, t, pok = plane_intersect_kernel(seg_o, seg_d, po, pn, eps)
             if (
                 pok
                 and u_min <= u <= u_max

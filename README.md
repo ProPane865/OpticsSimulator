@@ -68,7 +68,17 @@ python -m rendering.demo
   - `examples/`: bundled example stacks (package data)
 - `rendering/`: vispy meshing (`meshing.py`), scene building (`visualize.py`), and a
   standalone demo (`demo.py`)
-- `ui/`: PySide6 desktop application (`app.py`, `main.ui`)
+- `ui/`: PySide6 desktop application (`main.ui` is the Qt Designer layout):
+  - `app.py`: composition root — `OpticsMainWindow`, project load/save and menu
+    dialogs, plus `make_display`/`main` entry points
+  - `model.py`: Qt-free `ProjectState` (element/source/plane state, unified
+    naming, and versioned-document load/save via `optics.project`)
+  - `scene.py`: `SceneController` — vispy view + node bookkeeping for elements,
+    rays, the source marker and measurement planes
+  - `editors.py`: `ElementEditor`/`SourceEditor`/`PlaneEditor` controllers over
+    the dock widgets (populate/apply/add/remove)
+  - `widgets.py`: shared PySide6 helpers (`find_child`, `configure_spin`,
+    `enable_widgets`, `run_validated`)
 
 ## Project file format
 

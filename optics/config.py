@@ -8,7 +8,7 @@ from .numerical.vector import rotation_from_z
 from .primitive.material import Material
 from .primitive.surface import Surface
 from .refraction import RefractiveElement
-from .transform import Transform
+from .primitive.transform import Transform
 
 
 def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface:

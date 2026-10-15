@@ -39,7 +39,7 @@ from .primitive.material import Material
 from .primitive.ray import Ray
 from .primitive.sidewall import LensSidewall
 from .primitive.surface import Surface
-from .transform import Transform
+from .primitive.transform import Transform
 
 _SIDEWALL_UNSET = object()
 

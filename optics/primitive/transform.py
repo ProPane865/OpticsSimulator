@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .primitive.ray import Ray
+from .ray import Ray
 
 
 @dataclass(frozen=True)

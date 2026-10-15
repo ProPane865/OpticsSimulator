@@ -7,7 +7,7 @@ from .. import constants as _c
 from ..numerical.codegen import compile_parametric_surface
 from ..numerical.desc import build_surface_descriptor
 from ..numerical.solver import SurfaceSolver
-from ..transform import Transform
+from .transform import Transform
 from .aperture import Aperture
 from .hit import Hit
 from .ray import Ray

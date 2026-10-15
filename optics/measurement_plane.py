@@ -5,8 +5,8 @@ import numpy as np
 from numba import njit, prange
 
 from . import constants as _c
-from .plane import _intersect_kernel
-from .ray import Ray
+from .numerical.plane import _intersect_kernel
+from .primitive.ray import Ray
 from .refraction import (
     RefractiveElement,
     TraceResult,
@@ -16,7 +16,7 @@ from .refraction import (
     internal_rays,
     traverse_stack,
 )
-from .vector import normalize
+from .numerical.vector import normalize
 
 _EPS = _c.PLANE_EPS
 

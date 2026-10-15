@@ -1,6 +1,6 @@
 import numpy as np
 
-import optics.surface as surface_mod
+import optics.primitive.surface as surface_mod
 
 
 def _sphere_surface(make_element):

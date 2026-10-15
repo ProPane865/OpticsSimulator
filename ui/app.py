@@ -25,7 +25,7 @@ from optics.project import (
     source_from_config,
     source_to_config,
 )
-from optics.ray import Ray
+from optics.primitive.ray import Ray
 from optics.refraction import RefractiveElement
 from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource
 

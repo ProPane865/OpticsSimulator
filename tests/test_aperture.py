@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
 
-from optics.aperture import Aperture, CircularAperture
+from optics.primitive.aperture import Aperture, CircularAperture
 from optics.config import refractive_element_from_config
-from optics.ray import Ray
-from optics.sidewall import LensSidewall
-from optics.surface import Surface
+from optics.primitive.ray import Ray
+from optics.primitive.sidewall import LensSidewall
+from optics.primitive.surface import Surface
 from rendering.meshing import SurfaceMesher
 
 APERTURE_RADIUS = 0.5

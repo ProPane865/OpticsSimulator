@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 from optics.measurement_plane import MeasurementPlane
-from optics.ray import Ray
-from optics.solver import _CONVERGED, _STALLED, _newton
-from optics.surface import Surface
+from optics.primitive.ray import Ray
+from optics.numerical.solver import _CONVERGED, _STALLED, _newton
+from optics.primitive.surface import Surface
 
 GRAZING_ORIGINS = [
     [0.0, 0.0, 0.0],

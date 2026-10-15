@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from optics.config import stack_from_config
-from optics.ray import Ray
+from optics.primitive.ray import Ray
 from optics.refraction import RefractiveElement
 
 from . import visualize as _visualize

@@ -7,10 +7,10 @@ from vispy.color import get_colormap
 from vispy.scene import visuals
 
 from optics.measurement_plane import MeasurementPlane
-from optics.ray import Ray
+from optics.primitive.ray import Ray
 from optics.refraction import RefractiveElement, trace_segments_batch, trace_stack_path
-from optics.sidewall import LensSidewall
-from optics.surface import Surface
+from optics.primitive.sidewall import LensSidewall
+from optics.primitive.surface import Surface
 
 from .meshing import SurfaceMesher
 

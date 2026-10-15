@@ -16,8 +16,8 @@ import pytest
 from optics import refraction as rf
 from optics.config import refractive_element_from_json, stack_from_config
 from optics.measurement_plane import MeasurementPlane
-from optics.ray import Ray
-from optics.surface import Surface
+from optics.primitive.ray import Ray
+from optics.primitive.surface import Surface
 
 BICONE_S1 = "3 - 0.3*sqrt(x**2 + y**2)"
 BICONE_S2 = "-1 + 2*sqrt(x**2 + y**2)"

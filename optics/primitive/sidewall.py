@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 
-from . import constants as _c
+from .. import constants as _c
 from .hit import MeshHit
 from .ray import Ray
 

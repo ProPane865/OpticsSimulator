@@ -9,7 +9,7 @@ import numpy as np
 from numba import njit
 
 from . import constants as _c
-from ._kernels import (
+from .numerical._kernels import (
     D_ROT,
     D_TRANS,
     E_DESC1,
@@ -27,12 +27,12 @@ from ._kernels import (
     build_element_context,
     build_grid,
 )
-from .hit import RayHit
-from .material import Material
-from .plane import _intersect_kernel
-from .ray import Ray
-from .sidewall import LensSidewall, _mt_kernel
-from .solver import (
+from .primitive.hit import RayHit
+from .primitive.material import Material
+from .numerical.plane import _intersect_kernel
+from .primitive.ray import Ray
+from .primitive.sidewall import LensSidewall, _mt_kernel
+from .numerical.solver import (
     _HIT_TOL_CONV,
     _HIT_TOL_EXH,
     _HIT_TOL_STALL,
@@ -43,9 +43,9 @@ from .solver import (
     _parameters_at_xy_njit,
     _surface_intersect_njit,
 )
-from .surface import Surface
+from .primitive.surface import Surface
 from .transform import Transform
-from .vector import _normalize
+from .numerical.vector import _normalize
 
 _SIDEWALL_UNSET = object()
 
@@ -436,7 +436,7 @@ def _null_element_context() -> "tuple[Any, ...]":
     """
     global _NULL_ELEMENT_CTX
     if _NULL_ELEMENT_CTX is None:
-        from .surface import null_surface_cfuncs
+        from .primitive.surface import null_surface_cfuncs
 
         eval_cfn, deriv_cfn = null_surface_cfuncs()
         desc = build_descriptor(

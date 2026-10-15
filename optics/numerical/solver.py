@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 import numpy as np
 from numba import njit
 
-from . import constants as _c
+from .. import constants as _c
 from ._kernels import (
     D_AP_CX,
     D_AP_CY,
@@ -29,11 +29,11 @@ from ._kernels import (
     G_VF_VALID,
     build_grid,
 )
-from .hit import Hit
-from .ray import Ray
+from ..primitive.hit import Hit
+from ..primitive.ray import Ray
 
 if TYPE_CHECKING:
-    from .surface import Surface
+    from ..primitive.surface import Surface
 
 _MAX_NEWTON_ITER = _c.MAX_NEWTON_ITER
 _STEP_REL_TOL = _c.STEP_REL_TOL

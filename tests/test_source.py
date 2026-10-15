@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from optics.ray import Ray
+from optics.primitive.ray import Ray
 from optics.source import (
     POINT_ARRAY,
     SINGLE_POINT,

@@ -3,7 +3,7 @@ import pytest
 
 import optics.refraction as rf
 from optics.measurement_plane import MeasurementPlane
-from optics.ray import Ray
+from optics.primitive.ray import Ray
 
 
 def _rays(n=24, seed=3):

@@ -12,13 +12,13 @@ import numba
 import numpy as np
 import sympy as sp
 
-from . import constants as _c
-from ._kernels import build_descriptor
+from .. import constants as _c
+from ..numerical._kernels import build_descriptor
 from .aperture import Aperture, CircularAperture
 from .hit import Hit
 from .ray import Ray
-from .solver import SurfaceSolver, probe_njit_pair
-from .transform import Transform
+from ..numerical.solver import SurfaceSolver, probe_njit_pair
+from ..transform import Transform
 
 _CODEGEN_TAG = "3"
 _CODEGEN_DIR = os.path.join(tempfile.gettempdir(), "optics_codegen")

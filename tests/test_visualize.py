@@ -5,8 +5,8 @@ from vispy import scene
 
 import rendering.visualize as visualize
 from optics.measurement_plane import MeasurementPlane
-from optics.ray import Ray
-from optics.surface import Surface
+from optics.primitive.ray import Ray
+from optics.primitive.surface import Surface
 from rendering import demo
 from rendering.meshing import SurfaceMesher
 

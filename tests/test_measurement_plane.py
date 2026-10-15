@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from optics.measurement_plane import MeasurementPlane
-from optics.ray import Ray
+from optics.primitive.ray import Ray
 from optics.refraction import trace_stack
 
 

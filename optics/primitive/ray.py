@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from .vector import normalize
+from ..numerical.vector import normalize
 
 
 class Ray:

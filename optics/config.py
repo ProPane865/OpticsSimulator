@@ -4,11 +4,11 @@ from typing import Any
 
 import numpy as np
 
-from .material import Material
+from .primitive.material import Material
 from .refraction import RefractiveElement
-from .surface import Surface
+from .primitive.surface import Surface
 from .transform import Transform
-from .vector import rotation_from_z
+from .numerical.vector import rotation_from_z
 
 
 def surface_from_config(config: dict[str, Any], transform: Transform) -> Surface:

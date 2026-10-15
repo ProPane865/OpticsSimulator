@@ -42,16 +42,21 @@ python -m rendering.demo
 ## Architecture
 
 - `optics/`: numerics core (NumPy/Numba, no GUI/OpenGL dependencies):
-  - `surface.py`: parametric surfaces compiled from SymPy expressions
-  - `solver.py`: damped-Newton ray/surface intersection and parameter inversion
+  - `primitive/`: geometric primitives — `ray.py`, `transform.py`, `hit.py`,
+    `material.py`, `aperture.py`, `sidewall.py` (vectorized Möller–Trumbore
+    lens rims) and `surface.py` (parametric surfaces compiled from SymPy
+    expressions)
+  - `numerical/`: solvers and Numba kernels — `codegen.py` (SymPy → Numba
+    expression codegen), `solver.py` (damped-Newton ray/surface intersection
+    and parameter inversion), `intersect.py`, `invert.py`, `newton.py`,
+    `desc.py` (descriptor access kernels), `_kernels.py` (flat-tuple data
+    layouts shared with the nopython kernels), `mesh.py` (ray/mesh kernel),
+    `plane.py` (Numba ray/plane intersection kernel), `linalg.py`,
+    `vector.py`
   - `refraction.py`: refraction/reflection, closed-element tracing, stack traversal
-  - `sidewall.py`: vectorized Möller–Trumbore intersection for lens rims
-  - `plane.py`: Numba ray/plane intersection kernel
   - `measurement_plane.py`: planar detector accumulating ray power
-  - `hit.py`: frozen ray/surface and ray/mesh hit dataclasses
-  - `_kernels.py`: flat-tuple data layouts shared with the nopython kernels
   - `constants.py`: numerical tolerances and solver defaults
-  - `source.py`, `ray.py`, `aperture.py`, `material.py`, `transform.py`, `vector.py`
+  - `source.py`: point sources and ray emission
   - `config.py`: JSON → element/stack loading
   - `project.py`: versioned project documents (elements + source + measurement planes)
   - `examples/`: bundled example stacks (package data)

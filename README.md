@@ -148,3 +148,27 @@ A stack is a JSON object mapping element names to element configs:
 ```bash
 python -m pytest
 ```
+
+## Benchmarks
+
+Standalone perf scripts (no extra dependencies) used to judge architecture
+changes against real numbers; run them from the repo root:
+
+```bash
+python benchmarks/benchmark_intersection.py   # 1 surface x 10k rays, njit vs Python oracle
+python benchmarks/benchmark_trace.py          # 1 element x 10k rays: Python ref, per-ray, batch x threads
+python benchmarks/benchmark_stack.py          # 2 elem x 10k and 4 elem x 100k: batch, threads, cold/warm JIT
+```
+
+Each prints a per-scenario table with rays/sec and ns/ray and supports
+`--rays/--repeats/--budget` (the repeat budget caps cumulative timed seconds
+per scenario), `--ref-rays` for the slow pure-Python reference rows,
+`--json out.json` for machine-readable output, and `--cold` to additionally
+re-run itself in a subprocess with `NUMBA_CACHE_DIR` pointed at a fresh temp
+directory — measuring the first call against a fully cold Numba cache
+(the padded-capacity-4 stack kernel chain compiles for minutes; note the
+2- and 4-element stacks share one compiled signature, so one cold JIT
+serves both). Setup costs (SymPy codegen, seed grid, context build) are
+timed separately from the ray loops; ray fans are deterministically seeded.
+The 4-element x 100k single-thread scenario is minutes by construction (the
+repeat budget never cuts the first repeat); use `--four-rays` to scale it.

@@ -427,7 +427,7 @@ def _null_element_context() -> "tuple[Any, ...]":
     """
     global _NULL_ELEMENT_CTX
     if _NULL_ELEMENT_CTX is None:
-        from .primitive.surface import null_surface_cfuncs
+        from .numerical.codegen import null_surface_cfuncs
 
         eval_cfn, deriv_cfn = null_surface_cfuncs()
         desc = build_descriptor(

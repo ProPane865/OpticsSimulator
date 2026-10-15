@@ -1,6 +1,6 @@
 import numpy as np
 
-import optics.primitive.surface as surface_mod
+import optics.numerical.codegen as codegen_mod
 
 
 def _sphere_surface(make_element):
@@ -63,11 +63,11 @@ def test_derivatives_match_finite_differences(make_element):
 
 def test_codegen_fallback_keeps_lambda_path(make_element, monkeypatch):
     monkeypatch.setattr(
-        surface_mod,
+        codegen_mod,
         "_build_njit_functions",
         lambda *args, **kwargs: (None, None, None, None),
     )
-    cache_clear = getattr(surface_mod._compile_parametric_surface, "cache_clear", None)
+    cache_clear = getattr(codegen_mod.compile_parametric_surface, "cache_clear", None)
     if cache_clear is not None:
         cache_clear()
     try:

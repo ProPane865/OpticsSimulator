@@ -28,23 +28,24 @@ from ._kernels import (
 # kernels below compile (and disk-cache) once in total, not once per surface.
 
 
-def build_surface_descriptor(surface: Any) -> "tuple[Any, ...] | None":
+def build_surface_descriptor(surface: Any) -> "tuple[Any, ...]":
     """Flatten a ``Surface`` into the kernel descriptor layout.
 
     ``surface`` is duck-typed (cfunc pair, aperture, parameter range,
     transform) so this module keeps no import-time dependency on
-    :mod:`optics.primitive`. Returns ``None`` when the surface has no
-    codegen cfuncs or carries an aperture the kernels cannot encode
-    (see :meth:`~optics.primitive.aperture.Aperture.njit_params`).
+    :mod:`optics.primitive`. Raises :class:`ValueError` when the surface
+    carries an aperture the kernels cannot encode (see
+    :meth:`~optics.primitive.aperture.Aperture.njit_params`); every compiled
+    surface supports the nopython path, so there is no fallback.
     """
-    if surface._eval_cfn is None or surface._deriv_cfn is None:
-        return None
     if surface.aperture is None:
         ap_r, ap_cx, ap_cy = -1.0, 0.0, 0.0
     else:
         params = surface.aperture.njit_params()
         if params is None:
-            return None
+            raise ValueError(
+                "Aperture type is not supported by the nopython surface kernels"
+            )
         ap_r, ap_cx, ap_cy = params
     (u_min, u_max), (v_min, v_max) = surface.parameter_range
     tu = _c.DOMAIN_TOL * max(1.0, u_max - u_min)

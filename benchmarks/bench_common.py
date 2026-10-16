@@ -87,17 +87,20 @@ def make_ray_objects(origins: np.ndarray, dirs: np.ndarray) -> list[Ray]:
 
 
 def force_python_path(elements: Sequence[RefractiveElement]) -> None:
-    """Pin elements to the pure-Python path (mirrors ``tests/conftest.py``).
+    """Pin elements to the pure-Python reference path.
 
-    Nulling each surface's cached ``njit_descriptor`` makes every downstream
-    entry point fall back to its reference implementation: the Python solver,
-    the serial element tracer, and the Python stack traversal (since
-    ``build_trace_context`` then returns ``None``).
+    Production is Numba-only, so the reference implementation now lives as a
+    test oracle (``tests/_reference.py``). The benchmarks borrow that single
+    implementation rather than duplicating it: each element's surfaces are
+    swapped for ``ReferenceSurface`` instances (finite-difference Python
+    evaluation and the Python solver/trace traversal).
     """
-    for element in elements:
-        for surface in (element.surface1, element.surface2):
-            surface._njit_desc = None
-            surface._njit_desc_built = True
+    tests_dir = str(REPO_ROOT / "tests")
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from _reference import force_python_path as _force
+
+    _force(elements)
 
 
 # --- Timing ------------------------------------------------------------------

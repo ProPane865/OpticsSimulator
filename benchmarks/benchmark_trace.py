@@ -38,8 +38,8 @@ class TraceBench:
     def _walk_python(self) -> int:
         finals = 0
         for ray in self.ray_objs:
-            # build_trace_context returns None for nulled descriptors, so
-            # trace_stack_path falls through to the Python traversal.
+            # ReferenceSurface exposes no Numba descriptor, so build_trace_context
+            # returns None and trace_stack_path falls through to the Python traversal.
             _, final = trace_stack_path(ray, self.elements, bc.RAY_LENGTH)
             finals += int(final is not None)
         return finals
@@ -128,7 +128,7 @@ def main(argv: "list[str] | None" = None) -> int:
     ratio = (ref_seconds / args.ref_rays) / (fast_seconds / args.rays)
     report.add(
         "timed",
-        "python reference (serial, null desc)",
+        "python reference (serial, ReferenceSurface)",
         ref_seconds,
         args.ref_rays,
         f"{ref_finals:,} exited; {ratio:,.0f}x slower per ray",

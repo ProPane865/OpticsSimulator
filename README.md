@@ -44,10 +44,12 @@ python -m rendering.demo
 - `optics/`: numerics core (NumPy/Numba, no GUI/OpenGL dependencies):
   - `primitive/`: geometric primitives — `ray.py`, `transform.py`, `hit.py`,
     `material.py`, `aperture.py`, `sidewall.py` (vectorized Möller–Trumbore
-    lens rims) and `surface.py` (parametric surfaces compiled from SymPy
-    expressions)
-  - `numerical/`: solvers and Numba kernels — `codegen.py` (SymPy → Numba
-    expression codegen), `solver.py` (damped-Newton ray/surface intersection
+    lens rims) and `surface.py` (parametric surfaces compiled from
+    AST-validated expression strings)
+  - `numerical/`: solvers and Numba kernels — `expression.py` (restricted,
+    safe surface-expression language: parse/validate/lower), `codegen.py`
+    (AST → Numba expression codegen), `differentiation.py` (finite-difference
+    tangent policy), `solver.py` (damped-Newton ray/surface intersection
     and parameter inversion), `intersect.py`, `invert.py`, `newton.py`,
     `desc.py` (descriptor access kernels), `_kernels.py` (flat-tuple data
     layouts shared with the nopython kernels), `mesh.py` (ray/mesh kernel),
@@ -143,6 +145,24 @@ A stack is a JSON object mapping element names to element configs:
 }
 ```
 
+### Surface expressions
+
+Each surface maps parameters `(u, v)` over `u_range`/`v_range` to a local point
+`(x(u, v), y(u, v), z(u, v))`. Expressions use a restricted, safe arithmetic
+language (parsed as a Python AST and compiled to Numba — no SymPy, and no
+`eval` of raw strings):
+
+- Variables: `u`, `v`
+- Literals: integers and floats
+- Operators: `+ - * / ** %` and unary `+`/`-`
+- Functions: `sqrt`, `sin`, `cos`, `tan`, `exp`, `log`, `abs`
+
+Division and modulo follow NumPy scalar semantics (`inf`/`nan`, never a
+`ZeroDivisionError`). Anything outside this grammar — attribute access,
+subscripts, arbitrary calls, imports, `pi`/`e` — is rejected when the stack
+loads. Surface tangents (and therefore normals) are computed with finite
+differences rather than symbolic differentiation.
+
 ## Testing
 
 ```bash
@@ -168,7 +188,7 @@ re-run itself in a subprocess with `NUMBA_CACHE_DIR` pointed at a fresh temp
 directory — measuring the first call against a fully cold Numba cache
 (the padded-capacity-4 stack kernel chain compiles for minutes; note the
 2- and 4-element stacks share one compiled signature, so one cold JIT
-serves both). Setup costs (SymPy codegen, seed grid, context build) are
+serves both). Setup costs (expression codegen, seed grid, context build) are
 timed separately from the ray loops; ray fans are deterministically seeded.
 The 4-element x 100k single-thread scenario is minutes by construction (the
 repeat budget never cuts the first repeat); use `--four-rays` to scale it.

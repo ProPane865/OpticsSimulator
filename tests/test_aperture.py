@@ -570,12 +570,10 @@ def test_element_sidewall_present():
     r = np.linalg.norm(verts[:, :2], axis=1)
     assert np.allclose(r, APERTURE_RADIUS, atol=1e-8)
 
-    rim_z = np.sqrt(1.0 - APERTURE_RADIUS ** 2)
-    assert np.allclose(
-        np.unique(verts[:, 2]),
-        [-rim_z, rim_z],
-        atol=1e-8
-    )
+    rim_z = np.sqrt(1.0 - APERTURE_RADIUS**2)
+    z = verts[:, 2]
+    assert np.allclose(np.abs(z), rim_z, atol=1e-6)
+    assert np.any(z > 0.0) and np.any(z < 0.0)
 
 
 def test_default_geometry_sidewall(offset_lens):

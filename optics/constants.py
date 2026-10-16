@@ -75,7 +75,14 @@ DERIV_INTERIOR_TRIES = 8
 # Tolerance on |x - u|, |y - v| when testing a surface for the (u, v, z(u, v))
 # graph form, which allows reading a local height without solving for parameters.
 GRAPH_XY_TOL = 1e-9
-# Relative step (and shrink budget) for the finite-difference derivative
-# fallback used when even the pull-back fails.
+# --- Numerical derivatives (finite differences) -----------------------------
+# Tangents are computed by central finite differences whose step is proportional
+# to the parameter span: ``h = FD_STEP_REL * (u_max - u_min)`` (and likewise for
+# ``v``), floored at ``FD_MIN_STEP`` so degenerate ranges never give a zero step.
+# The same policy is mirrored in the generated Numba module and the pure-Python
+# reference; keep it in lock-step across both.
 FD_STEP_REL = 1e-6
+FD_MIN_STEP = 1e-12
+# Shrink budget for the oriented one-sided differences used when a central
+# sample leaves the parameter domain or is non-finite (e.g. across a sqrt edge).
 FD_STEP_SHRINKS = 24

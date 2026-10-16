@@ -1,9 +1,9 @@
 """Ray/surface intersection benchmark: Numba kernel vs pure-Python oracle.
 
 Scenario: one element's front surface, ``--rays`` rays (default 10,000).
-The Python oracle path is the seed-grid + damped-Newton fallback of
-``SurfaceSolver.intersect`` (descriptors nulled, conftest mechanism), run on
-``--ref-rays`` rays because the full count would take minutes.
+The Python oracle path is the pure-Python ``ReferenceSurface`` ray/surface
+intersection from ``tests/_reference.py`` (seed-grid + damped-Newton, no Numba),
+run on ``--ref-rays`` rays because the full count would take minutes.
 
     python benchmarks/benchmark_intersection.py [--cold] [--json out.json]
 """
@@ -16,6 +16,7 @@ from pathlib import Path
 import bench_common as bc
 
 from optics.numerical.intersect import surface_intersect_njit
+from optics.primitive import Ray
 
 
 class NumbaBench:
@@ -42,13 +43,14 @@ class PythonOracleBench:
         self.rays = rays
         self.element = bc.make_element(0.0)
         bc.force_python_path([self.element])
-        self.solver = self.element.surface1.solver
-        self.origins, self.dirs = bc.make_rays(rays)
+        self.surface = self.element.surface1  # ReferenceSurface (pure Python)
+        origins, dirs = bc.make_rays(rays)
+        self.ray_objects = [Ray(origins[i], dirs[i], 1.0) for i in range(rays)]
 
     def run(self) -> int:
         hits = 0
-        for i in range(self.rays):
-            if self.solver.intersect(self.origins[i], self.dirs[i]) is not None:
+        for ray in self.ray_objects:
+            if self.surface.intersect(ray) is not None:
                 hits += 1
         return hits
 
@@ -86,7 +88,7 @@ def main(argv: "list[str] | None" = None) -> int:
     element = bc.make_element(0.0)
     surface = element.surface1
     seconds = bc.time_call(lambda: bc.make_element(0.0), warmup=0, repeats=1)
-    report.add("setup (one-time)", "element build incl. SymPy codegen", seconds)
+    report.add("setup (one-time)", "element build incl. expression codegen", seconds)
     seconds = bc.time_call(lambda: surface.njit_descriptor, warmup=0, repeats=1)
     report.add("setup (one-time)", "njit descriptor build", seconds)
 
@@ -111,7 +113,7 @@ def main(argv: "list[str] | None" = None) -> int:
     ratio = (ref_seconds / args.ref_rays) / (nb_seconds / args.rays)
     report.add(
         "timed",
-        "python SurfaceSolver.intersect",
+        "python ReferenceSurface.intersect",
         ref_seconds,
         args.ref_rays,
         f"{ref_hits:,} hits; {ratio:,.0f}x slower per ray",

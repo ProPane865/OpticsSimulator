@@ -12,6 +12,7 @@ import json
 
 import numpy as np
 import pytest
+from _reference import reference_surface
 
 from optics import tracing as rf
 from optics.config import refractive_element_from_json, stack_from_config
@@ -243,15 +244,6 @@ def test_measure_parity(scenario, make_element, repo_root, force_python_path):
 
 
 # --- Targeted parity for the remaining dual implementations -----------------
-class _SurfaceHolder:
-    """Adapter so ``force_python_path`` (which reads ``.surface1``/``.surface2``)
-    can pin a bare :class:`Surface` to the Python path."""
-
-    def __init__(self, surface):
-        self.surface1 = surface
-        self.surface2 = surface
-
-
 def test_contains_point_parity(make_element, force_python_path):
     elem = make_element("2", "0", n=1.5, aperture_radius=1.0)
     points = [
@@ -268,15 +260,14 @@ def test_contains_point_parity(make_element, force_python_path):
     assert fast == slow
 
 
-def test_parameters_at_xy_parity_graph(make_element, force_python_path):
+def test_parameters_at_xy_parity_graph(make_element):
     def make_surface():
         return make_element("0.1*(x**2) + 0.2*(y**2)", "-1").surface1
 
     targets = [(0.3, 0.2), (-0.7, 0.4), (0.0, 0.0), (1.1, -0.9)]
     fast_surface = make_surface()
     fast = [fast_surface.parameters_at_xy(x, y) for x, y in targets]
-    slow_surface = make_surface()
-    force_python_path([_SurfaceHolder(slow_surface)])
+    slow_surface = reference_surface(make_surface())
     slow = [slow_surface.parameters_at_xy(x, y) for x, y in targets]
     for (fu, fv), suv in zip(fast, slow):
         assert suv is not None
@@ -284,7 +275,7 @@ def test_parameters_at_xy_parity_graph(make_element, force_python_path):
         assert fv == pytest.approx(suv[1], abs=1e-7)
 
 
-def test_parameters_at_xy_parity_non_graph(force_python_path):
+def test_parameters_at_xy_parity_non_graph():
     # A cylinder is not a graph over local XY, exercising the seed-grid branch.
     def make_surface():
         return Surface(
@@ -294,8 +285,7 @@ def test_parameters_at_xy_parity_non_graph(force_python_path):
     targets = [(1.0, 0.3), (0.0, 0.5), (-1.0, -0.2)]
     fast_surface = make_surface()
     fast = [fast_surface.parameters_at_xy(x, y) for x, y in targets]
-    slow_surface = make_surface()
-    force_python_path([_SurfaceHolder(slow_surface)])
+    slow_surface = reference_surface(make_surface())
     slow = [slow_surface.parameters_at_xy(x, y) for x, y in targets]
     for fu, suv in zip(fast, slow):
         if fu is None or suv is None:
@@ -305,7 +295,7 @@ def test_parameters_at_xy_parity_non_graph(force_python_path):
         assert fu[1] == pytest.approx(suv[1], abs=1e-7)
 
 
-def test_parameters_at_parity_graph(make_element, force_python_path):
+def test_parameters_at_parity_graph(make_element):
     def make_surface():
         return make_element("0.1*(x**2) + 0.2*(y**2)", "-1").surface1
 
@@ -315,8 +305,7 @@ def test_parameters_at_parity_graph(make_element, force_python_path):
     ]
     fast_surface = make_surface()
     fast = [fast_surface.parameters_at(p) for p in points]
-    slow_surface = make_surface()
-    force_python_path([_SurfaceHolder(slow_surface)])
+    slow_surface = reference_surface(make_surface())
     slow = [slow_surface.parameters_at(p) for p in points]
     for fu, suv in zip(fast, slow):
         assert fu is not None and suv is not None
@@ -324,7 +313,7 @@ def test_parameters_at_parity_graph(make_element, force_python_path):
         assert fu[1] == pytest.approx(suv[1], abs=1e-7)
 
 
-def test_parameters_at_parity_non_graph(force_python_path):
+def test_parameters_at_parity_non_graph():
     def make_surface():
         return Surface(
             "cos(u)", "v", "sin(u)", u_range=(0.0, 2 * np.pi), v_range=(-1.0, 1.0)
@@ -334,8 +323,7 @@ def test_parameters_at_parity_non_graph(force_python_path):
     points = [np.array([np.cos(u), v, np.sin(u)]) for u, v in params]
     fast_surface = make_surface()
     fast = [fast_surface.parameters_at(p) for p in points]
-    slow_surface = make_surface()
-    force_python_path([_SurfaceHolder(slow_surface)])
+    slow_surface = reference_surface(make_surface())
     slow = [slow_surface.parameters_at(p) for p in points]
     for (u, v), fu, suv in zip(params, fast, slow):
         assert fu is not None and suv is not None

@@ -24,21 +24,17 @@ class Surface:
         v_range: "Sequence[float]" = (-2.0, 2.0),
         aperture: "Aperture | None" = None,
     ) -> None:
-        fns = compile_parametric_surface(str(x_expr), str(y_expr), str(z_expr))
-        self.x_expr = fns.x_expr
-        self.y_expr = fns.y_expr
-        self.z_expr = fns.z_expr
-        self._x = fns.eval_x
-        self._y = fns.eval_y
-        self._z = fns.eval_z
-        self._rx = fns.d_x_du
-        self._ry = fns.d_y_du
-        self._rz = fns.d_z_du
-        self._sx = fns.d_x_dv
-        self._sy = fns.d_y_dv
-        self._sz = fns.d_z_dv
-        self._eval_njit = fns.eval_njit
-        self._deriv_njit = fns.deriv_njit
+        u_range = (float(u_range[0]), float(u_range[1]))
+        v_range = (float(v_range[0]), float(v_range[1]))
+        fns = compile_parametric_surface(
+            str(x_expr), str(y_expr), str(z_expr), u_range, v_range
+        )
+        self.x_expr = fns.x_src
+        self.y_expr = fns.y_src
+        self.z_expr = fns.z_src
+        self._eval_local = fns.eval_local
+        self._eval_grid = fns.eval_grid
+        self._local_tangents = fns.derivatives_local
         self._eval_cfn = fns.eval_cfn
         self._deriv_cfn = fns.deriv_cfn
         if transform is None:
@@ -47,8 +43,8 @@ class Surface:
             self.transform = transform
         else:
             self.transform = Transform(np.asarray(transform, dtype=float), np.zeros(3))
-        self.u_range = (float(u_range[0]), float(u_range[1]))
-        self.v_range = (float(v_range[0]), float(v_range[1]))
+        self.u_range = u_range
+        self.v_range = v_range
         self.aperture = aperture
         self.solver = SurfaceSolver(self)
         self._graph_xy: bool | None = None
@@ -159,58 +155,22 @@ class Surface:
         return Hit(ray.at(t), t, u, v)
 
     def evaluate_local(self, U: Any, V: Any) -> np.ndarray:
-        """Local-space point (can be array)."""
+        """Local-space point for scalar or broadcast array parameters."""
         U = np.asarray(U, dtype=float)
         V = np.asarray(V, dtype=float)
-        if U.ndim == 0 and V.ndim == 0 and self._eval_njit is not None:
-            return self._eval_njit(float(U), float(V))
-        with np.errstate(invalid="ignore", divide="ignore"):
-            if U.ndim == 0 and V.ndim == 0:
-                u = float(U)
-                v = float(V)
-                return np.array(
-                    [self._x(u, v), self._y(u, v), self._z(u, v)],
-                    dtype=float,
-                )
-            U, V = np.broadcast_arrays(U, V)
-            shape = U.shape
-            X = np.asarray(self._x(U, V), dtype=float)
-            Y = np.asarray(self._y(U, V), dtype=float)
-            Z = np.asarray(self._z(U, V), dtype=float)
-
-        X = np.broadcast_to(X, shape)
-        Y = np.broadcast_to(Y, shape)
-        Z = np.broadcast_to(Z, shape)
-
-        return np.stack((X, Y, Z), axis=-1)
-
-    def _analytic_derivatives(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
-        if self._deriv_njit is not None:
-            return self._deriv_njit(float(u), float(v))
-        with np.errstate(invalid="ignore", divide="ignore"):
-            ru = np.array(
-                [
-                    float(self._rx(u, v)),
-                    float(self._ry(u, v)),
-                    float(self._rz(u, v)),
-                ],
-                dtype=float,
-            )
-            rv = np.array(
-                [
-                    float(self._sx(u, v)),
-                    float(self._sy(u, v)),
-                    float(self._sz(u, v)),
-                ],
-                dtype=float,
-            )
-        return ru, rv
+        if U.ndim == 0 and V.ndim == 0:
+            return self._eval_local(float(U), float(V))
+        U, V = np.broadcast_arrays(U, V)
+        shape = U.shape
+        us = np.ascontiguousarray(U.reshape(-1), dtype=float)
+        vs = np.ascontiguousarray(V.reshape(-1), dtype=float)
+        return self._eval_grid(us, vs).reshape(shape + (3,))
 
     def _partial_local(self, u: float, v: float, du: float, dv: float) -> np.ndarray:
-        """One-sided finite-difference partial derivative in direction ``(du, dv)``.
+        """One-sided finite-difference partial in direction ``(du, dv)``.
 
         The step is halved until the evaluation stays finite, so it still works
-        right at the edge of the domain or aperture.
+        right at the edge of the aperture rim where tangents diverge.
         """
         base = self.evaluate_local(u, v)
         if not np.all(np.isfinite(base)):
@@ -228,10 +188,10 @@ class Surface:
     def _interior_derivatives(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
         """Tangents at the nearest interior point, used where they blow up.
 
-        At an aperture rim a graph surface becomes vertical and its partial
-        derivatives diverge. Pulling back toward the interior of the parameter
-        domain and evaluating there gives the limiting tangent directions,
-        which is the geometrically correct rim frame.
+        At an aperture rim a graph surface becomes vertical and a finite-difference
+        sample crosses into an undefined region. Pulling back toward the interior
+        of the parameter domain and evaluating there gives the limiting tangent
+        directions, which is the geometrically correct rim frame.
         """
         (u_min, u_max), (v_min, v_max) = self.parameter_range
         du = 0.5 * (u_min + u_max) - u
@@ -247,17 +207,17 @@ class Surface:
             uu = u + du * frac
             vv = v + dv * frac
             if self.accepts_parameters(uu, vv):
-                ru, rv = self._analytic_derivatives(uu, vv)
+                ru, rv = self._local_tangents(uu, vv)
                 if np.all(np.isfinite(ru)) and np.all(np.isfinite(rv)):
                     return ru, rv
             frac *= 2.0
         return self._partial_local(u, v, 1.0, 0.0), self._partial_local(u, v, 0.0, 1.0)
 
     def derivatives_local(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
-        """Return du and dv tangent vectors."""
+        """Return du and dv tangent vectors (finite differences)."""
         u = float(u)
         v = float(v)
-        ru, rv = self._analytic_derivatives(u, v)
+        ru, rv = self._local_tangents(u, v)
         if not (np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))):
             ru, rv = self._interior_derivatives(u, v)
         return ru, rv

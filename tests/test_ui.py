@@ -5,7 +5,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
-import sympy as sp
 
 PySide6 = pytest.importorskip("PySide6")
 
@@ -200,7 +199,7 @@ def test_ok_applies_surface_expressions(qt_app, repo_root):
     _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
 
     assert str(window.elements[0].surface1.z_expr) == "0"
-    assert window.elements[0].surface2.z_expr == sp.parse_expr("4.6 - sqrt(9 - (u**2) - (v**2))")
+    assert window.elements[0].surface2.z_expr == "4.6 - sqrt(9 - (u**2) - (v**2))"
     window.close()
 
 
@@ -294,7 +293,7 @@ def test_invalid_expression_warns_and_keeps_scene(qt_app, repo_root, monkeypatch
     _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
 
     assert warnings, "expected a warning dialog for an invalid expression"
-    assert window.elements[0].surface1.z_expr == sp.parse_expr("-1 + sqrt(9 - (u**2) - (v**2))")
+    assert window.elements[0].surface1.z_expr == "-1 + sqrt(9 - (u**2) - (v**2))"
     assert "Updated properties" not in window.statusBar().currentMessage()
     window.close()
 
@@ -354,7 +353,9 @@ def test_new_element_default_geometry(qt_app):
     _trigger_new_element(window)
 
     element = window.elements[-1]
-    assert float(element.surface2.z_expr - element.surface1.z_expr) == pytest.approx(0.5)
+    assert element.surface2.z_expr == "0.25"
+    assert element.surface1.z_expr == "-0.25"
+    assert float(element.surface2.point(0.0, 0.0)[2] - element.surface1.point(0.0, 0.0)[2]) == pytest.approx(0.5)
     assert element.material.refractive_index == pytest.approx(1.5)
     assert element.surface1.aperture.radius == pytest.approx(0.75)
     assert element.surface2.aperture.radius == pytest.approx(0.75)

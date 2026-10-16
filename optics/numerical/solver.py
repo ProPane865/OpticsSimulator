@@ -15,7 +15,6 @@ from .. import constants as _c
 from ._kernels import build_grid
 from .intersect import _newton_intersection_njit
 from .invert import _solve_xy_njit, parameters_at_xy_njit
-from .newton import _newton
 
 if TYPE_CHECKING:
     from ..primitive import Surface
@@ -30,21 +29,6 @@ class _SeedGrid(TypedDict):
     Uf_valid: np.ndarray
     Vf_valid: np.ndarray
     P_world: np.ndarray
-
-
-def _xy_grid_seeds(grid: _SeedGrid, x: float, y: float) -> np.ndarray:
-    """Indices of the ``XY_SEEDS`` grid samples nearest to ``(x, y)``, sorted.
-
-    Python mirror of the seed selection in ``parameters_at_xy_njit``.
-    """
-    pts = grid["pts"]
-    finite = grid["finite"]
-    if not finite.any():
-        return np.empty(0, dtype=int)
-    distance2 = np.where(finite, ((pts[:, 0] - x) ** 2 + (pts[:, 1] - y) ** 2), np.inf)
-    k = min(_c.XY_SEEDS, distance2.size)
-    order = np.argpartition(distance2, k - 1)[:k]
-    return order[np.argsort(distance2[order])]
 
 
 class SurfaceSolver:
@@ -93,16 +77,15 @@ class SurfaceSolver:
         u = float(grid["Uf"][idx])
         v = float(grid["Vf"][idx])
         desc = self.surface.njit_descriptor
-        if desc is not None:
-            uu, vv, ok = _solve_xy_njit(desc, float(p[0]), float(p[1]), u, v)
-            if ok:
-                puv = self.surface.evaluate_local(uu, vv)
-                if (
-                    np.all(np.isfinite(puv))
-                    and float(np.linalg.norm(puv - p)) < _c.POINT_MATCH_TOL
-                ):
-                    return uu, vv
-        return self._solve_parameters_point(p, u, v)
+        uu, vv, ok = _solve_xy_njit(desc, float(p[0]), float(p[1]), u, v)
+        if ok:
+            puv = self.surface.evaluate_local(uu, vv)
+            if (
+                np.all(np.isfinite(puv))
+                and float(np.linalg.norm(puv - p)) < _c.POINT_MATCH_TOL
+            ):
+                return uu, vv
+        return None
 
     def parameters_at_xy(
         self,
@@ -118,24 +101,9 @@ class SurfaceSolver:
             result = self._solve_parameters_xy(x, y, float(seed[0]), float(seed[1]))
             if result is not None:
                 return result
-
         desc = self.surface.njit_descriptor
-        if desc is not None:
-            u, v, ok = parameters_at_xy_njit(desc, self.njit_grid(), x, y)
-            return (u, v) if ok else None
-
-        grid = self._seed_grid()
-        order = _xy_grid_seeds(grid, x, y)
-        Uf = grid["Uf"]
-        Vf = grid["Vf"]
-
-        for idx in order:
-            result = self._solve_parameters_xy(x, y, float(Uf[idx]), float(Vf[idx]))
-
-            if result is not None:
-                return result
-
-        return None
+        u, v, ok = parameters_at_xy_njit(desc, self.njit_grid(), x, y)
+        return (u, v) if ok else None
 
     def intersect(
         self,
@@ -173,64 +141,14 @@ class SurfaceSolver:
             return None
         return min(hits, key=lambda h: h[0])
 
-    def _solve_parameters_point(
-        self, p: np.ndarray, u: float, v: float
-    ) -> "tuple[float, float] | None":
-        def residual(x: np.ndarray) -> np.ndarray:
-            return self.surface.evaluate_local(float(x[0]), float(x[1])) - p
-
-        def jacobian(x: np.ndarray) -> np.ndarray:
-            ru, rv = self.surface.derivatives_local(float(x[0]), float(x[1]))
-            return np.column_stack((ru, rv))
-
-        result = _newton(residual, jacobian, (u, v))
-        if result is None:
-            return None
-        x, f_norm, status = result
-        if f_norm >= float(_c.PARAM_TOLS[status]):
-            return None
-        u = float(x[0])
-        v = float(x[1])
-        if not self.surface.accepts_parameters(u, v):
-            return None
-        return u, v
-
     def _solve_parameters_xy(
         self, x_target: float, y_target: float, u: float, v: float
     ) -> "tuple[float, float] | None":
         desc = self.surface.njit_descriptor
-        if desc is not None:
-            uu, vv, ok = _solve_xy_njit(desc, x_target, y_target, u, v)
-            if not ok:
-                return None
-            return uu, vv
-        return self._solve_parameters_xy_python(x_target, y_target, u, v)
-
-    def _solve_parameters_xy_python(
-        self, x_target: float, y_target: float, u: float, v: float
-    ) -> "tuple[float, float] | None":
-        def residual(x: np.ndarray) -> np.ndarray:
-            p = self.surface.evaluate_local(float(x[0]), float(x[1]))
-            return np.array([p[0] - x_target, p[1] - y_target])
-
-        def jacobian(x: np.ndarray) -> np.ndarray:
-            ru, rv = self.surface.derivatives_local(float(x[0]), float(x[1]))
-            return np.array([
-                [ru[0], rv[0]],
-                [ru[1], rv[1]],
-            ])
-
-        result = _newton(residual, jacobian, (u, v))
-        if result is None:
+        uu, vv, ok = _solve_xy_njit(desc, x_target, y_target, u, v)
+        if not ok:
             return None
-        x, f_norm, status = result
-        if f_norm >= float(_c.PARAM_TOLS[status]):
-            return None
-        u = float(x[0])
-        v = float(x[1])
-        if not self.surface.accepts_parameters(u, v):
-            return None
-        return u, v
+        return uu, vv
 
     def _aperture_mask(self, uf: np.ndarray, vf: np.ndarray, pts: np.ndarray) -> np.ndarray:
         s = self.surface
@@ -324,27 +242,7 @@ class SurfaceSolver:
         self, o: np.ndarray, d: np.ndarray, u: float, v: float, t: float
     ) -> "tuple[float, float, float] | None":
         desc = self.surface.njit_descriptor
-        if desc is not None:
-            tt, uu, vv, ok = _newton_intersection_njit(desc, o, d, u, v, t)
-            if not ok:
-                return None
-            return tt, uu, vv
-        return self._newton_intersection_python(o, d, u, v, t)
-
-    def _newton_intersection_python(
-        self, o: np.ndarray, d: np.ndarray, u: float, v: float, t: float
-    ) -> "tuple[float, float, float] | None":
-        def residual(x: np.ndarray) -> np.ndarray:
-            return self.surface.point(float(x[1]), float(x[2])) - (o + float(x[0]) * d)
-
-        def jacobian(x: np.ndarray) -> np.ndarray:
-            ru, rv = self.surface.tangents(float(x[1]), float(x[2]))
-            return np.column_stack((-d, ru, rv))
-
-        result = _newton(residual, jacobian, (t, u, v), clamp=True)
-        if result is None:
+        tt, uu, vv, ok = _newton_intersection_njit(desc, o, d, u, v, t)
+        if not ok:
             return None
-        x, f_norm, status = result
-        if f_norm >= float(_c.HIT_TOLS[status]):
-            return None
-        return self._accept_intersection(float(x[0]), float(x[1]), float(x[2]))
+        return tt, uu, vv

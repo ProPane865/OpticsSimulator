@@ -83,6 +83,24 @@ int nearest_unvisited(const TraceStack& stack, std::vector<unsigned char>& visit
     return best_i;
 }
 
+// As :func:`nearest_unvisited` but also reports the chosen entry distance.
+std::pair<int, double> nearest_unvisited_t(const TraceStack& stack,
+                                           std::vector<unsigned char>& visited, const double* o,
+                                           const double* d, double t_limit) {
+    int best_i = -1;
+    double best_t = kInf;
+    for (std::size_t i = 0; i < stack.size(); ++i) {
+        if (!visited[i]) {
+            ElementHit hit = element_first_hit(*stack.elements[i], o, d, 0.0);
+            if (hit.found && hit.t < t_limit && hit.t < best_t) {
+                best_t = hit.t;
+                best_i = static_cast<int>(i);
+            }
+        }
+    }
+    return {best_i, best_t};
+}
+
 }  // namespace
 
 std::optional<std::array<double, 3>> plane_intersect(const double* ro, const double* d,
@@ -513,6 +531,217 @@ void measure_stack(const TraceStack& stack, const double* origins, const double*
                 us[i] = hit->at(0);
                 vs[i] = hit->at(1);
                 pws[i] = powers[i];
+            }
+        }
+    });
+}
+
+// --- Single-trace shared walk (rendering + all measurement planes) -----------
+//
+// A full geometric-order walk of the stack (the same nearest-unvisited loop
+// used by ``trace_stack_segments``) is a superset of every per-plane walk
+// ``trace_stack_to_plane`` performs: the refractions up to any plane are a
+// prefix of this walk, so one trace serves rendering and every plane. Each hop
+// records the free-travel gap (origin/direction + entry distance to the next
+// element) and the entered element's internal polyline, letting both the
+// rendering segment buffers and the per-plane first-crossing be derived
+// without re-walking.
+namespace {
+
+struct MHop {
+    Vec3 o{};
+    Vec3 d{};
+    Vec3 incident_pt{};
+    double entry_t = kInf;
+    bool has_element = false;
+    bool has_incident = false;
+    bool exited = false;
+    std::vector<Vec3> pts;
+};
+
+struct RayHops {
+    std::vector<MHop> hops;
+};
+
+RayHops build_hops(const TraceStack& stack, const double* o, const double* d) {
+    std::vector<unsigned char> visited(stack.size(), 0);
+    Vec3 cur_o = as_vec3(o);
+    Vec3 cur_d = as_vec3(d);
+    RayHops hops;
+    for (;;) {
+        const std::pair<int, double> best =
+            nearest_unvisited_t(stack, visited, cur_o.v, cur_d.v, kInf);
+        if (best.first < 0) {
+            MHop tail;
+            tail.o = cur_o;
+            tail.d = cur_d;
+            tail.has_element = false;
+            hops.hops.push_back(std::move(tail));
+            return hops;
+        }
+        visited[static_cast<std::size_t>(best.first)] = 1;
+        const ElementTrace tr =
+            trace_element(*stack.elements[static_cast<std::size_t>(best.first)], cur_o.v, cur_d.v);
+        MHop h;
+        h.o = cur_o;
+        h.d = cur_d;
+        h.entry_t = best.second;
+        h.has_element = true;
+        h.has_incident = tr.has_incident;
+        h.exited = tr.exited;
+        if (tr.has_incident) {
+            h.incident_pt = tr.incident_pt;
+        }
+        h.pts = tr.pts;
+        hops.hops.push_back(std::move(h));
+        if (!tr.exited) {
+            return hops;  // absorbed inside the element: no trailing gap
+        }
+        cur_o = tr.exit_o;
+        cur_d = tr.exit_d;
+    }
+}
+
+// Rendering segment buffers, byte-identical to ``trace_stack_segments``:
+// incident + internal segments per element, then the trailing gap capped at
+// ``ray_length`` (omitted when the ray is absorbed).
+int format_segments(const RayHops& hops, double ray_length, double* starts, double* ends,
+                    signed char* kinds, std::size_t cap) {
+    std::size_t count = 0;
+    signed char kind = 0;
+    for (const MHop& h : hops.hops) {
+        if (h.has_element) {
+            if (h.has_incident && count < cap) {
+                for (int i = 0; i < 3; ++i) {
+                    starts[3 * count + i] = h.o[i];
+                    ends[3 * count + i] = h.incident_pt[i];
+                }
+                kinds[count] = kind;
+                ++count;
+            }
+            const std::size_t m = h.pts.size();
+            for (std::size_t k = 0; k + 1 < m; ++k) {
+                if (count >= cap) {
+                    break;
+                }
+                const Vec3& s = h.pts[k];
+                const Vec3& e = h.pts[k + 1];
+                for (int i = 0; i < 3; ++i) {
+                    starts[3 * count + i] = s[i];
+                    ends[3 * count + i] = e[i];
+                }
+                kinds[count] = 1;
+                ++count;
+            }
+            if (!h.exited) {
+                return static_cast<int>(count);  // absorbed: stop, no trailing gap
+            }
+            kind = 2;
+        } else {
+            if (count < cap) {
+                for (int i = 0; i < 3; ++i) {
+                    starts[3 * count + i] = h.o[i];
+                    ends[3 * count + i] = h.o[i] + ray_length * h.d[i];
+                }
+                kinds[count] = kind;
+                ++count;
+            }
+            return static_cast<int>(count);
+        }
+    }
+    return static_cast<int>(count);
+}
+
+// The ray that reaches the plane, read off the shared walk. Mirrors
+// ``trace_stack_to_plane`` exactly: at each gap, the plane is measured there
+// when no element is entered before the crossing (crossing t <= entry_t, or
+// parallel with no element); otherwise the element's internal segments are
+// checked (in extent and within the segment), continuing to the next gap on
+// exit. Returns ``false`` when the ray never reaches the plane.
+bool measure_hops_plane(const RayHops& hops, const double* po, const double* pn, double u_min,
+                        double u_max, double v_min, double v_max, double eps, double* u,
+                        double* v) {
+    for (const MHop& h : hops.hops) {
+        const std::optional<std::array<double, 3>> ph = plane_intersect(h.o.v, h.d.v, po, pn, eps);
+        const bool enter = h.has_element && (!ph.has_value() || ph->at(2) > h.entry_t);
+        if (!enter) {
+            if (ph.has_value()) {
+                *u = ph->at(0);
+                *v = ph->at(1);
+                return true;
+            }
+            return false;
+        }
+        const std::size_t m = h.pts.size();
+        for (std::size_t k = 0; k + 1 < m; ++k) {
+            const Vec3 seg_o = h.pts[k];
+            const Vec3 diff = h.pts[k + 1] - seg_o;
+            const double seg_len = norm(diff);
+            if (seg_len <= 0.0) {
+                continue;
+            }
+            const Vec3 seg_d = diff / seg_len;
+            const std::optional<std::array<double, 3>> hit = plane_intersect(seg_o.v, seg_d.v, po, pn, eps);
+            if (hit.has_value() && hit->at(0) >= u_min && hit->at(0) <= u_max &&
+                hit->at(1) >= v_min && hit->at(1) <= v_max && hit->at(2) <= seg_len) {
+                *u = hit->at(0);
+                *v = hit->at(1);
+                return true;
+            }
+        }
+        if (!h.exited) {
+            return false;  // absorbed inside the element before reaching the plane
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+void measure_planes_multi(const TraceStack& stack, const double* origins, const double* dirs,
+                          const double* powers, std::size_t n, std::size_t p, const double* po,
+                          const double* pn, const double* u_min, const double* u_max,
+                          const double* v_min, const double* v_max, double eps, double* us,
+                          double* vs, double* pws) {
+    run_chunks(n, [&](std::size_t lo, std::size_t hi) {
+        for (std::size_t i = lo; i < hi; ++i) {
+            const RayHops hops = build_hops(stack, origins + 3 * i, dirs + 3 * i);
+            for (std::size_t q = 0; q < p; ++q) {
+                double u = 0.0;
+                double v = 0.0;
+                if (measure_hops_plane(hops, po + 3 * q, pn + 3 * q, u_min[q], u_max[q], v_min[q],
+                                       v_max[q], eps, &u, &v)) {
+                    const std::size_t idx = q * n + i;
+                    us[idx] = u;
+                    vs[idx] = v;
+                    pws[idx] = powers[i];
+                }
+            }
+        }
+    });
+}
+
+void trace_segments_and_planes(const TraceStack& stack, const double* origins, const double* dirs,
+                               const double* powers, std::size_t n, double ray_length, std::size_t p,
+                               const double* po, const double* pn, const double* u_min,
+                               const double* u_max, const double* v_min, const double* v_max,
+                               double eps, double* starts, double* ends, signed char* kinds,
+                               std::int64_t* counts, std::size_t cap, double* us, double* vs,
+                               double* pws) {
+    run_chunks(n, [&](std::size_t lo, std::size_t hi) {
+        for (std::size_t i = lo; i < hi; ++i) {
+            const RayHops hops = build_hops(stack, origins + 3 * i, dirs + 3 * i);
+            counts[i] = format_segments(hops, ray_length, starts + 3 * cap * i, ends + 3 * cap * i,
+                                        kinds + cap * i, cap);
+            for (std::size_t q = 0; q < p; ++q) {
+                double u = 0.0;
+                double v = 0.0;
+                if (measure_hops_plane(hops, po + 3 * q, pn + 3 * q, u_min[q], u_max[q], v_min[q],
+                                       v_max[q], eps, &u, &v)) {
+                    us[q * n + i] = u;
+                    vs[q * n + i] = v;
+                    pws[q * n + i] = powers[i];
+                }
             }
         }
     });

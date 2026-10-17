@@ -25,6 +25,7 @@ from optics.tracing import RefractiveElement
 __all__ = [
     "DEFAULT_ELEMENT_CONFIG",
     "ProjectState",
+    "classify_element_edit",
     "unique_name",
 ]
 
@@ -63,6 +64,67 @@ def unique_name(base: str, used: Iterable[str], *, prefix: str = "plane") -> str
     while f"{prefix}{index}" in taken:
         index += 1
     return f"{prefix}{index}"
+
+
+_ELEMENT_GEOMETRY_FIELDS = ("x", "y", "z", "u_range", "v_range", "aperture")
+_ELEMENT_TRANSFORM_KEYS = ("position", "orientation")
+
+
+def _only_index_changed(old_material: dict, new_material: dict) -> bool:
+    if set(old_material) != set(new_material):
+        return False
+    for key in old_material:
+        if key == "refractive_index":
+            continue
+        if old_material[key] != new_material[key]:
+            return False
+    return old_material.get("refractive_index") != new_material.get("refractive_index")
+
+
+def classify_element_edit(
+    old: dict[str, Any] | None, new: dict[str, Any] | None
+) -> str:
+    """Classify an element-config edit as ``none``, ``index``, ``transform`` or ``geometry``.
+
+    The result lets the UI skip needless work: refractive-index-only edits do
+    not change the rendered surface geometry, and a no-op edit needs no
+    re-trace. Unknown or mixed changes conservatively report ``geometry``.
+    """
+    if old == new:
+        return "none"
+    old = old or {}
+    new = new or {}
+
+    geometry_changed = False
+    for key in ("surface1", "surface2"):
+        old_surface = old.get(key) or {}
+        new_surface = new.get(key) or {}
+        if any(old_surface.get(f) != new_surface.get(f) for f in _ELEMENT_GEOMETRY_FIELDS):
+            geometry_changed = True
+
+    transform_changed = any(old.get(k) != new.get(k) for k in _ELEMENT_TRANSFORM_KEYS)
+
+    old_material = old.get("material") or {}
+    new_material = new.get("material") or {}
+    index_changed = old_material.get("refractive_index") != new_material.get("refractive_index")
+
+    other_changed = old_material != new_material and not _only_index_changed(
+        old_material, new_material
+    )
+    tracked = {"surface1", "surface2", "material", *_ELEMENT_TRANSFORM_KEYS}
+    for key in set(old) | set(new):
+        if key in tracked:
+            continue
+        if old.get(key) != new.get(key):
+            other_changed = True
+
+    if geometry_changed or other_changed:
+        return "geometry"
+    if transform_changed:
+        return "transform"
+    if index_changed:
+        return "index"
+    return "geometry"
 
 
 class ProjectState:
@@ -145,8 +207,7 @@ class ProjectState:
         self._plane_names.pop(index)
 
     def measure_all(self) -> None:
-        for plane in self._planes:
-            plane.measure(self._rays, self._elements)
+        MeasurementPlane.measure_batch(self._planes, self._rays, self._elements)
 
     # -- document (de)serialization -----------------------------------------
     def load_document(self, document: object) -> tuple[list[RefractiveElement], bool]:

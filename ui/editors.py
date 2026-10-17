@@ -22,7 +22,7 @@ from optics.measurement_plane import MeasurementPlane
 from optics.project import DEFAULT_MEASUREMENT_CONFIG
 from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource
 
-from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
+from .model import DEFAULT_ELEMENT_CONFIG, ProjectState, classify_element_edit
 from .scene import SceneController
 from .widgets import configure_spin, enable_widgets, find_child, run_validated
 
@@ -159,8 +159,14 @@ class ElementEditor:
         if result is None:
             return
         config, element = result
+        old_config = (self._state.schema or {}).get(name)
+        kind = classify_element_edit(old_config, config)
         index = self._state.replace_element(name, config, element)
-        self._scene.replace_element_nodes(index, element)
+        if kind == "none":
+            self._set_status(f"No changes to {name}")
+            return
+        if kind in ("geometry", "transform"):
+            self._scene.replace_element_nodes(index, element)
         self._refresh_trace()
         self._set_status(f"Updated properties for {name}")
 

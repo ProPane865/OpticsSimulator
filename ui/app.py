@@ -12,6 +12,7 @@ from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtUiTools import QUiLoader
 from vispy import app as vispy_app
@@ -26,10 +27,11 @@ from optics.project import (
 )
 from optics.source import PointSource
 from optics.tracing import RefractiveElement
+from optics.tracing.context import trace_segments_and_planes
 
 from .editors import LABEL_BY_SOURCE_TYPE, SOURCE_TYPE_BY_LABEL, ElementEditor, PlaneEditor, SourceEditor
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
-from .scene import SceneController, make_display
+from .scene import RAY_LENGTH, SceneController, make_display
 from .widgets import find_child, run_validated
 
 __all__ = [
@@ -104,9 +106,31 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     # -- orchestration shared by the editors --------------------------------
     def _refresh_trace(self) -> None:
-        self._state.measure_all()
-        self._scene.retrace(self._state.elements, self._state.rays)
-        self._scene.rebuild_planes(self._state.planes)
+        state = self._state
+        elements = state.elements
+        rays = state.rays
+        planes = state.planes
+        # When there are both rays and planes, one native walk serves rendering
+        # and every measurement plane; otherwise fall back to the separate
+        # measure/retrace paths.
+        if rays and planes:
+            origins = np.asarray([r.origin for r in rays], dtype=float)
+            dirs = np.asarray([r.direction for r in rays], dtype=float)
+            powers = np.asarray([r.power for r in rays], dtype=float)
+            combined = trace_segments_and_planes(
+                elements, origins, dirs, powers, RAY_LENGTH, planes
+            )
+            if combined is not None:
+                starts, ends, kinds, counts, us, vs, pws = combined
+                for q, plane in enumerate(planes):
+                    plane.reset()
+                    plane.accumulate(us[q], vs[q], pws[q])
+                self._scene.retrace_from_segments(starts, ends, kinds, counts)
+                self._scene.rebuild_planes(planes)
+                return
+        state.measure_all()
+        self._scene.retrace(elements, rays)
+        self._scene.rebuild_planes(planes)
 
     def _set_status(self, message: str) -> None:
         self.statusBar().showMessage(message)

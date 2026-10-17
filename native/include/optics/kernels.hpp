@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -106,6 +107,30 @@ void measure_stack(const TraceStack& stack, const double* origins, const double*
                    const double* powers, std::size_t n, const double* o, const double* nrm,
                    double eps, double u_min, double u_max, double v_min, double v_max, double* us,
                    double* vs, double* pws);
+
+// Trace every ray through the stack exactly once (parallel) and evaluate
+// ``p`` planes off that single trace. Plane geometry is column-parallel:
+// ``po``/``pn`` are ``(p, 3)`` and the range arrays are ``(p,)``; output
+// ``us``/``vs``/``pws`` are ``(p, n)`` plane-major. Results match ``p``
+// independent ``measure_stack`` calls (the per-plane traversal is a prefix of
+// the full geometric-order walk, so refractions up to each plane are shared).
+void measure_planes_multi(const TraceStack& stack, const double* origins, const double* dirs,
+                          const double* powers, std::size_t n, std::size_t p, const double* po,
+                          const double* pn, const double* u_min, const double* u_max,
+                          const double* v_min, const double* v_max, double eps, double* us,
+                          double* vs, double* pws);
+
+// Single-trace combined path: walks every ray through the stack once and emits
+// both the rendering segment buffers (byte-identical to ``trace_segments_batch``)
+// and the ``(p, n)`` plane measurement buffers. ``starts``/``ends`` are
+// ``(n, cap, 3)``, ``kinds`` ``(n, cap)``, ``counts`` ``(n,)``.
+void trace_segments_and_planes(const TraceStack& stack, const double* origins, const double* dirs,
+                               const double* powers, std::size_t n, double ray_length,
+                               std::size_t p, const double* po, const double* pn,
+                               const double* u_min, const double* u_max, const double* v_min,
+                               const double* v_max, double eps, double* starts, double* ends,
+                               signed char* kinds, std::int64_t* counts, std::size_t cap,
+                               double* us, double* vs, double* pws);
 
 // --- Vector helpers (``vector.py``) -------------------------------------------
 // Rodrigues rotation matrix mapping the +Z axis onto ``direction``.

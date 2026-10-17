@@ -20,22 +20,24 @@ first-ever apply in a fresh interpreter (seed grids + native first call).
 """
 
 import argparse
-import cProfile
 import copy
+import cProfile
 import io
 import pstats
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import bench_common as bc
+import numpy as np
 
-from optics import _native
 from optics.config import refractive_element_from_config
 from optics.measurement_plane import MeasurementPlane
 from optics.numerical.codegen import compile_parametric_surface
 from optics.project import DEFAULT_MEASUREMENT_CONFIG
 from optics.tracing import build_trace_context, trace_segments_batch
+from optics.tracing.context import trace_segments_and_planes
 from rendering.meshing import SurfaceMesher
 from rendering.visualize import _measurement_vertex_colors
 
@@ -78,6 +80,7 @@ class LensEdit:
         self.origins, self.dirs = bc.make_rays(rays)
         self.rays = bc.make_ray_objects(self.origins, self.dirs)
         self.rays_n = rays
+        self.powers = np.ones(rays, dtype=float)
 
     def _edited_element(self, counter: list) -> "tuple[Any, list]":
         cfg = _variant_config(counter[0])
@@ -123,12 +126,34 @@ def phase_breakdown(
     trace_segments_batch(stack, edit.origins, edit.dirs, bc.RAY_LENGTH)
     t["trace_batch"] = time.perf_counter() - mark
 
+    # New single-trace paths (what the UI now does): measure every plane off one
+    # trace, and the combined render+measure walk used by ``_refresh_trace``.
+    mark = time.perf_counter()
+    MeasurementPlane.measure_batch(planes, edit.rays, stack)
+    t["measure_batch"] = time.perf_counter() - mark
+
+    mark = time.perf_counter()
+    trace_segments_and_planes(
+        stack, edit.origins, edit.dirs, edit.powers, bc.RAY_LENGTH, planes
+    )
+    t["combined"] = time.perf_counter() - mark
+
     mark = time.perf_counter()
     for plane in planes:
         _measurement_vertex_colors(plane)
     t["plane_color"] = time.perf_counter() - mark
 
-    t["total"] = sum(v for k, v in t.items() if k != "total")
+    legacy = (
+        t["build"] + t["mesh_surface1"] + t["mesh_surface2"] + t["sidewall"]
+        + t["measure_all"] + t["trace_batch"] + t["plane_color"]
+    )
+    # The UI apply now replaces (per-plane measure + render trace) with the
+    # single combined walk, so the applied total uses "combined".
+    t["legacy_total"] = legacy
+    t["total"] = (
+        t["build"] + t["mesh_surface1"] + t["mesh_surface2"] + t["sidewall"]
+        + t["combined"] + t["plane_color"]
+    )
     return t
 
 
@@ -222,19 +247,56 @@ def profile_apply(edit: LensEdit, planes: "list[MeasurementPlane]", top: int = 2
         "\n=== cProfile: top functions by internal (tot) time ===\n" + tot
 
 
+def unified_apply(edit: LensEdit, planes: "list[MeasurementPlane]", mesh_n: int = MESH_N) -> float:
+    """Wall time of the *unified* apply path the UI performs on an edit.
+
+    Mirrors ``_refresh_trace`` after optimization: rebuild the edited element,
+    re-mesh + sidewall it (cache-backed), then ONE combined trace serves both
+    rendering and every measurement plane, plus plane tinting.
+    """
+    counter = [unified_apply.counter]
+    unified_apply.counter += 1
+    total = 0.0
+    mark = time.perf_counter()
+    el, stack = edit._edited_element(counter)
+    total += time.perf_counter() - mark
+    mark = time.perf_counter()
+    SurfaceMesher(el.surface1).mesh(mesh_n)
+    SurfaceMesher(el.surface2).mesh(mesh_n)
+    total += time.perf_counter() - mark
+    mark = time.perf_counter()
+    _ = el.sidewall
+    total += time.perf_counter() - mark
+    mark = time.perf_counter()
+    trace_segments_and_planes(
+        stack, edit.origins, edit.dirs, edit.powers, bc.RAY_LENGTH, planes
+    )
+    total += time.perf_counter() - mark
+    mark = time.perf_counter()
+    for plane in planes:
+        _measurement_vertex_colors(plane)
+    total += time.perf_counter() - mark
+    return total
+
+
+unified_apply.counter = 0
+
+
 # --- Report -------------------------------------------------------------------
 
 def _print_phases(phases: "dict[str, float]") -> None:
     total = phases.get("total", 1.0) or 1.0
     order = [
         "build", "mesh_surface1", "mesh_surface2", "sidewall",
-        "measure_all", "trace_batch", "plane_color",
+        "measure_all", "measure_batch", "trace_batch", "combined", "plane_color",
     ]
-    print("\n[per-apply phase breakdown]  (best of runs; % of total apply)")
+    print("\n[per-apply phase breakdown]  (best of runs; % of unified total)")
     for key in order:
         if key in phases:
             print(f"  {key:<16} {phases[key] * 1000:>10.3f} ms   {100 * phases[key] / total:>5.1f}%")
-    print(f"  {'TOTAL':<16} {total * 1000:>10.3f} ms")
+    legacy = phases.get("legacy_total", total)
+    print(f"  {'legacy total':<16} {legacy * 1000:>10.3f} ms  (per-plane measure + render)")
+    print(f"  {'TOTAL (unified)':<16} {total * 1000:>10.3f} ms  (single shared trace)")
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -273,19 +335,24 @@ def main(argv: "list[str] | None" = None) -> int:
           f"{args.planes} plane(s), {args.rays:,} rays ===")
     _print_phases(phases)
 
-    # 4) Scaling matrix (composite apply cost).
-    print("\n[composite apply scaling]  (ms per apply)")
+    # 4) Scaling matrix (unified apply cost).
+    print("\n[unified apply scaling]  (ms per apply; single shared trace)")
     header = f"  {'rays':>7} | " + " | ".join(f"E{e}P{p}" for e in (1, 2, 4) for p in (0, 1, 3))
     print(header)
+    scalings: list[tuple[int, int, int, float]] = []
     for rays in (16, 256, args.rays):
         row = [f"  {rays:>7} | "]
         for e in (1, 2, 4):
             for p in (0, 1, 3):
                 ex = LensEdit(e, rays)
                 pl = _make_planes(p)
-                edit_run = (lambda ex=ex, pl=pl: phase_breakdown(ex, pl, args.mesh_n)["total"])
+
+                def edit_run(ex=ex, pl=pl):
+                    return unified_apply(ex, pl, args.mesh_n)
+
                 seconds = bc.time_call(edit_run, warmup=1, repeats=2, budget=args.budget)
                 row.append(f"{seconds * 1000:>7.2f}")
+                scalings.append((rays, e, p, seconds))
         print("".join(row))
 
     # 5) cProfile hot spots for one apply.
@@ -296,6 +363,22 @@ def main(argv: "list[str] | None" = None) -> int:
         cold, wall = bc.run_cold(Path(__file__), "create", args.child_rays)
         print(f"\n[cold start] first-ever apply: {cold * 1000:.1f} ms "
               f"(full interpreter+import cold start: {wall:.1f} s)")
+
+    if args.json is not None:
+        report = bc.Report("lens edit profile", quiet=True)
+        report.add("micro", "compile miss (us)", miss * 1e6)
+        report.add("micro", "compile hit (us)", hit * 1e6)
+        report.add("micro", "build_trace_context", ctx_s)
+        for key in (
+            "build", "mesh_surface1", "mesh_surface2", "sidewall", "measure_all",
+            "measure_batch", "trace_batch", "combined", "plane_color",
+            "legacy_total", "total",
+        ):
+            if key in phases:
+                report.add(f"phase (E{args.elements}P{args.planes})", key, phases[key])
+        for rays, e, p, seconds in scalings:
+            report.add("unified apply scaling", f"E{e}P{p}", seconds, rays=rays)
+        report.save_json(args.json)
 
     return 0
 

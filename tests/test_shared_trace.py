@@ -1,0 +1,143 @@
+"""Differential tests for the single-trace shared walk (measure + render).
+
+These guard the equivalence of the new native kernels against the established
+per-plane / batch paths: ``measure_planes_multi`` vs ``measure_stack``,
+``measure_batch`` vs repeated ``measure``, and ``trace_segments_and_planes``
+vs ``trace_segments_batch`` + ``measure_stack``. The rendering buffers are
+compared byte-for-byte and the plane hits exactly.
+"""
+
+import json
+from importlib.resources import as_file, files
+
+import numpy as np
+import pytest
+
+from optics.config import stack_from_config
+from optics.measurement_plane import MeasurementPlane
+from optics.tracing import trace_segments_batch
+from optics.tracing.context import measure_planes_raw, trace_segments_and_planes
+
+RAY_LENGTH = 3.0
+
+
+def _stack(name):
+    with as_file(files("optics") / "examples" / name) as path:
+        doc = json.loads(path.read_text())
+    return stack_from_config(doc["elements"])
+
+
+def _rays(seed=3, n=24):
+    rng = np.random.default_rng(seed)
+    origins = np.empty((n, 3), dtype=float)
+    origins[:, 0] = rng.uniform(-0.5, 0.5, n)
+    origins[:, 1] = rng.uniform(-0.5, 0.5, n)
+    origins[:, 2] = 4.0
+    dirs = np.empty((n, 3), dtype=float)
+    dirs[:, 0] = rng.normal(0.0, 0.03, n)
+    dirs[:, 1] = rng.normal(0.0, 0.03, n)
+    dirs[:, 2] = -1.0
+    dirs /= np.linalg.norm(dirs, axis=1)[:, None]
+    return np.ascontiguousarray(origins), np.ascontiguousarray(dirs)
+
+
+def _planes(zs, res=(6, 6)):
+    planes = []
+    for z in zs:
+        planes.append(
+            MeasurementPlane(
+                origin=np.array([0.0, 0.0, z], dtype=float),
+                normal=np.array([0.0, 0.0, 1.0], dtype=float),
+                u_range=(-3.0, 3.0),
+                v_range=(-3.0, 3.0),
+                resolution=res,
+            )
+        )
+    return planes
+
+
+def _rays_as_objects(origins, dirs):
+    from optics.primitive import Ray
+
+    return [Ray(origins[i].copy(), dirs[i].copy(), 1.0) for i in range(origins.shape[0])]
+
+
+@pytest.mark.parametrize("name", ["doublet.json", "triplet.json"])
+def test_measure_planes_multi_matches_measure_stack(name):
+    elements = _stack(name)
+    origins, dirs = _rays()
+    powers = np.ones(origins.shape[0])
+    planes = _planes([-1.5, -3.0, -5.5])
+
+    raw = measure_planes_raw(elements, origins, dirs, powers, planes)
+    assert raw is not None
+    us, vs, pws = raw
+    for q, plane in enumerate(planes):
+        plane.measure(_rays_as_objects(origins, dirs), elements)
+        ref = plane.grid.copy()
+        plane.reset()
+        plane.accumulate(us[q], vs[q], pws[q])
+        np.testing.assert_array_equal(plane.grid, ref)
+
+
+@pytest.mark.parametrize("name", ["doublet.json", "triplet.json"])
+def test_measure_batch_matches_per_plane_measure(name):
+    elements = _stack(name)
+    origins, dirs = _rays()
+    rays = _rays_as_objects(origins, dirs)
+    planes = _planes([-1.5, -3.0, -5.5])
+
+    batch_totals = MeasurementPlane.measure_batch(planes, rays, elements)
+    batch_grids = [p.grid.copy() for p in planes]
+
+    per_totals = []
+    per_grids = []
+    for z in (-1.5, -3.0, -5.5):
+        p = _planes([z])[0]
+        per_totals.append(p.measure(rays, elements))
+        per_grids.append(p.grid.copy())
+
+    for q in range(len(planes)):
+        assert batch_totals[q] == pytest.approx(per_totals[q], rel=1e-12, abs=1e-12)
+        np.testing.assert_array_equal(batch_grids[q], per_grids[q])
+
+
+@pytest.mark.parametrize("name", ["doublet.json", "triplet.json"])
+def test_trace_segments_and_planes_matches_batch_and_measure(name):
+    elements = _stack(name)
+    origins, dirs = _rays()
+    powers = np.ones(origins.shape[0])
+    planes = _planes([-1.5, -3.0, -5.5])
+
+    # Reference rendering buffers.
+    rs, re, rk, rc = trace_segments_batch(elements, origins, dirs, RAY_LENGTH)
+
+    # Reference plane hits.
+    ref_grids = []
+    for plane in planes:
+        plane.measure(_rays_as_objects(origins, dirs), elements)
+        ref_grids.append(plane.grid.copy())
+
+    combined = trace_segments_and_planes(elements, origins, dirs, powers, RAY_LENGTH, planes)
+    assert combined is not None
+    starts, ends, kinds, counts, us, vs, pws = combined
+
+    np.testing.assert_array_equal(counts, rc)
+    n = origins.shape[0]
+    for i in range(n):
+        c = int(rc[i])
+        if c:
+            np.testing.assert_array_equal(starts[i, :c], rs[i, :c])
+            np.testing.assert_array_equal(ends[i, :c], re[i, :c])
+            np.testing.assert_array_equal(kinds[i, :c], rk[i, :c])
+
+    for q, plane in enumerate(planes):
+        plane.reset()
+        plane.accumulate(us[q], vs[q], pws[q])
+        np.testing.assert_array_equal(plane.grid, ref_grids[q])
+
+
+def test_measure_batch_empty_and_no_planes():
+    assert MeasurementPlane.measure_batch([], [], []) == []
+    planes = _planes([-3.0])
+    assert MeasurementPlane.measure_batch(planes, [], [1]) == [0.0]

@@ -80,6 +80,19 @@ class SceneController:
         visualize.remove_nodes(self._ray_nodes)
         self._ray_nodes = visualize.build_ray_nodes(self._view, elements, rays, ray_length=ray_length)
 
+    def retrace_from_segments(
+        self,
+        starts: Any,
+        ends: Any,
+        kinds: Any,
+        counts: Any,
+    ) -> None:
+        """Redraw rays from a precomputed trace (shared with plane measurement)."""
+        visualize.remove_nodes(self._ray_nodes)
+        self._ray_nodes = visualize.build_ray_nodes_from_segments(
+            self._view, starts, ends, kinds, counts
+        )
+
     # -- elements ------------------------------------------------------------
     def add_element_nodes(self, element: RefractiveElement) -> None:
         self._element_nodes.append(visualize.build_element_nodes(self._view, element))

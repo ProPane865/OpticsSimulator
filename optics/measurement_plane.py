@@ -14,7 +14,7 @@ from .tracing import (
     internal_rays,
     traverse_stack,
 )
-from .tracing.context import build_trace_context
+from .tracing.context import build_trace_context, measure_planes_raw
 
 _EPS = _c.PLANE_EPS
 
@@ -222,16 +222,15 @@ class MeasurementPlane:
 
         return total
 
-    def measure(
+    def _measure_into(
         self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
     ) -> float:
-        """Trace rays through ``elements`` and accumulate power on the grid.
+        """Trace rays through ``elements`` and accumulate power into the grid.
 
-        Rays are traced in parallel (native threads) through the stack kernel
-        when every surface supports it; bin accumulation stays serial so the
-        grid is deterministic.
+        Assumes the grid is already reset. Rays are traced in parallel (native
+        threads) through the stack kernel when every surface supports it; bin
+        accumulation stays serial so the grid is deterministic.
         """
-        self.reset()
         if not rays:
             return 0.0
         stack: Any = None
@@ -267,6 +266,45 @@ class MeasurementPlane:
                 origins, dirs, powers, self.o, self.n, _EPS, us, vs, pws
             )
         return self.accumulate(us, vs, pws)
+
+    def measure(
+        self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
+    ) -> float:
+        """Trace rays through ``elements`` and accumulate power on the grid."""
+        self.reset()
+        return self._measure_into(rays, elements)
+
+    @staticmethod
+    def measure_batch(
+        planes: Sequence["MeasurementPlane"],
+        rays: Sequence[Ray],
+        elements: Sequence[RefractiveElement] | None = None,
+    ) -> "list[float]":
+        """Measure every plane, tracing the ray fan through ``elements`` once.
+
+        Each plane's grid is reset then filled; returns the per-plane total in
+        the order of ``planes``. When the stack cannot run natively this falls
+        back to the per-plane (serial) measurement path.
+        """
+        plane_list = list(planes)
+        for plane in plane_list:
+            plane.reset()
+        if not plane_list:
+            return []
+        if not rays:
+            return [0.0] * len(plane_list)
+        origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
+        dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
+        powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
+        raw = measure_planes_raw(elements or [], origins, dirs, powers, plane_list) if elements else None
+        if raw is None:
+            if elements:
+                return [plane._measure_into(rays, elements) for plane in plane_list]
+            return [plane._measure_into(rays, None) for plane in plane_list]
+        us, vs, pws = raw
+        return [
+            plane.accumulate(us[q], vs[q], pws[q]) for q, plane in enumerate(plane_list)
+        ]
 
     def irradiance(self) -> np.ndarray:
         """Power per unit true plane area for each bin."""

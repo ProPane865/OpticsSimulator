@@ -1,12 +1,40 @@
+from collections import OrderedDict
 from typing import TYPE_CHECKING
-from weakref import WeakKeyDictionary
 
 import numpy as np
 
 if TYPE_CHECKING:
     from optics.primitive import Surface
 
-_MESH_CACHE: "WeakKeyDictionary[object, dict[int, tuple[np.ndarray, np.ndarray]]]" = WeakKeyDictionary()
+# Meshes depend only on the surface's *local* geometry (expressions, parameter
+# ranges and aperture) plus the grid resolution -- not its world transform, so
+# the cache is keyed by a geometry signature rather than the Surface object.
+# Fresh Surface objects on every edit (and identical surfaces across a stack)
+# therefore reuse the cached local mesh; only the world transform is re-applied.
+_MAX_CACHED_MESHES = 64
+_MESH_CACHE: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()
+
+
+def _geometry_key(surface: "Surface", n: int) -> "tuple[object, ...] | None":
+    """Hashable local-geometry signature, or ``None`` if not cacheable."""
+    aperture = surface.aperture
+    if aperture is None:
+        aperture_key = None
+    else:
+        radius = getattr(aperture, "radius", None)
+        center = getattr(aperture, "center", None)
+        if radius is None or center is None:
+            return None  # aperture kinds without a stable key are not cached
+        aperture_key = ("circular", float(radius), float(center[0]), float(center[1]))
+    return (
+        surface.x_expr,
+        surface.y_expr,
+        surface.z_expr,
+        tuple(surface.u_range),
+        tuple(surface.v_range),
+        aperture_key,
+        int(n),
+    )
 
 
 class SurfaceMesher:
@@ -123,17 +151,29 @@ class SurfaceMesher:
         return extra, np.array(faces, dtype=np.int64)
 
     def mesh(self, n: int = 128) -> "tuple[np.ndarray, np.ndarray]":
+        """Return world-space ``(verts, faces)`` for an ``n x n`` grid.
+
+        The mesh is computed in the surface's local space and cached by
+        geometry signature, then transformed into the world on every call, so a
+        transform-only edit reuses the cached local mesh.
+        """
         n = int(n)
-        per_surface = _MESH_CACHE.get(self.surface)
-        if per_surface is None:
-            per_surface = {}
-            _MESH_CACHE[self.surface] = per_surface
-        cached = per_surface.get(n)
-        if cached is not None:
-            return cached
-        result = self._compute_mesh(n)
-        per_surface[n] = result
-        return result
+        key = _geometry_key(self.surface, n)
+        local: tuple[np.ndarray, np.ndarray] | None = None
+        if key is not None:
+            cached = _MESH_CACHE.get(key)
+            if cached is not None:
+                _MESH_CACHE.move_to_end(key)
+                local = cached
+        if local is None:
+            local = self._compute_mesh(n)
+            if key is not None:
+                _MESH_CACHE[key] = local
+                _MESH_CACHE.move_to_end(key)
+                while len(_MESH_CACHE) > _MAX_CACHED_MESHES:
+                    _MESH_CACHE.popitem(last=False)
+        local_verts, faces = local
+        return self.surface.transform.points_to_world(local_verts), faces
 
     def _compute_mesh(self, n: int) -> "tuple[np.ndarray, np.ndarray]":
         surface = self.surface
@@ -151,7 +191,6 @@ class SurfaceMesher:
         idmap[ok] = np.arange(np.count_nonzero(ok))
         verts = pts[ok]
         if idmap.shape[0] < 2 or idmap.shape[1] < 2:
-            verts = surface.transform.points_to_world(verts)
             return verts, np.empty((0, 3), dtype=np.int64)
         i = np.repeat(np.arange(n - 1), n - 1)
         j = np.tile(np.arange(n - 1), n - 1)
@@ -172,7 +211,6 @@ class SurfaceMesher:
         if boundary_faces.shape[0] > 0:
             face_chunks.append(boundary_faces)
         if not face_chunks:
-            verts = surface.transform.points_to_world(verts)
             return verts, np.empty((0, 3), dtype=np.int64)
         faces = np.vstack(face_chunks)
         # Global winding fix. Faces are emitted with a fixed winding, so a
@@ -194,5 +232,4 @@ class SurfaceMesher:
 
                 if z_center < z_ref - 1e-12:
                     faces = faces[:, ::-1]
-        verts = surface.transform.points_to_world(verts)
         return verts, faces

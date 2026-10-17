@@ -71,6 +71,17 @@ double* write_doubles(const py::array_t<double>& a, const std::string& what) {
     return static_cast<double*>(info.ptr);
 }
 
+double* write_matrix(const py::array_t<double>& a, std::size_t rows, std::size_t cols,
+                     const std::string& what) {
+    const py::buffer_info info = a.request();
+    require(info.ndim == 2 && static_cast<std::size_t>(info.shape[0]) == rows &&
+                static_cast<std::size_t>(info.shape[1]) == cols,
+            what + ": expected shape (rows, cols)");
+    require(!info.readonly, what + ": array must be writeable");
+    require(is_contiguous(info), what + ": array must be contiguous");
+    return static_cast<double*>(info.ptr);
+}
+
 py::array_t<double> np3(const double* v) {
     double out[3] = {v[0], v[1], v[2]};
     return py::array_t<double>(std::vector<py::ssize_t>{3}, std::vector<py::ssize_t>{8}, out);
@@ -467,6 +478,101 @@ void py_measure_stack(const TraceStack& stack, const py::array_t<double>& origin
                                   u_max, v_min, v_max, ud, vd, pd);
 }
 
+// Shared plane-array validation: reads ``(P, 3)`` origins/normals and ``(P,)``
+// range arrays into raw pointers, returning the plane count ``P``.
+namespace {
+struct PlaneArrays {
+    std::size_t p;
+    const double* po;
+    const double* pn;
+    const double* u_min;
+    const double* u_max;
+    const double* v_min;
+    const double* v_max;
+};
+
+PlaneArrays read_planes(const py::array_t<double>& po, const py::array_t<double>& pn,
+                        const py::array_t<double>& u_min, const py::array_t<double>& u_max,
+                        const py::array_t<double>& v_min, const py::array_t<double>& v_max) {
+    const ConstDoubles pov = read_doubles(po, 2, "plane origins");
+    const ConstDoubles pnv = read_doubles(pn, 2, "plane normals");
+    const ConstDoubles u0 = read_doubles(u_min, 1, "u_min");
+    const ConstDoubles u1 = read_doubles(u_max, 1, "u_max");
+    const ConstDoubles v0 = read_doubles(v_min, 1, "v_min");
+    const ConstDoubles v1 = read_doubles(v_max, 1, "v_max");
+    const std::size_t p = u0.size;
+    require(pov.size == 3 * p && pnv.size == 3 * p, "plane origins/normals: expected (P, 3)");
+    require(u1.size == p && v0.size == p && v1.size == p, "plane range arrays: expected (P,)");
+    return {p, pov.data, pnv.data, u0.data, u1.data, v0.data, v1.data};
+}
+}  // namespace
+
+void py_measure_planes_multi(const TraceStack& stack, const py::array_t<double>& origins,
+                             const py::array_t<double>& dirs, const py::array_t<double>& powers,
+                             const py::array_t<double>& po, const py::array_t<double>& pn,
+                             const py::array_t<double>& u_min, const py::array_t<double>& u_max,
+                             const py::array_t<double>& v_min, const py::array_t<double>& v_max,
+                             double eps, const py::array_t<double>& us,
+                             const py::array_t<double>& vs, const py::array_t<double>& pws) {
+    const ConstDoubles od = read_doubles(origins, 2, "origins");
+    const ConstDoubles dd = read_doubles(dirs, 2, "dirs");
+    const ConstDoubles pw = read_doubles(powers, 1, "powers");
+    const std::size_t n = pw.size;
+    require(od.size == 3 * n && dd.size == 3 * n, "origins/dirs: expected (N, 3)");
+    const PlaneArrays planes = read_planes(po, pn, u_min, u_max, v_min, v_max);
+    const std::size_t p = planes.p;
+    double* ud = write_matrix(us, p, n, "us");
+    double* vd = write_matrix(vs, p, n, "vs");
+    double* pd = write_matrix(pws, p, n, "pws");
+    const py::gil_scoped_release release;
+    optics::native::measure_planes_multi(stack, od.data, dd.data, pw.data, n, p, planes.po,
+                                         planes.pn, planes.u_min, planes.u_max, planes.v_min,
+                                         planes.v_max, eps, ud, vd, pd);
+}
+
+void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<double>& origins,
+                                  const py::array_t<double>& dirs, const py::array_t<double>& powers,
+                                  double ray_length, const py::array_t<double>& po,
+                                  const py::array_t<double>& pn, const py::array_t<double>& u_min,
+                                  const py::array_t<double>& u_max, const py::array_t<double>& v_min,
+                                  const py::array_t<double>& v_max, double eps,
+                                  const py::array_t<double>& starts, const py::array_t<double>& ends,
+                                  const py::array_t<std::int8_t>& kinds,
+                                  const py::array_t<std::int64_t>& counts,
+                                  const py::array_t<double>& us, const py::array_t<double>& vs,
+                                  const py::array_t<double>& pws) {
+    const ConstDoubles od = read_doubles(origins, 2, "origins");
+    const ConstDoubles dd = read_doubles(dirs, 2, "dirs");
+    const ConstDoubles pw = read_doubles(powers, 1, "powers");
+    const std::size_t n = pw.size;
+    require(od.size == 3 * n && dd.size == 3 * n, "origins/dirs: expected (N, 3)");
+    const PlaneArrays planes = read_planes(po, pn, u_min, u_max, v_min, v_max);
+    const std::size_t p = planes.p;
+    const py::buffer_info s_info = starts.request();
+    const py::buffer_info e_info = ends.request();
+    const py::buffer_info k_info = kinds.request();
+    const py::buffer_info c_info = counts.request();
+    require(s_info.ndim == 3 && static_cast<std::size_t>(s_info.shape[0]) == n && s_info.shape[2] == 3,
+            "starts: expected shape (N, cap, 3)");
+    require(e_info.ndim == 3 && e_info.size == s_info.size, "ends: expected shape (N, cap, 3)");
+    require(k_info.ndim == 2 && static_cast<std::size_t>(k_info.shape[0]) == n &&
+                static_cast<std::size_t>(k_info.shape[1]) == static_cast<std::size_t>(s_info.shape[1]),
+            "kinds: expected shape (N, cap)");
+    require(c_info.ndim == 1 && static_cast<std::size_t>(c_info.size) == n, "counts: expected (N,)");
+    require(!s_info.readonly && !e_info.readonly && !k_info.readonly && !c_info.readonly,
+            "segment buffers must be writeable");
+    const std::size_t cap = static_cast<std::size_t>(s_info.shape[1]);
+    double* ud = write_matrix(us, p, n, "us");
+    double* vd = write_matrix(vs, p, n, "vs");
+    double* pd = write_matrix(pws, p, n, "pws");
+    const py::gil_scoped_release release;
+    optics::native::trace_segments_and_planes(
+        stack, od.data, dd.data, pw.data, n, ray_length, p, planes.po, planes.pn, planes.u_min,
+        planes.u_max, planes.v_min, planes.v_max, eps, static_cast<double*>(s_info.ptr),
+        static_cast<double*>(e_info.ptr), static_cast<signed char*>(k_info.ptr),
+        static_cast<std::int64_t*>(c_info.ptr), cap, ud, vd, pd);
+}
+
 py::object py_rotation_from_z(const py::array_t<double>& direction) {
     const Vec3 d = to_vec3(direction, "direction");
     const Mat3 r = optics::native::rotation_from_z(d);
@@ -646,4 +752,13 @@ PYBIND11_MODULE(_native, m) {
           py::arg("powers"), py::arg("o"), py::arg("n"), py::arg("eps"), py::arg("u_min"),
           py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("us"), py::arg("vs"),
           py::arg("pws"));
+    m.def("measure_planes_multi", &py_measure_planes_multi, py::arg("stack"), py::arg("origins"),
+          py::arg("dirs"), py::arg("powers"), py::arg("po"), py::arg("pn"), py::arg("u_min"),
+          py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("eps"), py::arg("us"),
+          py::arg("vs"), py::arg("pws"));
+    m.def("trace_segments_and_planes", &py_trace_segments_and_planes, py::arg("stack"),
+          py::arg("origins"), py::arg("dirs"), py::arg("powers"), py::arg("ray_length"),
+          py::arg("po"), py::arg("pn"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"),
+          py::arg("v_max"), py::arg("eps"), py::arg("starts"), py::arg("ends"), py::arg("kinds"),
+          py::arg("counts"), py::arg("us"), py::arg("vs"), py::arg("pws"));
 }

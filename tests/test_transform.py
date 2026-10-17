@@ -102,6 +102,33 @@ def test_positioned_element_mesh_is_shifted():
     np.testing.assert_allclose(v1, v0 + TRANS, atol=1e-12)
 
 
+def test_mesh_recomputes_after_transform_change():
+    # The cache stores local geometry; the world transform is applied on read,
+    # so mutating the transform (or reusing the same geometry under a new one)
+    # must never return stale world vertices.
+    surface = Surface(
+        "u", "v", "sqrt(1 - u**2 - v**2)", u_range=(-1.0, 1.0), v_range=(-1.0, 1.0)
+    )
+    identity_mesh = SurfaceMesher(surface).mesh(24)
+    surface.transform = Transform(np.eye(3), TRANS)
+    moved_mesh = SurfaceMesher(surface).mesh(24)
+    reference = Surface(
+        "u",
+        "v",
+        "sqrt(1 - u**2 - v**2)",
+        transform=Transform(np.eye(3), TRANS),
+        u_range=(-1.0, 1.0),
+        v_range=(-1.0, 1.0),
+    )
+    reference_mesh = SurfaceMesher(reference).mesh(24)
+    moved_verts, moved_faces = moved_mesh
+    identity_verts, _ = identity_mesh
+    ref_verts, _ = reference_mesh
+    np.testing.assert_allclose(moved_verts, identity_verts + TRANS, atol=1e-12)
+    np.testing.assert_allclose(moved_verts, ref_verts, atol=1e-12)
+    np.testing.assert_array_equal(moved_faces, reference_mesh[1])
+
+
 def test_positioned_element_intersection_shifted():
     default = refractive_element_from_config(_lens_schema())
     positioned = refractive_element_from_config(_lens_schema(), position=TRANS)

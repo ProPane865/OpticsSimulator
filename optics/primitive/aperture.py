@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -6,6 +7,28 @@ from .. import constants as _c
 
 if TYPE_CHECKING:
     from .surface import Surface
+
+# The aperture rim depends only on the surface's *local* geometry (expressions,
+# parameter ranges) plus the aperture circle and sample count -- not its world
+# transform. Caching the local rim by a geometry signature lets identical or
+# freshly rebuilt surfaces reuse the (expensive) parameter-inversion solves and
+# re-apply only the world transform.
+_RIM_CACHE: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
+_RIM_CACHE_MAX = 64
+
+
+def _rim_key(surface: "Surface", aperture: "CircularAperture", n: int) -> tuple:
+    return (
+        surface.x_expr,
+        surface.y_expr,
+        surface.z_expr,
+        tuple(surface.u_range),
+        tuple(surface.v_range),
+        float(aperture.radius),
+        float(aperture.center[0]),
+        float(aperture.center[1]),
+        int(n),
+    )
 
 
 class Aperture:
@@ -98,31 +121,43 @@ class CircularAperture(Aperture):
         )
 
     def boundary(self, surface: "Surface", n: int = _c.APERTURE_BOUNDARY_N) -> np.ndarray:
-        theta = np.linspace(0, 2.0 * np.pi, n, endpoint=False)
-        targets = np.column_stack([
-            self.center[0] + self.radius * np.cos(theta),
-            self.center[1] + self.radius * np.sin(theta)
-        ])
+        key = _rim_key(surface, self, n)
+        cached = _RIM_CACHE.get(key)
+        if cached is not None:
+            _RIM_CACHE.move_to_end(key)
+            local = cached
+        else:
+            theta = np.linspace(0, 2.0 * np.pi, n, endpoint=False)
+            targets = np.column_stack([
+                self.center[0] + self.radius * np.cos(theta),
+                self.center[1] + self.radius * np.sin(theta)
+            ])
 
-        points = []
-        last = None
+            points = []
+            last = None
 
-        for x, y in targets:
-            uv = surface.parameters_at_xy(x, y, seed=last)
+            for x, y in targets:
+                uv = surface.parameters_at_xy(x, y, seed=last)
 
-            if uv is None:
-                raise ValueError(f"Aperture boundary point ({x}, {y}) does not lie on the surface")
+                if uv is None:
+                    raise ValueError(f"Aperture boundary point ({x}, {y}) does not lie on the surface")
 
-            u, v = uv
-            last = uv
-            p = surface.point(u, v)
+                u, v = uv
+                last = uv
+                p = surface.evaluate_local(u, v)
 
-            if not np.all(np.isfinite(p)):
-                raise ValueError("Non-finite point on aperture boundary")
+                if not np.all(np.isfinite(p)):
+                    raise ValueError("Non-finite point on aperture boundary")
 
-            points.append(p)
-        
-        return np.array(points, dtype=float)
+                points.append(p)
+
+            local = np.array(points, dtype=float)
+            _RIM_CACHE[key] = local
+            _RIM_CACHE.move_to_end(key)
+            while len(_RIM_CACHE) > _RIM_CACHE_MAX:
+                _RIM_CACHE.popitem(last=False)
+
+        return surface.transform.points_to_world(local)
 
     def njit_params(self) -> "tuple[float, float, float]":
         return self.radius, float(self.center[0]), float(self.center[1])

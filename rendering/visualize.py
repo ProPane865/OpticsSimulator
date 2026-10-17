@@ -342,6 +342,30 @@ def send_to_back(nodes: Sequence[Any], base: int = -2) -> None:
             node.order = base + offset
 
 
+def _build_ray_visual_nodes(
+    view: Any,
+    segments: "Sequence[tuple[np.ndarray, np.ndarray, str]]",
+    markers: "Sequence[tuple[np.ndarray, tuple[float, float, float, float]]]",
+    show_markers: bool,
+) -> list[Any]:
+    nodes = []
+    if segments:
+        pos = np.array([[start, end] for start, end, _ in segments], dtype=float)
+        colors = np.empty((2 * len(segments), 4), dtype=float)
+        for i, (_, _, kind) in enumerate(segments):
+            colors[2 * i] = RAY_SEGMENT_COLORS[kind]
+            colors[2 * i + 1] = RAY_SEGMENT_COLORS[kind]
+        line = visuals.Line(pos=pos, connect="segments", color=colors, width=1)
+        line.update_gl_state(depth_test=True, depth_mask=True)
+        nodes.append(_attach(view, line))
+    if markers and show_markers:
+        mesh = _make_markers_mesh(markers)
+        if mesh is not None:
+            nodes.append(_attach(view, mesh))
+    send_to_back(nodes)
+    return nodes
+
+
 def build_ray_nodes(
     view: Any,
     elements: "RefractiveElement | Sequence[RefractiveElement]",
@@ -360,23 +384,39 @@ def build_ray_nodes(
     if isinstance(elements, RefractiveElement):
         elements = [elements]
     segments, markers = _collect_ray_segments(list(elements), rays, ray_length=ray_length)
+    return _build_ray_visual_nodes(view, segments, markers, show_markers)
 
-    nodes = []
-    if segments:
-        pos = np.array([[start, end] for start, end, _ in segments], dtype=float)
-        colors = np.empty((2 * len(segments), 4), dtype=float)
-        for i, (_, _, kind) in enumerate(segments):
-            colors[2 * i] = RAY_SEGMENT_COLORS[kind]
-            colors[2 * i + 1] = RAY_SEGMENT_COLORS[kind]
-        line = visuals.Line(pos=pos, connect="segments", color=colors, width=1)
-        line.update_gl_state(depth_test=True, depth_mask=True)
-        nodes.append(_attach(view, line))
-    if markers and show_markers:
-        mesh = _make_markers_mesh(markers)
-        if mesh is not None:
-            nodes.append(_attach(view, mesh))
-    send_to_back(nodes)
-    return nodes
+
+def build_ray_nodes_from_segments(
+    view: Any,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    kinds: np.ndarray,
+    counts: np.ndarray,
+    show_markers: "bool | None" = None,
+) -> list[Any]:
+    """Draw rays from a precomputed batch trace (``starts``/``ends``/``kinds``/
+    ``counts``), avoiding a second trace when measurement and rendering share
+    one walk."""
+    if show_markers is None:
+        show_markers = SHOW_RAY_INTERSECTION_MARKERS
+    segments: list[tuple[np.ndarray, np.ndarray, str]] = []
+    markers: list[tuple[np.ndarray, tuple[float, float, float, float]]] = []
+    for i in range(counts.shape[0]):
+        c = int(counts[i])
+        _append_ray_path(
+            segments,
+            markers,
+            [
+                (
+                    starts[i, k].copy(),
+                    ends[i, k].copy(),
+                    _SEGMENT_KIND_NAMES[int(kinds[i, k])],
+                )
+                for k in range(c)
+            ],
+        )
+    return _build_ray_visual_nodes(view, segments, markers, show_markers)
 
 
 def create_canvas(width: int = 900, height: int = 700) -> Any:

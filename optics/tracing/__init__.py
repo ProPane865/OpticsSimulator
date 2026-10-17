@@ -4,7 +4,7 @@ Layering (each module may only import from modules left of it):
 ``direction`` <- ``kernels`` <- ``context`` <- ``stack``, with ``element``
 depending only on ``direction``.
 Internal imports always target the defining submodule, never this package
-``__init__``, so the Numba njit call graph stays acyclic.
+``__init__``, so the trace call graph stays acyclic.
 """
 
 from .context import build_trace_context, trace_segments_batch

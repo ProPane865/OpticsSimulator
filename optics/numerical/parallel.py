@@ -1,21 +1,19 @@
-"""Chunked GIL-free dispatch for ``@njit(nogil=True)`` kernels."""
+"""Chunked dispatch helper for GIL-free work callables.
 
+The batch kernels themselves thread natively (``optics._native``); this
+module keeps the historical chunking API for pure-Python callers.
+"""
+
+import os
 import threading
 from collections.abc import Callable
 
-import numba
-
 
 def run_in_chunks(work: Callable[[int, int], None], n: int) -> None:
-    """Split ``range(n)`` across GIL-free njit chunk calls on threads.
-
-    ``prange`` cannot carry the element-stack tuple through its gufunc
-    packing, so stack kernels are dispatched as disjoint slices instead;
-    ``nogil=True`` lets the compiled chunks run truly in parallel.
-    """
+    """Split ``range(n)`` across GIL-free chunk calls on threads."""
     if n <= 0:
         return
-    nt = max(1, min(numba.get_num_threads(), n))
+    nt = max(1, min(os.cpu_count() or 1, n))
     chunk = -(-n // nt)
     errors: list[BaseException] = []
 

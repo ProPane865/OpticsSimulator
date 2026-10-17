@@ -2,10 +2,9 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
-from numba import njit, prange
 
+from . import _native
 from . import constants as _c
-from .numerical.parallel import run_in_chunks
 from .numerical.plane import plane_intersect_kernel
 from .numerical.vector import normalize
 from .primitive import Ray
@@ -16,116 +15,8 @@ from .tracing import (
     traverse_stack,
 )
 from .tracing.context import build_trace_context
-from .tracing.kernels import trace_stack_to_plane_njit
 
 _EPS = _c.PLANE_EPS
-
-
-@njit(cache=True)
-def _accumulate_kernel(
-    grid: np.ndarray,
-    u: np.ndarray,
-    v: np.ndarray,
-    power: np.ndarray,
-    u_min: float,
-    u_max: float,
-    v_min: float,
-    v_max: float,
-    ru: int,
-    rv: int,
-    interval_u: float,
-    interval_v: float,
-) -> float:
-    """Accumulate in-extent ray power into ``grid``; return total added."""
-    total = 0.0
-    for idx in range(u.shape[0]):
-        uu = u[idx]
-        vv = v[idx]
-        pw = power[idx]
-        if not (np.isfinite(uu) and np.isfinite(vv) and np.isfinite(pw)):
-            continue
-        if uu < u_min or uu > u_max or vv < v_min or vv > v_max:
-            continue
-        i = int(np.floor((uu - u_min) / interval_u * ru))
-        j = int(np.floor((vv - v_min) / interval_v * rv))
-        if i < 0:
-            i = 0
-        elif i > ru - 1:
-            i = ru - 1
-        if j < 0:
-            j = 0
-        elif j > rv - 1:
-            j = rv - 1
-        grid[j, i] += pw
-        total += pw
-    return total
-
-
-@njit(parallel=True, cache=True)
-def _measure_direct_kernel(
-    origins: np.ndarray,
-    dirs: np.ndarray,
-    powers: np.ndarray,
-    o: np.ndarray,
-    n: np.ndarray,
-    eps: float,
-    us: np.ndarray,
-    vs: np.ndarray,
-    pws: np.ndarray,
-) -> None:
-    """Plane-intersect every ray in parallel; write ``(u, v, power)`` per ray."""
-    for i in prange(origins.shape[0]):
-        u, v, t, ok = plane_intersect_kernel(origins[i], dirs[i], o, n, eps)
-        if ok:
-            us[i] = u
-            vs[i] = v
-            pws[i] = powers[i]
-
-
-@njit(cache=True, nogil=True)
-def _measure_stack_chunk(
-    stack: Any,
-    origins: np.ndarray,
-    dirs: np.ndarray,
-    powers: np.ndarray,
-    o: np.ndarray,
-    n: np.ndarray,
-    eps: float,
-    u_min: float,
-    u_max: float,
-    v_min: float,
-    v_max: float,
-    us: np.ndarray,
-    vs: np.ndarray,
-    pws: np.ndarray,
-    lo: int,
-    hi: int,
-) -> None:
-    """Trace rays ``[lo, hi)`` through the stack, then hit the plane."""
-    for i in range(lo, hi):
-        out_o = np.empty(3)
-        out_d = np.empty(3)
-        found = trace_stack_to_plane_njit(
-            stack,
-            origins[i],
-            dirs[i],
-            o,
-            n,
-            eps,
-            u_min,
-            u_max,
-            v_min,
-            v_max,
-            out_o,
-            out_d,
-        )
-        if not found:
-            continue
-        u, v, t, ok = plane_intersect_kernel(out_o, out_d, o, n, eps)
-        if ok:
-            us[i] = u
-            vs[i] = v
-            pws[i] = powers[i]
 
 
 class MeasurementPlane:
@@ -205,7 +96,11 @@ class MeasurementPlane:
             return None
 
         u, v, t, ok = plane_intersect_kernel(
-            np.asarray(ro, dtype=float), np.asarray(d, dtype=float), self.o, self.n, _EPS
+            np.ascontiguousarray(ro, dtype=float),
+            np.ascontiguousarray(d, dtype=float),
+            np.ascontiguousarray(self.o, dtype=float),
+            self.n,
+            _EPS,
         )
         if not ok:
             return None
@@ -246,11 +141,11 @@ class MeasurementPlane:
         power = np.atleast_1d(np.asarray(power, dtype=float))
 
         return float(
-            _accumulate_kernel(
+            _native.accumulate(
                 self.grid,
-                u,
-                v,
-                power,
+                np.ascontiguousarray(u),
+                np.ascontiguousarray(v),
+                np.ascontiguousarray(power),
                 self.u_min,
                 self.u_max,
                 self.v_min,
@@ -332,14 +227,14 @@ class MeasurementPlane:
     ) -> float:
         """Trace rays through ``elements`` and accumulate power on the grid.
 
-        Rays are traced in parallel (``prange``) through the nopython stack
-        kernel when every surface supports it; bin accumulation stays serial
-        so the grid is deterministic.
+        Rays are traced in parallel (native threads) through the stack kernel
+        when every surface supports it; bin accumulation stays serial so the
+        grid is deterministic.
         """
         self.reset()
         if not rays:
             return 0.0
-        stack: tuple[Any, ...] | None = ()
+        stack: Any = None
         if elements:
             stack = build_trace_context(elements)
             if stack is None:
@@ -350,31 +245,25 @@ class MeasurementPlane:
         us = np.full(len(rays), np.nan)
         vs = np.full(len(rays), np.nan)
         pws = np.zeros(len(rays))
-        if stack:
-
-            def work(lo: int, hi: int) -> None:
-                _measure_stack_chunk(
-                    stack,
-                    origins,
-                    dirs,
-                    powers,
-                    self.o,
-                    self.n,
-                    _EPS,
-                    self.u_min,
-                    self.u_max,
-                    self.v_min,
-                    self.v_max,
-                    us,
-                    vs,
-                    pws,
-                    lo,
-                    hi,
-                )
-
-            run_in_chunks(work, len(rays))
+        if stack is not None:
+            _native.measure_stack(
+                stack,
+                origins,
+                dirs,
+                powers,
+                self.o,
+                self.n,
+                _EPS,
+                self.u_min,
+                self.u_max,
+                self.v_min,
+                self.v_max,
+                us,
+                vs,
+                pws,
+            )
         else:
-            _measure_direct_kernel(
+            _native.measure_direct(
                 origins, dirs, powers, self.o, self.n, _EPS, us, vs, pws
             )
         return self.accumulate(us, vs, pws)

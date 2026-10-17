@@ -3,9 +3,9 @@
 Symbolic derivatives are gone: tangents come from central differences whose step
 scales with the parameter span, with an oriented one-sided fallback where a
 central sample leaves the parameter domain or is non-finite (e.g. across a
-``sqrt`` edge). The exact same policy is emitted into the generated Numba module
-(see :mod:`optics.numerical.codegen`) and re-implemented here for the pure-Python
-reference oracle, so the two agree point for point.
+``sqrt`` edge). The exact same policy is implemented in the native kernels
+(``optics._native``) and re-implemented here for the pure-Python reference
+oracle, so the two agree point for point.
 """
 
 from __future__ import annotations

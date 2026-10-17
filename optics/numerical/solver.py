@@ -1,9 +1,9 @@
 """Ray/surface intersection and parameter inversion drivers.
 
-The nopython kernels live in :mod:`~optics.numerical.intersect`,
-:mod:`~optics.numerical.invert` and :mod:`~optics.numerical.newton`; this
-module builds the seed grids and runs the Python fallbacks that keep the
-pure-Python reference path (the parity oracle for the kernels) complete.
+The kernels run natively (``optics._native``, wrapped by
+:mod:`~optics.numerical.intersect` / :mod:`~optics.numerical.invert`); this
+module builds the seed grids and runs the orchestration: seed selection,
+dedup, and the tolerance-checked refinement used by the Python-facing API.
 """
 
 from collections.abc import Sequence
@@ -37,10 +37,10 @@ class SurfaceSolver:
     def __init__(self, surface: "Surface") -> None:
         self.surface = surface
         self._grid_cache: dict[int, _SeedGrid] = {}
-        self._njit_grid_cache: dict[int, tuple[Any, ...]] = {}
+        self._njit_grid_cache: dict[int, Any] = {}
 
-    def njit_grid(self, grid_n: int = _c.SEED_GRID_N) -> tuple[Any, ...]:
-        """Seed grid as a flat tuple of contiguous arrays for the njit kernels."""
+    def njit_grid(self, grid_n: int = _c.SEED_GRID_N) -> Any:
+        """Seed grid as a native object for the native kernels."""
         cached = self._njit_grid_cache.get(grid_n)
         if cached is None:
             g = self._seed_grid(grid_n)

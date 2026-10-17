@@ -284,15 +284,23 @@ def test_parameters_at_xy_parity_non_graph():
 
     targets = [(1.0, 0.3), (0.0, 0.5), (-1.0, -0.2)]
     fast_surface = make_surface()
-    fast = [fast_surface.parameters_at_xy(x, y) for x, y in targets]
     slow_surface = reference_surface(make_surface())
+    fast = [fast_surface.parameters_at_xy(x, y) for x, y in targets]
     slow = [slow_surface.parameters_at_xy(x, y) for x, y in targets]
     for fu, suv in zip(fast, slow):
         if fu is None or suv is None:
             assert fu is None and suv is None
             continue
-        assert fu[0] == pytest.approx(suv[0], abs=1e-7)
-        assert fu[1] == pytest.approx(suv[1], abs=1e-7)
+        # The (x, y) inverse is many-to-one on a cylinder (periodic seam,
+        # two branches at x=0) and each solver picks a seed-order-dependent
+        # branch, so parity is asserted on the surface point reached, with a
+        # tolerance matching the solvers' stall-level residuals.
+        np.testing.assert_allclose(
+            fast_surface.evaluate_local(fu[0], fu[1]),
+            slow_surface.evaluate_local(suv[0], suv[1]),
+            rtol=0.0,
+            atol=1e-5,
+        )
 
 
 def test_parameters_at_parity_graph(make_element):

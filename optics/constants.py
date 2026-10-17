@@ -79,8 +79,9 @@ GRAPH_XY_TOL = 1e-9
 # Tangents are computed by central finite differences whose step is proportional
 # to the parameter span: ``h = FD_STEP_REL * (u_max - u_min)`` (and likewise for
 # ``v``), floored at ``FD_MIN_STEP`` so degenerate ranges never give a zero step.
-# The same policy is mirrored in the generated Numba module and the pure-Python
-# reference; keep it in lock-step across both.
+# The same policy is mirrored in the native expression interpreter
+# (``optics._native``) and the pure-Python reference; keep it in lock-step
+# across both.
 FD_STEP_REL = 1e-6
 FD_MIN_STEP = 1e-12
 # Shrink budget for the oriented one-sided differences used when a central

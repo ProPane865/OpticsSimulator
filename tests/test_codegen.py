@@ -15,8 +15,11 @@ def test_njit_path_active_for_standard_surface(make_element):
     assert s._local_tangents is not None
     desc = s.njit_descriptor
     assert desc is not None
-    assert desc[0] is s._eval_cfn
-    assert desc[1] is s._deriv_cfn
+    from optics.numerical.desc import eval_njit
+
+    np.testing.assert_array_equal(
+        eval_njit(desc, 0.1, 0.2), s.evaluate_local(0.1, 0.2)
+    )
 
 
 def test_scalar_eval_matches_array(make_element):

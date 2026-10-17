@@ -32,11 +32,10 @@ class Surface:
         self.x_expr = fns.x_src
         self.y_expr = fns.y_src
         self.z_expr = fns.z_src
+        self._model = fns.model
         self._eval_local = fns.eval_local
         self._eval_grid = fns.eval_grid
         self._local_tangents = fns.derivatives_local
-        self._eval_cfn = fns.eval_cfn
-        self._deriv_cfn = fns.deriv_cfn
         if transform is None:
             self.transform = Transform(np.eye(3, 3), np.zeros(3))
         elif isinstance(transform, Transform):
@@ -52,10 +51,10 @@ class Surface:
         self._njit_desc_built = False
 
     @property
-    def njit_descriptor(self) -> "tuple[Any, ...] | None":
-        """Flat tuple describing this surface for the nopython kernels.
+    def njit_descriptor(self) -> Any:
+        """Native descriptor for this surface, used by the kernel paths.
 
-        ``None`` when the surface cannot run in nopython mode (expression not
+        ``None`` when the surface cannot run natively (expression not
         compilable, or an aperture type the kernels do not understand), in
         which case callers fall back to the Python solver path.
         """
@@ -64,7 +63,7 @@ class Surface:
             self._njit_desc = self._build_njit_descriptor()
         return self._njit_desc
 
-    def _build_njit_descriptor(self) -> "tuple[Any, ...] | None":
+    def _build_njit_descriptor(self) -> Any:
         return build_surface_descriptor(self)
 
     @property

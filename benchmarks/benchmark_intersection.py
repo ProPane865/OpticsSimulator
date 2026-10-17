@@ -1,9 +1,10 @@
-"""Ray/surface intersection benchmark: Numba kernel vs pure-Python oracle.
+"""Ray/surface intersection benchmark: native kernel vs pure-Python oracle.
 
 Scenario: one element's front surface, ``--rays`` rays (default 10,000).
 The Python oracle path is the pure-Python ``ReferenceSurface`` ray/surface
-intersection from ``tests/_reference.py`` (seed-grid + damped-Newton, no Numba),
-run on ``--ref-rays`` rays because the full count would take minutes.
+intersection from ``tests/_reference.py`` (seed-grid + damped-Newton, no
+native code), run on ``--ref-rays`` rays because the full count would take
+minutes.
 
     python benchmarks/benchmark_intersection.py [--cold] [--json out.json]
 """
@@ -19,14 +20,14 @@ from optics.numerical.intersect import surface_intersect_njit
 from optics.primitive import Ray
 
 
-class NumbaBench:
+class NativeBench:
     def __init__(self, rays: int) -> None:
         self.rays = rays
         self.element = bc.make_element(0.0)
         self.surface = self.element.surface1
         self.desc = self.surface.njit_descriptor
         if self.desc is None:
-            raise RuntimeError("surface lost the nopython codegen path")
+            raise RuntimeError("surface lost the native kernel path")
         self.grid = self.surface.solver.njit_grid()
         self.origins, self.dirs = bc.make_rays(rays)
 
@@ -56,9 +57,9 @@ class PythonOracleBench:
 
 
 def run_scenario(name: str, rays: int) -> None:
-    """One setup + one untimed pass; used by the cold-JIT subprocess."""
-    if name == "numba":
-        NumbaBench(rays).run()
+    """One setup + one untimed pass; used by the cold-start subprocess."""
+    if name == "native":
+        NativeBench(rays).run()
     elif name == "python":
         PythonOracleBench(rays).run()
     else:
@@ -79,7 +80,7 @@ def main(argv: "list[str] | None" = None) -> int:
 
     if args.cold_child:
         t0 = time.perf_counter()
-        run_scenario(args.scenario or "numba", args.rays)
+        run_scenario(args.scenario or "native", args.rays)
         bc.finish_cold(t0)
         return 0
 
@@ -90,7 +91,7 @@ def main(argv: "list[str] | None" = None) -> int:
     seconds = bc.time_call(lambda: bc.make_element(0.0), warmup=0, repeats=1)
     report.add("setup (one-time)", "element build incl. expression codegen", seconds)
     seconds = bc.time_call(lambda: surface.njit_descriptor, warmup=0, repeats=1)
-    report.add("setup (one-time)", "njit descriptor build", seconds)
+    report.add("setup (one-time)", "native descriptor build", seconds)
 
     def rebuild_grid() -> None:
         surface.solver._grid_cache.clear()
@@ -100,12 +101,12 @@ def main(argv: "list[str] | None" = None) -> int:
     seconds = bc.time_call(rebuild_grid, warmup=0, repeats=1)
     report.add("setup (one-time)", "seed grid (njit_grid)", seconds)
 
-    nb = NumbaBench(args.rays)
+    nb = NativeBench(args.rays)
     hits = nb.run()
     if hits == 0:
         print("warning: no rays hit the surface, check the ray fan", file=sys.stderr)
     nb_seconds = bc.time_call(nb.run, args.warmup, args.repeats, args.budget)
-    report.add("timed", "njit surface_intersect_njit", nb_seconds, args.rays, f"{hits:,} hits")
+    report.add("timed", "native surface_intersect_njit", nb_seconds, args.rays, f"{hits:,} hits")
 
     po = PythonOracleBench(args.ref_rays)
     ref_hits = po.run()
@@ -120,11 +121,11 @@ def main(argv: "list[str] | None" = None) -> int:
     )
 
     if args.cold:
-        for scenario, label in (("numba", "njit chain"), ("python", "python oracle (imports only)")):
-            child_rays = args.child_rays if scenario == "numba" else min(args.child_rays, 100)
+        for scenario, label in (("native", "native chain"), ("python", "python oracle (imports only)")):
+            child_rays = args.child_rays if scenario == "native" else min(args.child_rays, 100)
             cold, wall = bc.run_cold(Path(__file__), scenario, child_rays)
             report.add(
-                "cold JIT (fresh NUMBA_CACHE_DIR)",
+                "cold start (fresh interpreter)",
                 f"first call, subprocess [{label}]",
                 cold,
                 note=f"first call only; full cold start incl. interpreter: {wall:.1f} s",

@@ -3,8 +3,14 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Built native module (dev builds drop it next to the package)
+optics/_native*.pyd
+optics/_native*.so
+optics/_native*.dylib
+
 # Distribution / packaging
 build/
+build-native/
 dist/
 *.egg-info/
 .eggs/

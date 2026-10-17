@@ -1,19 +1,14 @@
+"""Vector helpers backed by the native kernels."""
+
 from collections.abc import Sequence
 
 import numpy as np
-from numba import njit
 
-from .. import constants as _c
+from .. import _native
 
 
-@njit(cache=True)
 def normalize_vector(v: np.ndarray) -> np.ndarray:
-    norm = float(np.linalg.norm(v))
-
-    if not np.isfinite(norm) or norm == 0.0:
-        raise ValueError("Vector must be finite and nonzero")
-
-    return v / norm
+    return np.asarray(_native.normalize(np.ascontiguousarray(v, dtype=float)))
 
 
 def normalize(vector: np.ndarray | Sequence[float]) -> np.ndarray:
@@ -27,20 +22,6 @@ def rotation_from_z(direction: np.ndarray | Sequence[float]) -> np.ndarray:
     target direction; near-parallel targets need no rotation and
     antiparallel ones a 180-degree turn about X.
     """
-    z_axis = np.array([0.0, 0.0, 1.0])
-    direction_norm = normalize(direction)
-    axis = np.cross(z_axis, direction_norm)
-    axis_norm = float(np.linalg.norm(axis))
-    cos_theta = float(np.inner(z_axis, direction_norm))
-
-    if axis_norm < _c.VECTOR_PARALLEL_TOL:
-        if cos_theta < 0.0:
-            return np.array([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]])
-        return np.eye(3)
-
-    skew = np.array([
-        [0.0, -axis[2], axis[1]],
-        [axis[2], 0.0, -axis[0]],
-        [-axis[1], axis[0], 0.0],
-    ])
-    return np.eye(3) + skew + (skew @ skew) * ((1.0 - cos_theta) / axis_norm**2)
+    return np.asarray(
+        _native.rotation_from_z(np.ascontiguousarray(direction, dtype=float))
+    )

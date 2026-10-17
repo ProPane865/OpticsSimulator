@@ -204,12 +204,13 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
 
 def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
-    """Precompile the fixed-capacity Numba stack kernels off the GUI thread.
+    """Prime the batch trace/measure paths off the GUI thread.
 
-    The trace/measure kernels compile once per capacity, not per element
-    count, so priming them once after startup keeps the first
-    add-element/apply-properties interaction from paying the compile cost
-    synchronously. Best-effort: any failure just leaves on-demand compiles.
+    The native kernels need no compilation, but the first real trace still
+    pays one-time setup (seed grids, descriptor builds for freshly loaded
+    elements); priming it here keeps the first add-element/apply-properties
+    interaction responsive. Best-effort: any failure just leaves the work
+    for the first interactive trace.
     """
     import numpy as np
 

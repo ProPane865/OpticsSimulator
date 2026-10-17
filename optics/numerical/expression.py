@@ -3,8 +3,9 @@
 Surface definitions are ``(x(u, v), y(u, v), z(u, v))`` expression strings.
 This module owns *syntax and safety*: it parses a string with :func:`ast.parse`
 (``mode="eval"``), accepts only an explicit allowlist of nodes, and lowers the
-validated AST to scalar Python source for the Numba code generator. It performs
-no symbolic algebra and never evaluates a string with :func:`eval`.
+validated AST to scalar Python source for the pure-Python reference oracle
+(the native parser in ``optics._native`` accepts the same grammar). It
+performs no symbolic algebra and never evaluates a string with :func:`eval`.
 
 Grammar (variables ``u``, ``v``; integer/float literals only)::
 
@@ -24,8 +25,8 @@ from typing import Final
 
 VARIABLES: Final[frozenset[str]] = frozenset({"u", "v"})
 
-# name -> Numba/Python scalar printer (``abs`` is the supported builtin; the rest
-# come from ``math``). The same mapping drives the generated Numba module and the
+# name -> Python scalar printer (``abs`` is the supported builtin; the rest
+# come from ``math``). The same mapping drives the native parser and the
 # pure-Python reference, keeping every backend on identical scalar semantics.
 SCALAR_FUNCS: Final[dict[str, str]] = {
     "sqrt": "math.sqrt",

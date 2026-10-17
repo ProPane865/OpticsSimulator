@@ -1,23 +1,20 @@
 """Shared helpers for the standalone benchmark scripts.
 
 No third-party benchmarking dependencies: timing is ``perf_counter``
-best-of-N, and cold-JIT runs are measured by re-executing the calling
-script in a subprocess with ``NUMBA_CACHE_DIR`` pointed at a fresh temp
-directory (the kernels use ``cache=True``, so warm runs hit the on-disk
-cache and cold runs pay the full compile).
+best-of-N, and cold-start runs are measured by re-executing the calling
+script in a fresh subprocess interpreter (the native kernels carry no JIT
+cache, so a cold run is dominated by interpreter start-up and first-call
+setup).
 """
 
 import argparse
-import contextlib
 import json
 import math
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +22,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import numba
 import numpy as np
 
 from optics.config import refractive_element_from_config
@@ -89,7 +85,7 @@ def make_ray_objects(origins: np.ndarray, dirs: np.ndarray) -> list[Ray]:
 def force_python_path(elements: Sequence[RefractiveElement]) -> None:
     """Pin elements to the pure-Python reference path.
 
-    Production is Numba-only, so the reference implementation now lives as a
+    Production is native-only, so the reference implementation now lives as a
     test oracle (``tests/_reference.py``). The benchmarks borrow that single
     implementation rather than duplicating it: each element's surfaces are
     swapped for ``ReferenceSurface`` instances (finite-difference Python
@@ -130,24 +126,6 @@ def time_call(
         if total >= budget:
             break
     return best
-
-
-@contextlib.contextmanager
-def numba_threads(count: "int | None") -> "Iterator[None]":
-    """Run with ``numba.set_num_threads(count)``; ``None`` keeps the default."""
-    prev = numba.get_num_threads()
-    if count is not None:
-        numba.set_num_threads(count)
-    try:
-        yield
-    finally:
-        numba.set_num_threads(prev)
-
-
-def thread_label(count: "int | None") -> str:
-    if count is None:
-        return f"all ({numba.get_num_threads()})"
-    return str(count)
 
 
 # --- Report ------------------------------------------------------------------
@@ -230,7 +208,7 @@ def add_common_args(parser: argparse.ArgumentParser, rays_default: int) -> None:
     )
     parser.add_argument("--json", type=Path, default=None, help="write report rows to JSON")
     parser.add_argument("--quiet", action="store_true", help="suppress the report table")
-    parser.add_argument("--cold", action="store_true", help="also measure cold-JIT in a subprocess")
+    parser.add_argument("--cold", action="store_true", help="also measure cold start in a subprocess")
 
 
 COLD_PREFIX = "COLD_SECONDS"
@@ -243,20 +221,18 @@ def add_cold_args(parser: argparse.ArgumentParser) -> None:
         "--child-rays",
         type=int,
         default=5000,
-        help="rays for the --cold subprocess (default: 5000; compile dominates)",
+        help="rays for the --cold subprocess (default: 5000; setup dominates)",
     )
 
 
 def run_cold(script: Path, scenario: str, child_rays: int) -> "tuple[float, float]":
-    """Re-run *script* in a fresh interpreter with an empty Numba cache dir.
+    """Re-run *script* in a fresh interpreter.
 
     Returns ``(cold_first_call_seconds, subprocess_wall_seconds)``; the first
     excludes interpreter start-up and imports, the second is the full cold
     start a user would experience.
     """
     env = os.environ.copy()
-    cache_dir = tempfile.mkdtemp(prefix="optics-bench-cache-")
-    env["NUMBA_CACHE_DIR"] = cache_dir
     cmd = [
         sys.executable,
         str(script),
@@ -267,16 +243,13 @@ def run_cold(script: Path, scenario: str, child_rays: int) -> "tuple[float, floa
         str(child_rays),
         "--quiet",
     ]
-    try:
-        t0 = time.perf_counter()
-        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=True)
-        wall = time.perf_counter() - t0
-    finally:
-        shutil.rmtree(cache_dir, ignore_errors=True)
+    t0 = time.perf_counter()
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=True)
+    wall = time.perf_counter() - t0
     for line in proc.stdout.splitlines():
         if line.startswith(COLD_PREFIX):
             return float(line.split()[1]), wall
-    raise RuntimeError(f"cold child did not report JIT time:\n{proc.stdout}")
+    raise RuntimeError(f"cold child did not report first-call time:\n{proc.stdout}")
 
 
 def finish_cold(t0: float) -> None:

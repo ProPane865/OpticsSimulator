@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core>=0.10", "pybind11>=3.0", "numpy"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "optics-simulator"
@@ -12,7 +12,6 @@ dependencies = [
     "numpy",
     "vispy",
     "PySide6",
-    "numba",
     "scipy",
 ]
 
@@ -26,12 +25,10 @@ dev = [
 [project.scripts]
 opticssim = "ui.app:main"
 
-[tool.setuptools.packages.find]
-include = ["optics*", "rendering*", "ui*"]
-
-[tool.setuptools.package-data]
-ui = ["*.ui"]
-"optics.examples" = ["*.json"]
+[tool.scikit-build]
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["optics", "rendering", "ui"]
+sdist.include = ["native/src/*", "native/include/optics/*", "native/tests/*"]
 
 [tool.ruff]
 line-length = 120

@@ -1,10 +1,9 @@
 """Stack trace benchmark: 2-element x 10k and 4-element x 100k rays.
 
-Uses the chunked parallel batch API at 1 thread vs all threads, plus cold
-vs warm JIT per stack size. Note that the trace-stack tuple is padded to a
-capacity of 4 (see ``_CTX_PAD``), so the 2- and 4-element stacks compile
-under the *same* signature: after the first cold JIT of either size, the
-other is warm.
+Uses the parallel batch API (native threads), plus cold vs warm start per
+stack size. The native trace stack is not tied to the element count, so
+both stack sizes share one code path and there is nothing to re-compile
+between sizes.
 
     python benchmarks/benchmark_stack.py [--cold] [--json out.json]
 """
@@ -16,7 +15,6 @@ from pathlib import Path
 import bench_common as bc
 
 from optics.tracing import trace_segments_batch
-from optics.tracing.context import _CTX_PAD, _padded_capacity
 
 
 class StackBench:
@@ -32,7 +30,7 @@ class StackBench:
 
 
 def run_scenario(name: str, rays: int) -> None:
-    """One setup + one untimed pass; used by the cold-JIT subprocess."""
+    """One setup + one untimed pass; used by the cold-start subprocess."""
     sizes = {"stack2": 2, "stack4": 4}
     if name not in sizes:
         raise SystemExit(f"unknown scenario: {name}")
@@ -65,43 +63,24 @@ def main(argv: "list[str] | None" = None) -> int:
         section = f"{n_elements}-element x {rays:,} rays"
         bench = StackBench(n_elements, rays)
         segs = bench.batch()
-        for threads in (1, None):
-            with bc.numba_threads(threads):
-                seconds = bc.time_call(bench.batch, args.warmup, args.repeats, args.budget)
-            report.add(
-                section,
-                f"njit batch [{bc.thread_label(threads)} threads]",
-                seconds,
-                rays,
-                f"{segs / rays:.1f} segs/ray",
-            )
+        seconds = bc.time_call(bench.batch, args.warmup, args.repeats, args.budget)
         report.add(
             section,
-            "ctx tuple capacity (compile-time)",
-            None,
-            note=f"padded to {_padded_capacity(n_elements)} (_CTX_PAD={_CTX_PAD})",
+            "native batch trace_segments_batch",
+            seconds,
+            rays,
+            f"{segs / rays:.1f} segs/ray",
         )
 
     if args.cold:
         for name, _n_elements, _ in scenarios:
             cold, wall = bc.run_cold(Path(__file__), name, args.child_rays)
             report.add(
-                "cold JIT (fresh NUMBA_CACHE_DIR)",
+                "cold start (fresh interpreter)",
                 f"first call, subprocess [{name}]",
                 cold,
                 note=f"first call only; full cold start incl. interpreter: {wall:.1f} s",
             )
-        padded = {_padded_capacity(n) for _, n, _ in scenarios}
-        report.add(
-            "cold JIT (fresh NUMBA_CACHE_DIR)",
-            "signature sharing",
-            None,
-            note=(
-                "sizes share one padded capacity -> one compile serves all"
-                if len(padded) == 1
-                else f"padded capacities differ: {sorted(padded)}"
-            ),
-        )
 
     report.print()
     if args.json:

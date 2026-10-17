@@ -1,8 +1,9 @@
 """Numerical kernels and solvers: linear algebra, Newton iteration,
 ray/surface intersection, parameter inversion, vector helpers.
 
-This package is a dependency-free leaf layer of :mod:`optics`: it only
-depends on :mod:`optics.constants`, never on :mod:`optics.primitive`.
+The hot paths run in the compiled native module (``optics._native``); this
+package is a dependency-free leaf layer of :mod:`optics`: it only depends on
+:mod:`optics.constants`, never on :mod:`optics.primitive`.
 """
 
 from ._kernels import build_descriptor, build_element_context, build_grid

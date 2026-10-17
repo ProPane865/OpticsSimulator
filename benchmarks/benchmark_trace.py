@@ -1,10 +1,10 @@
-"""Single-element trace benchmark: Python reference vs Numba (serial/batched).
+"""Single-element trace benchmark: Python reference vs native (serial/batched).
 
 Scenario: one meniscus element, ``--rays`` rays (default 10,000), comparing
 the pure-Python traversal (descriptors nulled so ``build_trace_context``
 returns ``None``, conftest mechanism) against the public per-ray entry
-point, the per-ray kernel with a prebuilt context, and the chunked parallel
-batch API at 1 / 2 / all threads.
+point, the per-ray kernel with a prebuilt context, and the parallel batch
+API (native threads).
 
     python benchmarks/benchmark_trace.py [--cold] [--json out.json]
 """
@@ -28,7 +28,7 @@ class TraceBench:
         self.ray_objs = bc.make_ray_objects(self.origins, self.dirs)
         self.ctx = build_trace_context(self.elements)
         if self.ctx is None:
-            raise RuntimeError("element lost the nopython codegen path")
+            raise RuntimeError("element lost the native trace path")
 
     def python_reference(self) -> int:
         bc.force_python_path(self.elements)
@@ -38,7 +38,7 @@ class TraceBench:
     def _walk_python(self) -> int:
         finals = 0
         for ray in self.ray_objs:
-            # ReferenceSurface exposes no Numba descriptor, so build_trace_context
+            # ReferenceSurface exposes no native descriptor, so build_trace_context
             # returns None and trace_stack_path falls through to the Python traversal.
             _, final = trace_stack_path(ray, self.elements, bc.RAY_LENGTH)
             finals += int(final is not None)
@@ -66,7 +66,7 @@ class TraceBench:
 
 
 def run_scenario(name: str, rays: int) -> None:
-    """One setup + one untimed pass; used by the cold-JIT subprocess."""
+    """One setup + one untimed pass; used by the cold-start subprocess."""
     bench = TraceBench(rays)
     if name == "batch":
         bench.batch()
@@ -104,7 +104,7 @@ def main(argv: "list[str] | None" = None) -> int:
     fast_seconds = bc.time_call(bench.per_ray_fast, args.warmup, args.repeats, args.budget)
     report.add(
         "timed",
-        "njit per-ray (prebuilt ctx)",
+        "native per-ray (prebuilt ctx)",
         fast_seconds,
         args.rays,
         f"{hits / args.rays:.1f} segs/ray",
@@ -112,15 +112,13 @@ def main(argv: "list[str] | None" = None) -> int:
     public_seconds = bc.time_call(bench.per_ray_public, args.warmup, args.repeats, args.budget)
     report.add(
         "timed",
-        "njit per-ray trace_stack_path",
+        "native per-ray trace_stack_path",
         public_seconds,
         args.rays,
         f"rebuilds ctx per call: {public_seconds / fast_seconds:.1f}x prebuilt",
     )
-    for threads in (1, 2, None):
-        with bc.numba_threads(threads):
-            seconds = bc.time_call(bench.batch, args.warmup, args.repeats, args.budget)
-        report.add("timed", f"njit batch trace_segments_batch [{bc.thread_label(threads)} threads]", seconds, args.rays)
+    seconds = bc.time_call(bench.batch, args.warmup, args.repeats, args.budget)
+    report.add("timed", "native batch trace_segments_batch", seconds, args.rays)
 
     ref = TraceBench(args.ref_rays)
     ref_finals = ref.python_reference()
@@ -138,7 +136,7 @@ def main(argv: "list[str] | None" = None) -> int:
         for scenario, label in (("batch", "batch kernel chain"), ("fast", "per-ray kernel chain")):
             cold, wall = bc.run_cold(Path(__file__), scenario, args.child_rays)
             report.add(
-                "cold JIT (fresh NUMBA_CACHE_DIR)",
+                "cold start (fresh interpreter)",
                 f"first call, subprocess [{label}]",
                 cold,
                 note=f"first call only; full cold start incl. interpreter: {wall:.1f} s",

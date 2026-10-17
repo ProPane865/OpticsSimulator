@@ -21,8 +21,8 @@ NEWTON_STALL_STEP = 1e-3
 # runs that need many of them are almost never recoverable.
 NEWTON_MAX_DAMPED_STEPS = 3
 
-# Outcome codes of the damped Newton iteration, shared by the Python and
-# nopython solver paths; they index the per-status tolerance tables below.
+# Outcome codes of the damped Newton iteration, mirroring ``native/constants.hpp``;
+# they index the per-status tolerance tables below.
 SOLVER_CONV = 0
 SOLVER_STALL = 1
 SOLVER_EXH = 2
@@ -80,8 +80,7 @@ GRAPH_XY_TOL = 1e-9
 # to the parameter span: ``h = FD_STEP_REL * (u_max - u_min)`` (and likewise for
 # ``v``), floored at ``FD_MIN_STEP`` so degenerate ranges never give a zero step.
 # The same policy is mirrored in the native expression interpreter
-# (``optics._native``) and the pure-Python reference; keep it in lock-step
-# across both.
+# (``optics._native``); keep it in lock-step with ``native/constants.hpp``.
 FD_STEP_REL = 1e-6
 FD_MIN_STEP = 1e-12
 # Shrink budget for the oriented one-sided differences used when a central

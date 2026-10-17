@@ -50,48 +50,39 @@ Hot numerics (expression evaluation, Newton solvers, intersection, stack
 tracing, measurement) run in a compiled C++ kernel library exposed to Python
 as `optics._native` (type stubs in `optics/_native.pyi`; the historical
 `*_njit` Python names are naming artifacts, not Numba). NumPy is used for
-array buffers only. A pure-Python reference oracle (`tests/_reference.py`)
-implements the same language and solver semantics and is kept point-for-point
-in parity with the native engine (`tests/test_path_parity.py`).
+array buffers only.
 
 - `native/`: C++17 kernels (built as the `optics_core` object library and the
   `_native` pybind11 module):
-  - `expression.*`: parser/validator for the surface-expression grammar (the
-    same allowlist as `optics.numerical.expression`) plus an interpreter over
-    the lowered expression tree
+  - `expression.*`: parser/validator for the restricted surface-expression
+    grammar plus an interpreter over the lowered expression tree
   - `surface.*`, `solver.*`: surface descriptors, seed-grid acceleration,
     damped-Newton ray/surface intersection and parameter inversion
   - `kernels.*`: element contexts, the stack walk, refraction/total internal
     reflection, measurement accumulation and the fused trace+planes pass
   - `math.hpp`, `grid.hpp`, `parallel.hpp` (native threading),
     `constants.hpp`; `-ffp-contract=off` keeps floating-point evaluation
-    order faithful to the NumPy reference paths
+    order faithful to strict IEEE semantics
   - `tests/test_native.cpp`: native unit tests (cmake + ctest, see Testing)
 - `optics/`: numerics core (NumPy buffers + native kernels, no GUI/OpenGL
   dependencies):
   - `primitive/`: geometric primitives — `ray.py`, `transform.py`, `hit.py`,
     `material.py`, `aperture.py`, `sidewall.py` (lens rims intersected via
     the native Möller–Trumbore mesh kernel) and `surface.py` (parametric
-    surfaces compiled from AST-validated expression strings)
+    surfaces compiled from validated expression strings)
   - `numerical/`: thin Python wrappers around the native kernels —
-    `expression.py` (restricted, safe surface-expression language: parse,
-    validate, and lower to scalar Python source for the reference oracle),
-    `codegen.py` (expression strings → native surface model via
+    `codegen.py` (restricted, safe surface-expression grammar enforced by the
+    native parser; expression strings → native surface model via
     `_native.compile_surface`, lru-cached), `_kernels.py` and `desc.py`
     (descriptor/context assembly), `solver.py`, `intersect.py`, `invert.py`,
-    `newton.py`, `plane.py`, `mesh.py` (native intersection/inversion/plane/
-    mesh kernels), `differentiation.py` (finite-difference tangent policy,
-    mirrored in the native kernels), `linalg.py`, `vector.py`,
-    `parallel.py` (legacy chunked GIL-free dispatch for pure-Python callers;
-    the native batch kernels thread themselves)
-  - `tracing/`: refraction/reflection and element/stack tracing —
-    `direction.py` (refraction/total-internal-reflection direction math),
-    `element.py` (`RefractiveElement`: containment, face hits, closed-element
-    Python tracing — the fallback when a stack cannot use the native path),
-    `kernels.py` (native trace-kernel entry points), `context.py` (opaque,
+    `plane.py`, `mesh.py` (native intersection/inversion/plane/mesh kernels)
+    and `vector.py`
+  - `tracing/`: element/stack tracing on the native kernels —
+    `element.py` (`RefractiveElement`: cached sidewall and element-bounds
+    construction feeding the native trace contexts), `kernels.py` (native
+    trace-kernel entry points), `context.py` (opaque,
     element-count-independent native trace stacks, batched parallel tracing,
-    and the fused segments+planes pass), `stack.py` (geometric-order stack
-    traversal and rendering path building)
+    and the fused segments+planes pass), `stack.py` (rendering path building)
   - `measurement_plane.py`: planar detector accumulating ray power (native
     accumulation, fused with tracing when a stack is traced)
   - `constants.py`: numerical tolerances and solver defaults
@@ -168,8 +159,11 @@ A stack is a JSON object mapping element names to element configs:
       "x": "u",
       "y": "v",
       "z": "4.6 - sqrt(9 - u**2 - v**2)",
-      "u_range": [-2, 2], "v_range": [-2, 2],
-      "aperture": { "radius": 0.75 }
+      "u_range": [-2, 2],
+      "v_range": [-2, 2],
+      "aperture": {
+        "radius": 0.75
+      }
     },
     "material": {
       "refractive_index": 1.5
@@ -188,7 +182,7 @@ Apertures are optional and circular: `radius` is required, `center`
 
 Each surface maps parameters `(u, v)` over `u_range`/`v_range` to a local point
 `(x(u, v), y(u, v), z(u, v))`. Expressions use a restricted, safe arithmetic
-language (validated as a Python AST and compiled by the native C++ parser —
+language (parsed, validated, and compiled by the native C++ parser —
 no SymPy, and no `eval` of raw strings):
 
 - Variables: `u`, `v`
@@ -199,10 +193,9 @@ no SymPy, and no `eval` of raw strings):
 Division and modulo follow NumPy scalar semantics (`inf`/`nan`, never a
 `ZeroDivisionError`). Anything outside this grammar — attribute access,
 subscripts, arbitrary calls, imports, `pi`/`e` — is rejected when the stack
-loads; the native parser enforces the same grammar and scalar semantics as
-the Python validator. Surface tangents (and therefore normals) are computed
-with finite differences rather than symbolic differentiation, with the same
-domain-aware policy in the native kernels and the Python reference.
+loads. Surface tangents (and therefore normals) are computed with finite
+differences rather than symbolic differentiation, with a domain-aware policy
+implemented in the native kernels.
 
 ## Testing
 
@@ -234,8 +227,8 @@ Standalone perf scripts (no extra dependencies) used to judge architecture
 changes against real numbers; run them from the repo root:
 
 ```bash
-python benchmarks/benchmark_intersection.py  # 1 surface x 10k rays, native kernel vs pure-Python oracle
-python benchmarks/benchmark_trace.py         # 1 element x 10k rays: Python reference, native per-ray, native batch
+python benchmarks/benchmark_intersection.py  # 1 surface x 10k rays, native kernel, setup stages broken out
+python benchmarks/benchmark_trace.py         # 1 element x 10k rays: native per-ray, prebuilt ctx, native batch
 python benchmarks/benchmark_stack.py         # 2 elem x 10k and 4 elem x 100k: batch tracing (native threads), cold vs warm
 python benchmarks/benchmark_codegen.py       # stage-level profile of surface compilation (C++ parse + first eval passes)
 python benchmarks/profile_lens_edit.py       # lens create/modify hot path: per-phase breakdown, scaling matrix, cProfile
@@ -249,8 +242,6 @@ budget caps cumulative timed seconds per scenario), `--json out.json` for
 machine-readable output, and `--cold` to additionally re-run itself in a
 fresh subprocess interpreter; the native kernels carry no JIT cache, so cold
 runs are dominated by interpreter start-up and first-call setup.
-`benchmark_intersection.py` and `benchmark_trace.py` add `--ref-rays` for
-the slow pure-Python reference rows;
 `benchmark_stack.py` adds `--two-rays`/`--four-rays` (both stack sizes share
 one native code path, so there is nothing to re-compile between sizes); and
 `profile_lens_edit.py` adds `--elements/--planes/--mesh-n/--no-cprofile`.

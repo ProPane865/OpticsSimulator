@@ -54,9 +54,9 @@ class Surface:
     def njit_descriptor(self) -> Any:
         """Native descriptor for this surface, used by the kernel paths.
 
-        ``None`` when the surface cannot run natively (expression not
-        compilable, or an aperture type the kernels do not understand), in
-        which case callers fall back to the Python solver path.
+        Built lazily and cached; building raises :class:`ValueError` when the
+        surface carries an aperture the kernels cannot encode, in which case
+        the surface cannot take part in a native trace.
         """
         if not self._njit_desc_built:
             self._njit_desc_built = True

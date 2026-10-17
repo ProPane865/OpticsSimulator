@@ -7,6 +7,7 @@ from optics.config import (
     surface_from_config,
 )
 from optics.primitive import CircularAperture, LensSidewall, Ray, Surface, Transform
+from optics.tracing import trace_stack_path
 from rendering.meshing import SurfaceMesher
 
 APERTURE_RADIUS = 0.5
@@ -289,7 +290,7 @@ def test_inside_aperture_ray_refracts():
         1.0,
     )
 
-    out = element.trace(ray).outgoing_ray
+    _, out = trace_stack_path(ray, [element])
 
     assert out is not None
     assert np.all(np.isfinite(out.origin))
@@ -309,9 +310,10 @@ def test_outside_aperture_ray_does_not_refract():
         1.0,
     )
 
-    out = element.trace(ray)
+    segments, out = trace_stack_path(ray, [element])
 
-    assert out.outgoing_ray is None
+    assert "internal" not in [kind for _, _, kind in segments]
+    assert out is None or np.allclose(out.direction, ray.direction)
 
 
 def test_rotated_element_on_axis_ray_refracts():
@@ -329,7 +331,7 @@ def test_rotated_element_on_axis_ray_refracts():
         1.0,
     )
 
-    out = element.trace(ray).outgoing_ray
+    _, out = trace_stack_path(ray, [element])
 
     assert out is not None
     assert np.all(np.isfinite(out.origin))
@@ -363,7 +365,8 @@ def test_rotated_element_rejects_ray_outside_local_aperture():
     )
 
     assert element.surface1.intersect(ray) is None
-    assert element.trace(ray).outgoing_ray is None
+    segments, _ = trace_stack_path(ray, [element])
+    assert "internal" not in [kind for _, _, kind in segments]
 
 def test_circular_aperture_boundary_plane():
     aperture = CircularAperture(1.0)

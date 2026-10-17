@@ -14,7 +14,7 @@ import os
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -80,23 +80,6 @@ def make_rays(count: int, seed: int = 1234) -> "tuple[np.ndarray, np.ndarray]":
 
 def make_ray_objects(origins: np.ndarray, dirs: np.ndarray) -> list[Ray]:
     return [Ray(origins[i].copy(), dirs[i].copy(), 1.0) for i in range(origins.shape[0])]
-
-
-def force_python_path(elements: Sequence[RefractiveElement]) -> None:
-    """Pin elements to the pure-Python reference path.
-
-    Production is native-only, so the reference implementation now lives as a
-    test oracle (``tests/_reference.py``). The benchmarks borrow that single
-    implementation rather than duplicating it: each element's surfaces are
-    swapped for ``ReferenceSurface`` instances (finite-difference Python
-    evaluation and the Python solver/trace traversal).
-    """
-    tests_dir = str(REPO_ROOT / "tests")
-    if tests_dir not in sys.path:
-        sys.path.insert(0, tests_dir)
-    from _reference import force_python_path as _force
-
-    _force(elements)
 
 
 # --- Timing ------------------------------------------------------------------

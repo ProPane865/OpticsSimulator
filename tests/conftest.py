@@ -3,7 +3,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from _reference import force_python_path as _force_python_path
 
 import optics.tracing as tracing
 from optics.config import (
@@ -23,25 +22,6 @@ def _parametric_equation(equation: str) -> str:
 @pytest.fixture
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
-
-
-@pytest.fixture
-def force_python_path():
-    """Return a callable that pins the given elements to the reference path.
-
-    Replaces each element's compiled surfaces with pure-Python ``ReferenceSurface``
-    clones (see ``tests/_reference.py``) and clears the element geometry caches.
-    Every downstream entry point then falls back to the reference implementation:
-    the reference solver (via ``njit_descriptor is None``), the serial element
-    tracer, the Python stack traversal (``build_trace_context`` returns ``None``),
-    and the serial measurement path. Used to differentially test the nopython
-    kernels against this independent oracle.
-    """
-
-    def _force(elements) -> None:
-        _force_python_path(elements)
-
-    return _force
 
 
 @pytest.fixture

@@ -26,9 +26,9 @@ def build_trace_context(
 ) -> Any:
     """Flatten an element stack into a native trace stack.
 
-    Returns ``None`` when the stack is empty or any surface lacks the native
-    path (or uses an unsupported aperture), so callers can fall back to the
-    Python tracer.
+    Returns ``None`` only when the stack is empty (callers then run without
+    native tracing); a surface with an unsupported aperture raises while its
+    descriptor is built.
     """
     if not elements:
         return None

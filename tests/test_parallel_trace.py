@@ -4,7 +4,6 @@ import pytest
 import optics.tracing as rf
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray
-from optics.tracing import stack as stack_mod
 from optics.tracing.context import _SEGMENT_KIND_NAMES
 
 
@@ -30,37 +29,11 @@ def _plane(resolution=(6, 6)):
     )
 
 
-def test_measure_parallel_matches_serial(sphere):
-    rays = _rays()
-    parallel = _plane().measure(rays, [sphere])
-    serial = _plane()._measure_element_stack(rays, [sphere])
-    assert parallel == pytest.approx(serial, rel=1e-12, abs=1e-12)
-
-
 def test_measure_is_deterministic(sphere):
     rays = _rays()
     first = _plane().measure(rays, [sphere])
     second = _plane().measure(rays, [sphere])
     assert first == pytest.approx(second, rel=0.0, abs=0.0)
-
-
-def test_trace_stack_path_fast_matches_serial(sphere, monkeypatch):
-    ray = Ray(np.array([0.2, 0.1, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
-    fast_segs, fast_final = rf.trace_stack_path(ray, [sphere])
-    monkeypatch.setattr(stack_mod, "build_trace_context", lambda elements: None)
-    slow_segs, slow_final = rf.trace_stack_path(ray, [sphere])
-    assert len(fast_segs) == len(slow_segs)
-    for (a0, b0, k0), (a1, b1, k1) in zip(fast_segs, slow_segs):
-        assert k0 == k1
-        np.testing.assert_allclose(a0, a1, atol=1e-9)
-        np.testing.assert_allclose(b0, b1, atol=1e-9)
-    if fast_final is None or slow_final is None:
-        assert fast_final is slow_final
-    else:
-        np.testing.assert_allclose(fast_final.origin, slow_final.origin, atol=1e-9)
-        np.testing.assert_allclose(
-            fast_final.direction, slow_final.direction, atol=1e-9
-        )
 
 
 def test_trace_segments_batch_matches_trace_stack_path(sphere):

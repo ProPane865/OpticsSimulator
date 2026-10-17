@@ -3,7 +3,7 @@ import pytest
 
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray
-from optics.tracing import trace_stack
+from optics.tracing import trace_stack_path
 
 
 def _plane(resolution=(4, 4), normal=(0.0, 0.0, 1.0), origin=(0.0, 0.0, -3.0)):
@@ -200,7 +200,8 @@ def test_measurement_uses_geometric_order_not_list_order(make_element, order):
     plane = _plane()
     ray = Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
-    refracted = trace_stack(ray, [lens])
+    refracted = trace_stack_path(ray, [lens])[1]
+    assert refracted is not None
     _, u, v = plane.intersect(refracted)
     i, j = plane.discretize(u, v)
 

@@ -66,8 +66,8 @@ class Aperture:
     def njit_params(self) -> "tuple[float, float, float] | None":
         """Circular slots ``(radius, cx, cy)`` for the nopython kernels.
 
-        ``None`` for aperture types the kernels cannot encode, which keeps
-        the surface on the Python solver path.
+        ``None`` for aperture types the kernels cannot encode; the surface
+        descriptor build then fails, and the stack cannot trace natively.
         """
         return None
 

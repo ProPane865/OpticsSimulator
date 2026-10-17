@@ -48,15 +48,6 @@ def build_surface_descriptor(surface: Any) -> Any:
     )
 
 
-def probe_njit_pair(eval_cfn: Any, deriv_cfn: Any) -> bool:
-    """Whether the given surface callbacks are usable.
-
-    Retained for API compatibility with the old Numba codegen path; native
-    surfaces are valid by construction once parsed.
-    """
-    return eval_cfn is not None and deriv_cfn is not None
-
-
 def eval_njit(desc: Any, u: float, v: float) -> Any:
     """Local-space surface point at ``(u, v)``."""
     return desc.eval(float(u), float(v))

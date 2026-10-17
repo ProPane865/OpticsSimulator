@@ -1,10 +1,8 @@
-"""Ray/surface intersection benchmark: native kernel vs pure-Python oracle.
+"""Ray/surface intersection benchmark: native kernel timings.
 
-Scenario: one element's front surface, ``--rays`` rays (default 10,000).
-The Python oracle path is the pure-Python ``ReferenceSurface`` ray/surface
-intersection from ``tests/_reference.py`` (seed-grid + damped-Newton, no
-native code), run on ``--ref-rays`` rays because the full count would take
-minutes.
+Scenario: one element's front surface, ``--rays`` rays (default 10,000)
+through the native ``surface_intersect_njit`` kernel (seed grid +
+damped-Newton), with setup stages timed separately.
 
     python benchmarks/benchmark_intersection.py [--cold] [--json out.json]
 """
@@ -17,7 +15,6 @@ from pathlib import Path
 import bench_common as bc
 
 from optics.numerical.intersect import surface_intersect_njit
-from optics.primitive import Ray
 
 
 class NativeBench:
@@ -39,29 +36,10 @@ class NativeBench:
         return hits
 
 
-class PythonOracleBench:
-    def __init__(self, rays: int) -> None:
-        self.rays = rays
-        self.element = bc.make_element(0.0)
-        bc.force_python_path([self.element])
-        self.surface = self.element.surface1  # ReferenceSurface (pure Python)
-        origins, dirs = bc.make_rays(rays)
-        self.ray_objects = [Ray(origins[i], dirs[i], 1.0) for i in range(rays)]
-
-    def run(self) -> int:
-        hits = 0
-        for ray in self.ray_objects:
-            if self.surface.intersect(ray) is not None:
-                hits += 1
-        return hits
-
-
 def run_scenario(name: str, rays: int) -> None:
     """One setup + one untimed pass; used by the cold-start subprocess."""
     if name == "native":
         NativeBench(rays).run()
-    elif name == "python":
-        PythonOracleBench(rays).run()
     else:
         raise SystemExit(f"unknown scenario: {name}")
 
@@ -70,12 +48,6 @@ def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     bc.add_common_args(parser, rays_default=10000)
     bc.add_cold_args(parser)
-    parser.add_argument(
-        "--ref-rays",
-        type=int,
-        default=1000,
-        help="rays for the pure-Python oracle (default: 1000)",
-    )
     args = parser.parse_args(argv)
 
     if args.cold_child:
@@ -108,28 +80,14 @@ def main(argv: "list[str] | None" = None) -> int:
     nb_seconds = bc.time_call(nb.run, args.warmup, args.repeats, args.budget)
     report.add("timed", "native surface_intersect_njit", nb_seconds, args.rays, f"{hits:,} hits")
 
-    po = PythonOracleBench(args.ref_rays)
-    ref_hits = po.run()
-    ref_seconds = bc.time_call(po.run, args.warmup, args.repeats, args.budget)
-    ratio = (ref_seconds / args.ref_rays) / (nb_seconds / args.rays)
-    report.add(
-        "timed",
-        "python ReferenceSurface.intersect",
-        ref_seconds,
-        args.ref_rays,
-        f"{ref_hits:,} hits; {ratio:,.0f}x slower per ray",
-    )
-
     if args.cold:
-        for scenario, label in (("native", "native chain"), ("python", "python oracle (imports only)")):
-            child_rays = args.child_rays if scenario == "native" else min(args.child_rays, 100)
-            cold, wall = bc.run_cold(Path(__file__), scenario, child_rays)
-            report.add(
-                "cold start (fresh interpreter)",
-                f"first call, subprocess [{label}]",
-                cold,
-                note=f"first call only; full cold start incl. interpreter: {wall:.1f} s",
-            )
+        cold, wall = bc.run_cold(Path(__file__), "native", args.child_rays)
+        report.add(
+            "cold start (fresh interpreter)",
+            "first call, subprocess [native chain]",
+            cold,
+            note=f"first call only; full cold start incl. interpreter: {wall:.1f} s",
+        )
 
     report.print()
     if args.json:

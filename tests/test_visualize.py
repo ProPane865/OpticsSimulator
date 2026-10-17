@@ -6,6 +6,7 @@ from vispy import scene
 import rendering.visualize as visualize
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray, Surface
+from optics.tracing import trace_stack_path
 from rendering import demo
 from rendering.meshing import SurfaceMesher
 
@@ -51,10 +52,8 @@ def test_surface_positions_tilted_matches_rotation(make_element):
 
 def test_trace_ray_on_axis(sphere):
     ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0)
-    trace = sphere.trace(ray)
-    p1 = trace.incident_hit.point
-    out = trace.outgoing_ray
-    assert p1 is not None
+    segments, out = trace_stack_path(ray, [sphere])
+    p1 = segments[0][1]
     assert np.all(np.isfinite(p1))
     assert np.isclose(np.linalg.norm(p1), 1.0, atol=1e-8)
     assert out is not None
@@ -64,10 +63,12 @@ def test_trace_ray_on_axis(sphere):
 
 def test_trace_ray_off_axis_finite(sphere):
     ray = Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0)
-    trace = sphere.trace(ray)
-    p1 = trace.incident_hit.point
-    out = trace.outgoing_ray
-    assert p1 is not None
+    segments, out = trace_stack_path(ray, [sphere])
+    assert segments
+    for start, end, _ in segments:
+        assert np.all(np.isfinite(start))
+        assert np.all(np.isfinite(end))
+    p1 = segments[0][1]
     assert np.all(np.isfinite(p1))
     assert out is not None
     assert np.all(np.isfinite(out.direction))
@@ -76,9 +77,8 @@ def test_trace_ray_off_axis_finite(sphere):
 
 def test_trace_ray_miss_returns_none(sphere):
     ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, 1.0]), 1.0)
-    trace = sphere.trace(ray)
-    assert trace.incident_hit is None
-    assert trace.outgoing_ray is None
+    segments, _ = trace_stack_path(ray, [sphere])
+    assert [kind for _, _, kind in segments] == ["incident"]
 
 
 def _face_normals(verts, faces):

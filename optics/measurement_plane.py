@@ -8,12 +8,7 @@ from . import constants as _c
 from .numerical.plane import plane_intersect_kernel
 from .numerical.vector import normalize
 from .primitive import Ray
-from .tracing import (
-    RefractiveElement,
-    TraceResult,
-    internal_rays,
-    traverse_stack,
-)
+from .tracing import RefractiveElement
 from .tracing.context import build_trace_context, measure_planes_raw
 
 _EPS = _c.PLANE_EPS
@@ -157,79 +152,14 @@ class MeasurementPlane:
             )
         )
 
-    def _entry_limit(self, ray: Ray) -> float:
-        hit = self.intersect(ray)
-        if hit is None:
-            return -1.0
-        return float(np.dot(hit[0] - ray.origin, ray.direction))
-
-    def _internal_ray_at_plane(self, result: TraceResult) -> Ray | None:
-        """The ray traveling inside ``result``'s element that reaches the plane.
-
-        Returns ``None`` when the plane is not crossed by the internal path,
-        i.e. the ray leaves the element before it gets there.
-        """
-        for segment, endpoint in internal_rays(result):
-            hit = self.intersect(segment)
-            if hit is None:
-                continue
-            point, u, v = hit
-            if not bool(self.contains(u, v)):
-                continue
-            t = float(np.dot(point - segment.origin, segment.direction))
-            if t <= 0.0:
-                continue
-            if endpoint is not None and t > float(np.linalg.norm(endpoint - segment.origin)):
-                continue
-            return segment
-        return None
-
-    def _trace_to_plane(
-        self, ray: Ray, elements: Sequence[RefractiveElement]
-    ) -> Ray | None:
-        """Trace a ray through elements in geometric order up to the plane.
-
-        Only elements entered before the plane along the current ray are
-        traced, so a plane placed between elements sees the beam at its
-        own position regardless of the element list order. When the plane
-        cuts through an element, the internal ray crossing the plane is
-        returned instead of the ray leaving that element.
-        """
-        current: Ray | None = ray
-        for _, result in traverse_stack(ray, elements, self._entry_limit):
-            internal = self._internal_ray_at_plane(result)
-            if internal is not None:
-                return internal
-            current = result.outgoing_ray
-        return current
-
-    def _measure_element_stack(
-        self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
-    ) -> float:
-        total = 0.0
-        for ray in rays:
-            if elements:
-                traced = self._trace_to_plane(ray, elements)
-                if traced is None:
-                    continue
-            else:
-                traced = ray
-            hit = self.intersect(traced)
-            if hit is None:
-                continue
-            _, u, v = hit
-            total += self.accumulate(u, v, traced.power)
-
-        return total
-
     def _measure_into(
         self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
     ) -> float:
         """Trace rays through ``elements`` and accumulate power into the grid.
 
         Assumes the grid is already reset. Rays are traced in parallel (native
-        threads) through the stack kernel when every surface supports it; bin
-        accumulation stays serial so the grid is deterministic.
+        threads) through the stack kernel; bin accumulation stays serial so
+        the grid is deterministic.
         """
         if not rays:
             return 0.0
@@ -237,7 +167,7 @@ class MeasurementPlane:
         if elements:
             stack = build_trace_context(elements)
             if stack is None:
-                return self._measure_element_stack(rays, elements)
+                raise ValueError("Element stack cannot be traced natively")
         origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
         dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
         powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
@@ -283,8 +213,8 @@ class MeasurementPlane:
         """Measure every plane, tracing the ray fan through ``elements`` once.
 
         Each plane's grid is reset then filled; returns the per-plane total in
-        the order of ``planes``. When the stack cannot run natively this falls
-        back to the per-plane (serial) measurement path.
+        the order of ``planes``. Without elements the rays are measured
+        directly against each plane.
         """
         plane_list = list(planes)
         for plane in plane_list:
@@ -293,14 +223,14 @@ class MeasurementPlane:
             return []
         if not rays:
             return [0.0] * len(plane_list)
+        if not elements:
+            return [plane._measure_into(rays, None) for plane in plane_list]
         origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
         dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
         powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
-        raw = measure_planes_raw(elements or [], origins, dirs, powers, plane_list) if elements else None
+        raw = measure_planes_raw(elements, origins, dirs, powers, plane_list)
         if raw is None:
-            if elements:
-                return [plane._measure_into(rays, elements) for plane in plane_list]
-            return [plane._measure_into(rays, None) for plane in plane_list]
+            raise ValueError("Element stack cannot be traced natively")
         us, vs, pws = raw
         return [
             plane.accumulate(us[q], vs[q], pws[q]) for q, plane in enumerate(plane_list)

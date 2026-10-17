@@ -2,16 +2,16 @@
 
 A :class:`~optics.primitive.surface.Surface`'s ``(x(u, v), y(u, v), z(u, v))``
 expressions are parsed and validated by the C++ parser in
-``optics._native.compile_surface`` (the grammar mirrors
-:mod:`optics.numerical.expression`) and lowered to an expression tree that the
-native kernels evaluate directly. The Python reference oracle
-(:mod:`optics.numerical.expression` plus ``tests/_reference.py``) keeps an
-independent implementation of the same language and scalar semantics
-(``inf``/``nan``-style division and modulo, domain-aware finite differences).
+``optics._native.compile_surface``, which owns the restricted surface
+expression grammar (variables ``u``/``v``, numeric literals, the arithmetic
+operators, and the scalar functions ``sqrt``, ``sin``, ``cos``, ``tan``,
+``exp``, ``log``, ``abs``) and lowers to an expression tree the native
+kernels evaluate directly with NumPy scalar semantics (``inf``/``nan``-style
+division and modulo).
 
 Because the supported grammar always lowers to evaluatable code, a compiled
 surface is guaranteed to build: anything outside the grammar is rejected at
-parse time with :class:`~optics.numerical.expression.ExpressionError`.
+parse time with :class:`ExpressionError`.
 """
 
 import functools
@@ -21,7 +21,10 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .. import _native
-from .expression import ExpressionError
+
+
+class ExpressionError(ValueError):
+    """Raised for any surface expression outside the supported language."""
 
 
 class SurfaceFunctions(NamedTuple):

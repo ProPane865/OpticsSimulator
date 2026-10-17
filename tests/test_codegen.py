@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from optics.numerical.expression import ExpressionError
+from optics.numerical.codegen import ExpressionError
 
 
 def _sphere_surface(make_element):

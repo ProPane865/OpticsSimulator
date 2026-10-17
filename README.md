@@ -7,7 +7,11 @@ planes in a 3D viewport.
 
 ## Installation
 
-Requires Python 3.10+.
+Requires Python 3.10+ and a C++17 compiler: installing the package compiles
+the native kernel extension (`optics._native`, pybind11 via scikit-build-core
+and CMake ≥ 3.24; `cmake`/`ninja` are pulled from PyPI into the build
+environment when not already present). Use the MSVC Build Tools or MinGW-w64
+on Windows, and gcc or clang on Linux/macOS.
 
 ```bash
 python -m venv .venv
@@ -30,8 +34,9 @@ opticssim
 python -m ui.app
 ```
 
-The window loads the bundled `optics/examples/doublet.json` by default. Use
-**File -> Open** to load another stack and **File -> Save As** to write one back.
+The window loads the bundled `optics/examples/doublet.json` by default
+(`triplet.json` is bundled as well). Use **File -> Open** to load another
+stack and **File -> Save As** to write one back.
 
 To view the example stack without the full UI:
 
@@ -41,43 +46,70 @@ python -m rendering.demo
 
 ## Architecture
 
-- `optics/`: numerics core (NumPy/Numba, no GUI/OpenGL dependencies):
+Hot numerics (expression evaluation, Newton solvers, intersection, stack
+tracing, measurement) run in a compiled C++ kernel library exposed to Python
+as `optics._native` (type stubs in `optics/_native.pyi`; the historical
+`*_njit` Python names are naming artifacts, not Numba). NumPy is used for
+array buffers only. A pure-Python reference oracle (`tests/_reference.py`)
+implements the same language and solver semantics and is kept point-for-point
+in parity with the native engine (`tests/test_path_parity.py`).
+
+- `native/`: C++17 kernels (built as the `optics_core` object library and the
+  `_native` pybind11 module):
+  - `expression.*`: parser/validator for the surface-expression grammar (the
+    same allowlist as `optics.numerical.expression`) plus an interpreter over
+    the lowered expression tree
+  - `surface.*`, `solver.*`: surface descriptors, seed-grid acceleration,
+    damped-Newton ray/surface intersection and parameter inversion
+  - `kernels.*`: element contexts, the stack walk, refraction/total internal
+    reflection, measurement accumulation and the fused trace+planes pass
+  - `math.hpp`, `grid.hpp`, `parallel.hpp` (native threading),
+    `constants.hpp`; `-ffp-contract=off` keeps floating-point evaluation
+    order faithful to the NumPy reference paths
+  - `tests/test_native.cpp`: native unit tests (cmake + ctest, see Testing)
+- `optics/`: numerics core (NumPy buffers + native kernels, no GUI/OpenGL
+  dependencies):
   - `primitive/`: geometric primitives — `ray.py`, `transform.py`, `hit.py`,
-    `material.py`, `aperture.py`, `sidewall.py` (vectorized Möller–Trumbore
-    lens rims) and `surface.py` (parametric surfaces compiled from
-    AST-validated expression strings)
-  - `numerical/`: solvers and Numba kernels — `expression.py` (restricted,
-    safe surface-expression language: parse/validate/lower), `codegen.py`
-    (AST → Numba expression codegen), `_codegen_runtime.py` (surface-
-    independent codegen kernels — safe div/mod, finite-difference tangents —
-    compiled once at program load and reused by every surface),
-    `differentiation.py` (finite-difference
-    tangent policy), `solver.py` (damped-Newton ray/surface intersection
-    and parameter inversion), `intersect.py`, `invert.py`, `newton.py`,
-    `desc.py` (descriptor access kernels), `_kernels.py` (flat-tuple data
-    layouts shared with the nopython kernels), `mesh.py` (ray/mesh kernel),
-    `plane.py` (Numba ray/plane intersection kernel), `linalg.py`,
-    `vector.py`, `parallel.py` (chunked GIL-free dispatch)
+    `material.py`, `aperture.py`, `sidewall.py` (lens rims intersected via
+    the native Möller–Trumbore mesh kernel) and `surface.py` (parametric
+    surfaces compiled from AST-validated expression strings)
+  - `numerical/`: thin Python wrappers around the native kernels —
+    `expression.py` (restricted, safe surface-expression language: parse,
+    validate, and lower to scalar Python source for the reference oracle),
+    `codegen.py` (expression strings → native surface model via
+    `_native.compile_surface`, lru-cached), `_kernels.py` and `desc.py`
+    (descriptor/context assembly), `solver.py`, `intersect.py`, `invert.py`,
+    `newton.py`, `plane.py`, `mesh.py` (native intersection/inversion/plane/
+    mesh kernels), `differentiation.py` (finite-difference tangent policy,
+    mirrored in the native kernels), `linalg.py`, `vector.py`,
+    `parallel.py` (legacy chunked GIL-free dispatch for pure-Python callers;
+    the native batch kernels thread themselves)
   - `tracing/`: refraction/reflection and element/stack tracing —
-    `direction.py` (refraction/total-internal-reflection direction kernels),
+    `direction.py` (refraction/total-internal-reflection direction math),
     `element.py` (`RefractiveElement`: containment, face hits, closed-element
-    Python tracing), `kernels.py` (nopython element/stack walk),
-    `context.py` (flattened, capacity-padded stack contexts and batched
-    parallel tracing), `stack.py` (geometric-order stack traversal and
-    rendering path building)
-  - `measurement_plane.py`: planar detector accumulating ray power
+    Python tracing — the fallback when a stack cannot use the native path),
+    `kernels.py` (native trace-kernel entry points), `context.py` (opaque,
+    element-count-independent native trace stacks, batched parallel tracing,
+    and the fused segments+planes pass), `stack.py` (geometric-order stack
+    traversal and rendering path building)
+  - `measurement_plane.py`: planar detector accumulating ray power (native
+    accumulation, fused with tracing when a stack is traced)
   - `constants.py`: numerical tolerances and solver defaults
   - `source.py`: point sources and ray emission
   - `config.py`: JSON → element/stack loading
   - `project.py`: versioned project documents (elements + source + measurement planes)
-  - `examples/`: bundled example stacks (package data)
-- `rendering/`: vispy meshing (`meshing.py`), scene building (`visualize.py`), and a
-  standalone demo (`demo.py`)
+  - `examples/`: bundled example stacks (`doublet.json`, `triplet.json`)
+- `rendering/`: vispy meshing (`meshing.py`, with a geometry-signature cache
+  so editing a lens reuses identical local meshes), scene building
+  (`visualize.py`), and a standalone demo (`demo.py`)
 - `ui/`: PySide6 desktop application (`main.ui` is the Qt Designer layout):
-  - `app.py`: composition root — `OpticsMainWindow`, project load/save and menu
-    dialogs, plus `make_display`/`main` entry points
+  - `app.py`: composition root — `OpticsMainWindow`, project load/save and
+    menu dialogs, plus `make_display`/`main` entry points; a unified refresh
+    runs one combined native trace pass serving both the rendered rays and
+    every measurement plane
   - `model.py`: Qt-free `ProjectState` (element/source/plane state, unified
-    naming, and versioned-document load/save via `optics.project`)
+    naming, edit classification for the fast lens-edit path, and
+    versioned-document load/save via `optics.project`)
   - `scene.py`: `SceneController` — vispy view + node bookkeeping for elements,
     rays, the source marker and measurement planes
   - `editors.py`: `ElementEditor`/`SourceEditor`/`PlaneEditor` controllers over
@@ -148,12 +180,16 @@ A stack is a JSON object mapping element names to element configs:
 }
 ```
 
+Apertures are optional and circular: `radius` is required, `center`
+(`[cx, cy]`, default `(0, 0)`) is optional, and `type` defaults to
+`"circular"`.
+
 ### Surface expressions
 
 Each surface maps parameters `(u, v)` over `u_range`/`v_range` to a local point
 `(x(u, v), y(u, v), z(u, v))`. Expressions use a restricted, safe arithmetic
-language (parsed as a Python AST and compiled to Numba — no SymPy, and no
-`eval` of raw strings):
+language (validated as a Python AST and compiled by the native C++ parser —
+no SymPy, and no `eval` of raw strings):
 
 - Variables: `u`, `v`
 - Literals: integers and floats
@@ -163,8 +199,10 @@ language (parsed as a Python AST and compiled to Numba — no SymPy, and no
 Division and modulo follow NumPy scalar semantics (`inf`/`nan`, never a
 `ZeroDivisionError`). Anything outside this grammar — attribute access,
 subscripts, arbitrary calls, imports, `pi`/`e` — is rejected when the stack
-loads. Surface tangents (and therefore normals) are computed with finite
-differences rather than symbolic differentiation.
+loads; the native parser enforces the same grammar and scalar semantics as
+the Python validator. Surface tangents (and therefore normals) are computed
+with finite differences rather than symbolic differentiation, with the same
+domain-aware policy in the native kernels and the Python reference.
 
 ## Testing
 
@@ -172,26 +210,51 @@ differences rather than symbolic differentiation.
 python -m pytest
 ```
 
+Lint and type checks (the commands CI runs):
+
+```bash
+ruff check .
+mypy optics rendering ui
+```
+
+Native C++ tests:
+
+```bash
+cmake -S . -B build-native -DOPTICS_BUILD_MODULE=OFF -DOPTICS_BUILD_TESTS=ON
+cmake --build build-native --config Release --target optics_native_tests
+ctest --test-dir build-native -C Release --output-on-failure
+```
+
+On headless machines set `QT_QPA_PLATFORM=offscreen` for the UI tests (as CI
+does).
+
 ## Benchmarks
 
 Standalone perf scripts (no extra dependencies) used to judge architecture
 changes against real numbers; run them from the repo root:
 
 ```bash
-python benchmarks/benchmark_intersection.py   # 1 surface x 10k rays, njit vs Python oracle
-python benchmarks/benchmark_trace.py          # 1 element x 10k rays: Python ref, per-ray, batch x threads
-python benchmarks/benchmark_stack.py          # 2 elem x 10k and 4 elem x 100k: batch, threads, cold/warm JIT
+python benchmarks/benchmark_intersection.py  # 1 surface x 10k rays, native kernel vs pure-Python oracle
+python benchmarks/benchmark_trace.py         # 1 element x 10k rays: Python reference, native per-ray, native batch
+python benchmarks/benchmark_stack.py         # 2 elem x 10k and 4 elem x 100k: batch tracing (native threads), cold vs warm
+python benchmarks/benchmark_codegen.py       # stage-level profile of surface compilation (C++ parse + first eval passes)
+python benchmarks/profile_lens_edit.py       # lens create/modify hot path: per-phase breakdown, scaling matrix, cProfile
 ```
 
-Each prints a per-scenario table with rays/sec and ns/ray and supports
-`--rays/--repeats/--budget` (the repeat budget caps cumulative timed seconds
-per scenario), `--ref-rays` for the slow pure-Python reference rows,
-`--json out.json` for machine-readable output, and `--cold` to additionally
-re-run itself in a subprocess with `NUMBA_CACHE_DIR` pointed at a fresh temp
-directory — measuring the first call against a fully cold Numba cache
-(the padded-capacity-4 stack kernel chain compiles for minutes; note the
-2- and 4-element stacks share one compiled signature, so one cold JIT
-serves both). Setup costs (expression codegen, seed grid, context build) are
-timed separately from the ray loops; ray fans are deterministically seeded.
-The 4-element x 100k single-thread scenario is minutes by construction (the
-repeat budget never cuts the first repeat); use `--four-rays` to scale it.
+The three tracing benchmarks (`intersection`, `trace`, `stack`) print a
+per-scenario table with rays/sec and ns/ray; `profile_lens_edit.py` reports
+per-phase times plus a unified-apply scaling matrix over element/plane/ray
+counts. All four share `--rays/--repeats/--warmup/--budget` (the repeat
+budget caps cumulative timed seconds per scenario), `--json out.json` for
+machine-readable output, and `--cold` to additionally re-run itself in a
+fresh subprocess interpreter; the native kernels carry no JIT cache, so cold
+runs are dominated by interpreter start-up and first-call setup.
+`benchmark_intersection.py` and `benchmark_trace.py` add `--ref-rays` for
+the slow pure-Python reference rows;
+`benchmark_stack.py` adds `--two-rays`/`--four-rays` (both stack sizes share
+one native code path, so there is nothing to re-compile between sizes); and
+`profile_lens_edit.py` adds `--elements/--planes/--mesh-n/--no-cprofile`.
+`benchmark_codegen.py` times compilation stages in isolated child processes
+and takes `--surfaces` (a scenario list), `--json` and `--quiet`. Setup costs
+(expression compilation, seed grids, context build) are timed separately from
+the ray loops; ray fans are deterministically seeded.

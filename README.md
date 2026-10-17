@@ -48,7 +48,10 @@ python -m rendering.demo
     AST-validated expression strings)
   - `numerical/`: solvers and Numba kernels — `expression.py` (restricted,
     safe surface-expression language: parse/validate/lower), `codegen.py`
-    (AST → Numba expression codegen), `differentiation.py` (finite-difference
+    (AST → Numba expression codegen), `_codegen_runtime.py` (surface-
+    independent codegen kernels — safe div/mod, finite-difference tangents —
+    compiled once at program load and reused by every surface),
+    `differentiation.py` (finite-difference
     tangent policy), `solver.py` (damped-Newton ray/surface intersection
     and parameter inversion), `intersect.py`, `invert.py`, `newton.py`,
     `desc.py` (descriptor access kernels), `_kernels.py` (flat-tuple data

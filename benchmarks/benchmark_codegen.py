@@ -2,18 +2,20 @@
 
 ``optics.numerical.codegen.compile_parametric_surface`` validates a surface's
 ``(x(u,v), y(u,v), z(u,v))`` expressions with :mod:`optics.numerical.expression`,
-lowers them to scalar source, and emits a generated module with an
-``njit``/``cfunc`` pair. Tangents are finite differences (no symbolic
-differentiation), so the stages are: parse/validate/lower, emit the module
-source, import it (which defines the njit dispatchers and cfuncs), force-compile
-the kernels, and probe the cfunc pair.
+lowers them to scalar source, and emits a generated module holding the
+surface's expression kernels and an ``njit``/``cfunc`` pair. Everything
+surface-independent (safe div/mod, the finite-difference tangent kernel, the
+null pair) lives in ``_codegen_runtime`` and is warmed at codegen import, so
+the stages are: parse/validate/lower, emit the module source, import it (which
+defines the ``eval`` dispatcher and the thin cfunc wrappers), force-compile
+the expression kernels, and probe the cfunc pair.
 
 Isolation model: every timing happens in a child process (``--child``), because
 ``compile_parametric_surface`` is ``lru_cache``'d and the generated module is
 memoized in ``sys.modules`` and on disk -- a second in-process call is a no-op
 and would report ~0s. ``--cold`` points ``NUMBA_CACHE_DIR`` at a throwaway temp
 directory in the child so the ``cache=True`` kernels (``eval_local``,
-``eval_grid``, ``derivatives_local``) actually compile; the ``cfunc`` pair is
+``eval_grid``) actually compile; the ``cfunc`` pair is
 never disk-cached, so it is a constant per-process floor in both modes.
 
     python benchmarks/benchmark_codegen.py [--cold] [--json out.json] [--surfaces ...]
@@ -31,7 +33,6 @@ import bench_common as bc
 import numpy as np
 
 import optics.numerical.codegen as cg
-from optics import constants as _c
 from optics.numerical import expression
 from optics.numerical.desc import probe_njit_pair
 
@@ -42,8 +43,9 @@ DOMAIN = (-2.0, 2.0)
 # (label, x_src, y_src, z_src). "front"/"rear" mirror the bundled meniscus;
 # "hard" exercises a heavy scalar expression (the FD tangents cost the same as
 # anywhere else -- they are finite differences of this eval); "div" exercises
-# the hoisted ``_sdiv``/``_smod`` helpers (the div/mod rewriter); "null" is the
-# inert surface padded trace contexts build via null_surface_cfuncs().
+# the ``_sdiv``/``_smod`` helpers the generated module now imports from the
+# shared runtime; "null" is the static runtime cfunc pair that padded trace
+# contexts fetch via null_surface_cfuncs() (a pure accessor now).
 SURFACES: "dict[str, tuple[str, str, str]]" = {
     "front": ("u", "v", "-1 + sqrt(9 - u**2 - v**2)"),
     "rear": ("u", "v", "4.6 - sqrt(9 - u**2 - v**2)"),
@@ -80,7 +82,6 @@ def _emit_source(x_src: str, y_src: str, z_src: str) -> "tuple[str, str]":
         umax=repr(u_max),
         vmin=repr(v_min),
         vmax=repr(v_max),
-        shrink=_c.FD_STEP_SHRINKS,
     )
     key = cg._codegen_key(x_src, y_src, z_src, u_min, u_max, v_min, v_max)
     return source, key
@@ -121,10 +122,9 @@ def _child_stages(scenario: str) -> None:
 
     def _force() -> None:
         module.eval_local(0.7, 0.35)
-        module.derivatives_local(0.7, 0.35)
         module.eval_grid(np.array([0.1, 0.2]), np.array([0.3, 0.4]))
 
-    record("force-compile eval_local / derivatives_local / eval_grid", _force)
+    record("force-compile eval_local / eval_grid", _force)
 
     record(
         "probe_njit_pair (compile eval/deriv cfunc pair)",
@@ -145,7 +145,7 @@ def _child_stages_null() -> None:
         total += dt
         _emit("STAGE", label, dt)
 
-    timed("null_surface_cfuncs() (inert padded-context cfuncs)", lambda: cg.null_surface_cfuncs())
+    timed("null_surface_cfuncs() (static runtime pair accessor)", lambda: cg.null_surface_cfuncs())
     _emit("SUM", NULL_SCENARIO, total)
 
 

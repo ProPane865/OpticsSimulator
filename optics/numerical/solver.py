@@ -13,8 +13,8 @@ import numpy as np
 
 from .. import constants as _c
 from ._kernels import build_grid
-from .intersect import _newton_intersection_njit
-from .invert import _solve_xy_njit, parameters_at_xy_njit
+from .intersect import _newton_intersection_kernel
+from .invert import _solve_xy_kernel, parameters_at_xy_kernel
 
 if TYPE_CHECKING:
     from ..primitive import Surface
@@ -37,11 +37,11 @@ class SurfaceSolver:
     def __init__(self, surface: "Surface") -> None:
         self.surface = surface
         self._grid_cache: dict[int, _SeedGrid] = {}
-        self._njit_grid_cache: dict[int, Any] = {}
+        self._native_grid_cache: dict[int, Any] = {}
 
-    def njit_grid(self, grid_n: int = _c.SEED_GRID_N) -> Any:
+    def native_grid(self, grid_n: int = _c.SEED_GRID_N) -> Any:
         """Seed grid as a native object for the native kernels."""
-        cached = self._njit_grid_cache.get(grid_n)
+        cached = self._native_grid_cache.get(grid_n)
         if cached is None:
             g = self._seed_grid(grid_n)
             cached = build_grid(
@@ -53,7 +53,7 @@ class SurfaceSolver:
                 g["Uf"],
                 g["Vf"],
             )
-            self._njit_grid_cache[grid_n] = cached
+            self._native_grid_cache[grid_n] = cached
         return cached
 
     def parameters_at(self, pos: np.ndarray | Sequence[float]) -> "tuple[float, float] | None":
@@ -76,8 +76,8 @@ class SurfaceSolver:
         idx = int(np.argmin(np.where(valid, dist, np.inf)))
         u = float(grid["Uf"][idx])
         v = float(grid["Vf"][idx])
-        desc = self.surface.njit_descriptor
-        uu, vv, ok = _solve_xy_njit(desc, float(p[0]), float(p[1]), u, v)
+        desc = self.surface.native_descriptor
+        uu, vv, ok = _solve_xy_kernel(desc, float(p[0]), float(p[1]), u, v)
         if ok:
             puv = self.surface.evaluate_local(uu, vv)
             if (
@@ -101,8 +101,8 @@ class SurfaceSolver:
             result = self._solve_parameters_xy(x, y, float(seed[0]), float(seed[1]))
             if result is not None:
                 return result
-        desc = self.surface.njit_descriptor
-        u, v, ok = parameters_at_xy_njit(desc, self.njit_grid(), x, y)
+        desc = self.surface.native_descriptor
+        u, v, ok = parameters_at_xy_kernel(desc, self.native_grid(), x, y)
         return (u, v) if ok else None
 
     def intersect(
@@ -144,8 +144,8 @@ class SurfaceSolver:
     def _solve_parameters_xy(
         self, x_target: float, y_target: float, u: float, v: float
     ) -> "tuple[float, float] | None":
-        desc = self.surface.njit_descriptor
-        uu, vv, ok = _solve_xy_njit(desc, x_target, y_target, u, v)
+        desc = self.surface.native_descriptor
+        uu, vv, ok = _solve_xy_kernel(desc, x_target, y_target, u, v)
         if not ok:
             return None
         return uu, vv
@@ -241,8 +241,8 @@ class SurfaceSolver:
     def _newton_intersection(
         self, o: np.ndarray, d: np.ndarray, u: float, v: float, t: float
     ) -> "tuple[float, float, float] | None":
-        desc = self.surface.njit_descriptor
-        tt, uu, vv, ok = _newton_intersection_njit(desc, o, d, u, v, t)
+        desc = self.surface.native_descriptor
+        tt, uu, vv, ok = _newton_intersection_kernel(desc, o, d, u, v, t)
         if not ok:
             return None
         return tt, uu, vv

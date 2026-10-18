@@ -45,9 +45,9 @@ struct ElementContext {
 
 using ElementRef = std::shared_ptr<const ElementContext>;
 
-// A stack of elements traced as a unit. The Python tuple layout padded this
-// to fixed capacities for Numba's static typing; a native vector carries the
-// real element count directly.
+// A stack of elements traced as a unit. The historical tuple layout padded
+// this to fixed capacities; a native vector carries the real element count
+// directly.
 struct TraceStack {
     std::vector<ElementRef> elements;
 

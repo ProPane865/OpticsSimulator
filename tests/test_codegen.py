@@ -8,17 +8,17 @@ def _sphere_surface(make_element):
     return make_element("sqrt(1 - (x**2) - (y**2))", "0").surface1
 
 
-def test_njit_path_active_for_standard_surface(make_element):
+def test_native_path_active_for_standard_surface(make_element):
     s = _sphere_surface(make_element)
     assert s._eval_local is not None
     assert s._eval_grid is not None
     assert s._local_tangents is not None
-    desc = s.njit_descriptor
+    desc = s.native_descriptor
     assert desc is not None
-    from optics.numerical.desc import eval_njit
+    from optics.numerical.desc import desc_eval
 
     np.testing.assert_array_equal(
-        eval_njit(desc, 0.1, 0.2), s.evaluate_local(0.1, 0.2)
+        desc_eval(desc, 0.1, 0.2), s.evaluate_local(0.1, 0.2)
     )
 
 

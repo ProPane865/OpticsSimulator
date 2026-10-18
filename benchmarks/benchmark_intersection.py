@@ -1,7 +1,7 @@
 """Ray/surface intersection benchmark: native kernel timings.
 
 Scenario: one element's front surface, ``--rays`` rays (default 10,000)
-through the native ``surface_intersect_njit`` kernel (seed grid +
+through the native ``surface_intersect_kernel`` kernel (seed grid +
 damped-Newton), with setup stages timed separately.
 
     python benchmarks/benchmark_intersection.py [--cold] [--json out.json]
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import bench_common as bc
 
-from optics.numerical.intersect import surface_intersect_njit
+from optics.numerical.intersect import surface_intersect_kernel
 
 
 class NativeBench:
@@ -22,16 +22,16 @@ class NativeBench:
         self.rays = rays
         self.element = bc.make_element(0.0)
         self.surface = self.element.surface1
-        self.desc = self.surface.njit_descriptor
+        self.desc = self.surface.native_descriptor
         if self.desc is None:
             raise RuntimeError("surface lost the native kernel path")
-        self.grid = self.surface.solver.njit_grid()
+        self.grid = self.surface.solver.native_grid()
         self.origins, self.dirs = bc.make_rays(rays)
 
     def run(self) -> int:
         hits = 0
         for i in range(self.rays):
-            _, _, _, ok = surface_intersect_njit(self.desc, self.grid, self.origins[i], self.dirs[i])
+            _, _, _, ok = surface_intersect_kernel(self.desc, self.grid, self.origins[i], self.dirs[i])
             hits += int(ok)
         return hits
 
@@ -62,23 +62,23 @@ def main(argv: "list[str] | None" = None) -> int:
     surface = element.surface1
     seconds = bc.time_call(lambda: bc.make_element(0.0), warmup=0, repeats=1)
     report.add("setup (one-time)", "element build incl. expression codegen", seconds)
-    seconds = bc.time_call(lambda: surface.njit_descriptor, warmup=0, repeats=1)
+    seconds = bc.time_call(lambda: surface.native_descriptor, warmup=0, repeats=1)
     report.add("setup (one-time)", "native descriptor build", seconds)
 
     def rebuild_grid() -> None:
         surface.solver._grid_cache.clear()
-        surface.solver._njit_grid_cache.clear()
-        surface.solver.njit_grid()
+        surface.solver._native_grid_cache.clear()
+        surface.solver.native_grid()
 
     seconds = bc.time_call(rebuild_grid, warmup=0, repeats=1)
-    report.add("setup (one-time)", "seed grid (njit_grid)", seconds)
+    report.add("setup (one-time)", "seed grid (native_grid)", seconds)
 
     nb = NativeBench(args.rays)
     hits = nb.run()
     if hits == 0:
         print("warning: no rays hit the surface, check the ray fan", file=sys.stderr)
     nb_seconds = bc.time_call(nb.run, args.warmup, args.repeats, args.budget)
-    report.add("timed", "native surface_intersect_njit", nb_seconds, args.rays, f"{hits:,} hits")
+    report.add("timed", "native surface_intersect_kernel", nb_seconds, args.rays, f"{hits:,} hits")
 
     if args.cold:
         cold, wall = bc.run_cold(Path(__file__), "native", args.child_rays)

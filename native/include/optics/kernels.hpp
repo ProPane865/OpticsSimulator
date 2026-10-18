@@ -1,7 +1,7 @@
 // Ray/plane, ray/mesh and interface-direction kernels plus the element and
 // stack tracing kernels and batch measurement helpers. Mirrors
-// ``optics/numerical/{plane,mesh}.py``, ``optics/tracing/{direction,kernels,
-// context}.py`` and the measurement-plane kernels.
+// ``optics/numerical/{plane,mesh}.py``,
+// ``optics/tracing/{kernels,context}.py`` and the measurement-plane kernels.
 #pragma once
 
 #include <array>
@@ -16,13 +16,13 @@
 
 namespace optics::native {
 
-// --- Plane (njit ``plane_intersect_kernel``) --------------------------------
+// --- Plane (``plane_intersect_kernel``) -------------------------------------
 // Returns ``(u, v, t)`` in plane parameters or ``nullopt``.
 std::optional<std::array<double, 3>> plane_intersect(const double* ro, const double* d,
                                                      const double* o, const double* n,
                                                      double eps);
 
-// --- Mesh (njit ``mesh_intersect_kernel``) -----------------------------------
+// --- Mesh (``mesh_intersect_kernel``) ---------------------------------------
 // Moller-Trumbore over flattened ``(K, 3, 3)`` triangles; nearest forward hit
 // with barycentric ``(u, v)`` clamped into the triangle.
 struct MeshHit {
@@ -34,12 +34,12 @@ struct MeshHit {
 std::optional<MeshHit> mesh_intersect(const double* o, const double* d, const std::vector<double>& tri,
                                       double det_eps, double bary_tol, double min_face_t);
 
-// --- Direction (njit ``direction.py``) ----------------------------------------
+// --- Direction ---------------------------------------------------------------
 Vec3 orient(const Vec3& normal, const Vec3& incident);
 std::pair<Vec3, bool> refract_or_reflect(const Vec3& incident, const Vec3& normal, double n_from,
                                          double n_to);
 
-// --- Tracing kernels (njit ``tracing/kernels.py``) ----------------------------
+// --- Tracing kernels (``tracing/kernels.py``) --------------------------------
 struct ElementHit {
     bool found = false;
     double t = 0.0;
@@ -47,10 +47,10 @@ struct ElementHit {
     Vec3 n{};
 };
 
-// World-space unit normal at ``(u, v)`` (njit ``_normal_njit``).
+// World-space unit normal at ``(u, v)``.
 std::optional<Vec3> surface_normal(const SurfaceDesc& desc, double u, double v);
 
-// Nearest face hit (surfaces + sidewall) (njit ``_element_first_hit``).
+// Nearest face hit (surfaces + sidewall).
 ElementHit element_first_hit(const ElementContext& elem, const double* o, const double* d,
                              double min_t);
 
@@ -66,7 +66,7 @@ struct ElementTrace {
     std::vector<Vec3> pts;  // internal polyline
 };
 
-// Nopython ``RefractiveElement.trace`` for one closed element.
+// Trace one closed element: entry, internal bounces, exit ray.
 ElementTrace trace_element(const ElementContext& elem, const double* o, const double* d);
 
 struct StackSegments {
@@ -76,13 +76,13 @@ struct StackSegments {
     Vec3 final_d{};
 };
 
-// Nopython ``trace_stack_path``; segment kinds 0/1/2 = incident/internal/exit.
+// Mirrors ``trace_stack_path``; segment kinds 0/1/2 = incident/internal/exit.
 // Writes up to ``cap`` segments into ``starts``/``ends``/``kinds``.
 StackSegments trace_stack_segments(const TraceStack& stack, const double* o, const double* d,
                                    double ray_length, double* starts, double* ends,
                                    signed char* kinds, std::size_t cap);
 
-// Nopython ``MeasurementPlane._trace_to_plane``; writes the reaching ray.
+// Traces until the plane region is reached; writes the reaching ray.
 bool trace_stack_to_plane(const TraceStack& stack, const double* o, const double* d,
                           const double* po, const double* pn, double eps, double u_min,
                           double u_max, double v_min, double v_max, double* out_o, double* out_d);

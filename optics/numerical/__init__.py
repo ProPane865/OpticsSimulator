@@ -8,8 +8,8 @@ package is a dependency-free leaf layer of :mod:`optics`: it only depends on
 
 from ._kernels import build_descriptor, build_element_context, build_grid
 from .desc import build_surface_descriptor
-from .intersect import surface_intersect_njit
-from .invert import parameters_at_xy_njit
+from .intersect import surface_intersect_kernel
+from .invert import parameters_at_xy_kernel
 from .mesh import mesh_intersect_kernel
 from .plane import plane_intersect_kernel
 from .solver import SurfaceSolver
@@ -24,8 +24,8 @@ __all__ = [
     "mesh_intersect_kernel",
     "normalize",
     "normalize_vector",
-    "parameters_at_xy_njit",
+    "parameters_at_xy_kernel",
     "plane_intersect_kernel",
     "rotation_from_z",
-    "surface_intersect_njit",
+    "surface_intersect_kernel",
 ]

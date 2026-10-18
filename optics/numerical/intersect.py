@@ -7,7 +7,7 @@ import numpy as np
 from .. import _native
 
 
-def _newton_intersection_njit(
+def _newton_intersection_kernel(
     desc: Any,
     o: np.ndarray,
     d: np.ndarray,
@@ -26,7 +26,7 @@ def _newton_intersection_njit(
     )
 
 
-def surface_intersect_njit(
+def surface_intersect_kernel(
     desc: Any,
     grid: Any,
     o: np.ndarray,

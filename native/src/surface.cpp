@@ -128,8 +128,7 @@ bool desc_accepts(const SurfaceDesc& d, double u, double v) {
 
 namespace {
 
-// One-sided finite-difference partial in direction ``(du, dv)``
-// (njit ``_partial_njit``).
+// One-sided finite-difference partial in direction ``(du, dv)``.
 Vec3 partial_desc(const SurfaceDesc& d, double u, double v, double du, double dv) {
     const Vec3 base = desc_eval(d, u, v);
     if (!finite3(base)) {

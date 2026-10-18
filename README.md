@@ -48,8 +48,7 @@ python -m rendering.demo
 
 Hot numerics (expression evaluation, Newton solvers, intersection, stack
 tracing, measurement) run in a compiled C++ kernel library exposed to Python
-as `optics._native` (type stubs in `optics/_native.pyi`; the historical
-`*_njit` Python names are naming artifacts, not Numba). NumPy is used for
+as `optics._native` (type stubs in `optics/_native.pyi`). NumPy is used for
 array buffers only.
 
 - `native/`: C++17 kernels (built as the `optics_core` object library and the

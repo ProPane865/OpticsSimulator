@@ -2,8 +2,8 @@
 
 The stack argument of the trace kernels is an opaque native object
 (``optics._native.TraceStack``) built here from per-element contexts; unlike
-the old Numba tuple protocol its type does not depend on the element count,
-so no padding is needed.
+the old flat-tuple context protocol its type does not depend on the element
+count, so no padding is needed.
 """
 
 from collections.abc import Sequence
@@ -15,7 +15,7 @@ from .. import _native
 from .. import constants as _c
 from ..numerical._kernels import build_element_context, build_trace_stack
 from ..primitive import Ray
-from .kernels import _MAX_SEGS_PER_ELEMENT, trace_stack_segments_njit
+from .kernels import _MAX_SEGS_PER_ELEMENT, trace_stack_segments_kernel
 
 if TYPE_CHECKING:
     from .element import RefractiveElement
@@ -34,12 +34,12 @@ def build_trace_context(
         return None
     ctxs: list[Any] = []
     for el in elements:
-        d1 = el.surface1.njit_descriptor
-        d2 = el.surface2.njit_descriptor
+        d1 = el.surface1.native_descriptor
+        d2 = el.surface2.native_descriptor
         if d1 is None or d2 is None:
             return None
-        g1 = el.surface1.solver.njit_grid()
-        g2 = el.surface2.solver.njit_grid()
+        g1 = el.surface1.solver.native_grid()
+        g2 = el.surface2.solver.native_grid()
         wall = el.sidewall
         if wall is None:
             tri = np.empty((0, 3, 3), dtype=float)
@@ -192,7 +192,7 @@ def _trace_stack_path_fast(
     starts = np.empty((cap, 3), dtype=float)
     ends = np.empty((cap, 3), dtype=float)
     kinds = np.empty(cap, dtype=np.int8)
-    count, exited, fo, fd = trace_stack_segments_njit(
+    count, exited, fo, fd = trace_stack_segments_kernel(
         ctx,
         np.asarray(ray.origin, dtype=float),
         np.asarray(ray.direction, dtype=float),

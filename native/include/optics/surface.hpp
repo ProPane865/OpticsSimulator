@@ -14,7 +14,7 @@ namespace optics::native {
 
 // A parametric surface ``(x(u,v), y(u,v), z(u,v))`` with its finite-difference
 // step and parameter domain; the compiled replacement for the generated
-// Numba module of the Python implementation.
+// expression module of the Python implementation.
 class SurfaceModel {
   public:
     SurfaceModel(ExprPtr x, ExprPtr y, ExprPtr z, double u_min, double u_max, double v_min,
@@ -70,16 +70,15 @@ inline Vec3 desc_point(const SurfaceDesc& d, double u, double v) {
     return d.rot * d.model->eval_local(u, v) + d.trans;
 }
 
-// Model-level finite-difference tangents (``_deriv_pair_njit``).
+// Model-level finite-difference tangents.
 inline std::pair<Vec3, Vec3> desc_deriv_pair(const SurfaceDesc& d, double u, double v) {
     return d.model->derivatives(u, v);
 }
 
-// Domain + circular-aperture membership (``accepts_njit``).
+// Domain + circular-aperture membership.
 bool desc_accepts(const SurfaceDesc& d, double u, double v);
 
-// Analytic tangents with the interior pull-back / FD fallback
-// (``derivatives_njit``).
+// Analytic tangents with the interior pull-back / FD fallback.
 std::pair<Vec3, Vec3> desc_derivatives(const SurfaceDesc& d, double u, double v);
 
 }  // namespace optics::native

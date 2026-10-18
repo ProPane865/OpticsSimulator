@@ -3,7 +3,7 @@
 The native solver/tracer (``optics._native``) passes surfaces, seed grids and
 element stacks as opaque native objects built here from plain numpy arrays;
 the layouts (a surface descriptor, a seed grid and an element context) are the
-C++ counterparts of the old flat-tuple protocol from the Numba kernels, with
+C++ counterparts of the old flat-tuple protocol, with
 shape validation confined to these builders.
 """
 

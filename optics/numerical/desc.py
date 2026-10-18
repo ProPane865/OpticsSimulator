@@ -18,12 +18,12 @@ def build_surface_descriptor(surface: Any) -> Any:
 
     Raises :class:`ValueError` when the surface carries an aperture the
     kernels cannot encode (see
-    :meth:`~optics.primitive.aperture.Aperture.njit_params`).
+    :meth:`~optics.primitive.aperture.Aperture.native_params`).
     """
     if surface.aperture is None:
         ap_r, ap_cx, ap_cy = -1.0, 0.0, 0.0
     else:
-        params = surface.aperture.njit_params()
+        params = surface.aperture.native_params()
         if params is None:
             raise ValueError(
                 "Aperture type is not supported by the native surface kernels"
@@ -48,17 +48,17 @@ def build_surface_descriptor(surface: Any) -> Any:
     )
 
 
-def eval_njit(desc: Any, u: float, v: float) -> Any:
+def desc_eval(desc: Any, u: float, v: float) -> Any:
     """Local-space surface point at ``(u, v)``."""
     return desc.eval(float(u), float(v))
 
 
-def accepts_njit(desc: Any, u: float, v: float) -> bool:
+def desc_accepts(desc: Any, u: float, v: float) -> bool:
     """Domain + circular-aperture membership (``accepts_parameters``)."""
     return bool(desc.accepts(float(u), float(v)))
 
 
-def derivatives_njit(desc: Any, u: float, v: float) -> "tuple[Any, Any]":
+def desc_derivatives(desc: Any, u: float, v: float) -> "tuple[Any, Any]":
     """Analytic tangents with the interior pull-back / FD fallback."""
     ru, rv = desc.derivatives(float(u), float(v))
     return ru, rv

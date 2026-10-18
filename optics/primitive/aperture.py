@@ -63,8 +63,8 @@ class Aperture:
     def boundary(self, surface: "Surface", n: int = _c.APERTURE_BOUNDARY_N) -> np.ndarray:
         raise NotImplementedError
 
-    def njit_params(self) -> "tuple[float, float, float] | None":
-        """Circular slots ``(radius, cx, cy)`` for the nopython kernels.
+    def native_params(self) -> "tuple[float, float, float] | None":
+        """Circular slots ``(radius, cx, cy)`` for the native kernels.
 
         ``None`` for aperture types the kernels cannot encode; the surface
         descriptor build then fails, and the stack cannot trace natively.
@@ -159,5 +159,5 @@ class CircularAperture(Aperture):
 
         return surface.transform.points_to_world(local)
 
-    def njit_params(self) -> "tuple[float, float, float]":
+    def native_params(self) -> "tuple[float, float, float]":
         return self.radius, float(self.center[0]), float(self.center[1])

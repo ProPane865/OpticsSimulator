@@ -120,8 +120,8 @@ struct SmallMat {
     double at(int r, int c) const { return a[r * cols + c]; }
 };
 
-// Whether ``det`` is large relative to the product of the column norms
-// (njit ``_is_nonsingular``); requires a square 2x2/3x3 input.
+// Whether ``det`` is large relative to the product of the column norms;
+// requires a square 2x2/3x3 input.
 inline bool is_nonsingular(const SmallMat& j) {
     const int n = j.rows;
     if (n != j.cols) {
@@ -150,7 +150,7 @@ inline bool is_nonsingular(const SmallMat& j) {
     return std::abs(det) / scale > NEWTON_SINGULAR_REL;
 }
 
-// Gaussian elimination with partial pivoting (njit ``_solve_small``).
+// Gaussian elimination with partial pivoting.
 inline std::optional<SmallVec> solve_small(const SmallMat& mat, const SmallVec& b) {
     const int n = mat.rows;
     SmallMat m = mat;
@@ -204,8 +204,8 @@ inline std::optional<SmallVec> solve_small(const SmallMat& mat, const SmallVec& 
     return x;
 }
 
-// Newton step: square nonsingular solve, else normal-equation least squares
-// (njit ``_newton_delta_njit``); ``nullopt`` when the system is unusable.
+// Newton step: square nonsingular solve, else normal-equation least squares;
+// ``nullopt`` when the system is unusable.
 inline std::optional<SmallVec> newton_delta(const SmallMat& j, const SmallVec& f) {
     SmallVec neg_f;
     neg_f.n = f.n;

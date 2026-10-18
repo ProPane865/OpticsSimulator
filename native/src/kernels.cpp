@@ -26,8 +26,7 @@ Mat3 mat3_mul(const Mat3& a, const Mat3& b) {
 
 Vec3 as_vec3(const double* a) { return make_vec3(a[0], a[1], a[2]); }
 
-// Nearest surface hit with normal, or ``(False, inf, 0, 0)``
-// (njit ``_surface_hit_njit``).
+// Nearest surface hit with normal, or ``(False, inf, 0, 0)``.
 ElementHit surface_hit(const SurfaceDesc& desc, const SeedGrid& grid, const double* o,
                        const double* d, double min_t) {
     std::optional<HitUV> hit = surface_intersect(desc, grid, o, d);
@@ -46,7 +45,7 @@ ElementHit surface_hit(const SurfaceDesc& desc, const SeedGrid& grid, const doub
 }
 
 // Local height of a surface above ``(local[0], local[1])``; NaN when the
-// point does not project onto the surface (njit ``_local_surface_z_njit``).
+// point does not project onto the surface.
 double local_surface_z(const SurfaceDesc& desc, const SeedGrid& grid, bool graph,
                        const double* local) {
     double u = local[0];

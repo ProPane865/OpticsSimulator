@@ -47,23 +47,23 @@ class Surface:
         self.aperture = aperture
         self.solver = SurfaceSolver(self)
         self._graph_xy: bool | None = None
-        self._njit_desc: tuple[Any, ...] | None = None
-        self._njit_desc_built = False
+        self._native_desc: tuple[Any, ...] | None = None
+        self._native_desc_built = False
 
     @property
-    def njit_descriptor(self) -> Any:
+    def native_descriptor(self) -> Any:
         """Native descriptor for this surface, used by the kernel paths.
 
         Built lazily and cached; building raises :class:`ValueError` when the
         surface carries an aperture the kernels cannot encode, in which case
         the surface cannot take part in a native trace.
         """
-        if not self._njit_desc_built:
-            self._njit_desc_built = True
-            self._njit_desc = self._build_njit_descriptor()
-        return self._njit_desc
+        if not self._native_desc_built:
+            self._native_desc_built = True
+            self._native_desc = self._build_native_descriptor()
+        return self._native_desc
 
-    def _build_njit_descriptor(self) -> Any:
+    def _build_native_descriptor(self) -> Any:
         return build_surface_descriptor(self)
 
     @property

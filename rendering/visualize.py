@@ -266,7 +266,7 @@ def _collect_ray_segments(
 
     ``segments`` is a list of ``(start, end, kind)`` tuples and ``markers`` a
     list of ``(position, color)`` tuples for entry/exit transition points.
-    Rays are traced in parallel through the nopython stack kernel when the
+    Rays are traced in parallel through the native stack kernel when the
     whole element stack supports it, otherwise one ray at a time.
     """
     segments: list[tuple[np.ndarray, np.ndarray, str]] = []

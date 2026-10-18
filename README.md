@@ -52,17 +52,24 @@ as `optics._native` (type stubs in `optics/_native.pyi`). NumPy is used for
 array buffers only.
 
 - `native/`: C++17 kernels (built as the `optics_core` object library and the
-  `_native` pybind11 module):
-  - `expression.*`: parser/validator for the restricted surface-expression
+  `_native` pybind11 module), layered `common ← expression ← geometry ←
+  intersection ← tracing ← measurement`, with headers under
+  `include/optics/<module>/` and sources in per-module directories:
+  - `expression/`: parser/validator for the restricted surface-expression
     grammar plus an interpreter over the lowered expression tree
-  - `surface.*`, `solver.*`: surface descriptors, seed-grid acceleration,
-    damped-Newton ray/surface intersection and parameter inversion
-  - `kernels.*`: element contexts, the stack walk, refraction/total internal
-    reflection, measurement accumulation and the fused trace+planes pass
-  - `math.hpp`, `grid.hpp`, `parallel.hpp` (native threading),
-    `constants.hpp`; `-ffp-contract=off` keeps floating-point evaluation
-    order faithful to strict IEEE semantics
-  - `tests/test_native.cpp`: native unit tests (cmake + ctest, see Testing)
+  - `geometry/`: surface models and descriptors — expression evaluation,
+    finite-difference tangents, aperture membership and world-space normals
+  - `intersection/`: seed-grid accelerated damped-Newton ray/surface
+    intersection, parameter inversion and the plane/mesh primitives
+  - `tracing/`: element contexts, refraction/total internal reflection,
+    the element/stack walk and the shared single-trace hop recording
+  - `measurement/`: plane power accumulation, direct/stacked plane
+    measurement and the fused trace+planes batch pass
+  - `common/`: vector/matrix math and small-system linalg (`rotation_from_z`
+    incl.), parallel dispatch (native threading), `constants.hpp`;
+    `-ffp-contract=off` keeps floating-point evaluation order faithful to
+    strict IEEE semantics
+  - `tests/`: native unit test TUs built into one ctest binary (see Testing)
 - `optics/`: numerics core (NumPy buffers + native kernels, no GUI/OpenGL
   dependencies):
   - `primitive/`: geometric primitives — `ray.py`, `transform.py`, `hit.py`,

@@ -1,110 +1,14 @@
-// Fixed-size vector/matrix math and the small-system linear algebra shared by
-// the Newton paths, mirroring ``optics/numerical/linalg.py``.
+// Small dense 2x2/3x3 systems shared by the Newton paths (mirror of
+// ``optics/numerical/linalg.py``): nonsingularity tests, Gaussian elimination
+// with partial pivoting and the Newton-step least-squares fallback.
 #pragma once
 
 #include <cmath>
-#include <cstddef>
 #include <optional>
 
-#include "optics/constants.hpp"
+#include "optics/common/constants.hpp"
 
 namespace optics::native {
-
-// Error raised when a vector cannot be normalized; mapped to ``ValueError``.
-struct VectorError {
-    const char* message;
-};
-
-struct Vec3 {
-    double v[3] = {0.0, 0.0, 0.0};
-
-    double& operator[](std::size_t i) { return v[i]; }
-    double operator[](std::size_t i) const { return v[i]; }
-};
-
-inline Vec3 make_vec3(double x, double y, double z) {
-    Vec3 r;
-    r[0] = x;
-    r[1] = y;
-    r[2] = z;
-    return r;
-}
-
-inline Vec3 nan3() {
-    return make_vec3(NAN, NAN, NAN);
-}
-
-inline bool finite3(const Vec3& a) {
-    return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]);
-}
-
-inline Vec3 operator+(const Vec3& a, const Vec3& b) {
-    return make_vec3(a[0] + b[0], a[1] + b[1], a[2] + b[2]);
-}
-
-inline Vec3 operator-(const Vec3& a, const Vec3& b) {
-    return make_vec3(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-}
-
-inline Vec3 operator-(const Vec3& a) {
-    return make_vec3(-a[0], -a[1], -a[2]);
-}
-
-inline Vec3 operator*(double s, const Vec3& a) {
-    return make_vec3(s * a[0], s * a[1], s * a[2]);
-}
-
-inline Vec3 operator*(const Vec3& a, double s) {
-    return a * s;
-}
-
-inline Vec3 operator/(const Vec3& a, double s) {
-    return make_vec3(a[0] / s, a[1] / s, a[2] / s);
-}
-
-inline double dot3(const Vec3& a, const Vec3& b) {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-inline Vec3 cross3(const Vec3& a, const Vec3& b) {
-    return make_vec3(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
-                     a[0] * b[1] - a[1] * b[0]);
-}
-
-// Euclidean norm (mirrors ``optics.numerical.linalg.norm``).
-inline double norm(const Vec3& a) { return std::sqrt(dot3(a, a)); }
-
-inline Vec3 normalize_vector(const Vec3& a) {
-    double n = norm(a);
-    if (!std::isfinite(n) || n == 0.0) {
-        throw VectorError{"Vector must be finite and nonzero"};
-    }
-    return a / n;
-}
-
-struct Mat3 {
-    double m[3][3] = {};
-
-    static Mat3 identity() {
-        Mat3 r;
-        r.m[0][0] = r.m[1][1] = r.m[2][2] = 1.0;
-        return r;
-    }
-};
-
-inline Vec3 operator*(const Mat3& a, const Vec3& x) {
-    return make_vec3(a.m[0][0] * x[0] + a.m[0][1] * x[1] + a.m[0][2] * x[2],
-                     a.m[1][0] * x[0] + a.m[1][1] * x[1] + a.m[1][2] * x[2],
-                     a.m[2][0] * x[0] + a.m[2][1] * x[1] + a.m[2][2] * x[2]);
-}
-
-inline Vec3 mul_transpose(const Mat3& a, const Vec3& x) {
-    return make_vec3(a.m[0][0] * x[0] + a.m[1][0] * x[1] + a.m[2][0] * x[2],
-                     a.m[0][1] * x[0] + a.m[1][1] * x[1] + a.m[2][1] * x[2],
-                     a.m[0][2] * x[0] + a.m[1][2] * x[1] + a.m[2][2] * x[2]);
-}
-
-// --- Small dense systems (2x2 / 3x3) -----------------------------------------
 
 struct SmallVec {
     int n = 0;

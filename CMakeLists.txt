@@ -12,10 +12,18 @@ endif()
 # native test target. ``-ffp-contract=off`` keeps evaluation order faithful to
 # the NumPy reference paths (no FMA contraction).
 add_library(optics_core OBJECT
-  native/src/expression.cpp
-  native/src/surface.cpp
-  native/src/solver.cpp
-  native/src/kernels.cpp)
+  native/expression/parser.cpp
+  native/expression/evaluate.cpp
+  native/geometry/surface.cpp
+  native/intersection/plane.cpp
+  native/intersection/mesh.cpp
+  native/intersection/newton.cpp
+  native/intersection/intersect.cpp
+  native/intersection/invert.cpp
+  native/tracing/direction.cpp
+  native/tracing/element.cpp
+  native/tracing/stack.cpp
+  native/measurement/measurement.cpp)
 target_include_directories(optics_core PUBLIC native/include)
 target_compile_options(optics_core PUBLIC
   $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffp-contract=off>)
@@ -23,7 +31,10 @@ target_compile_options(optics_core PUBLIC
 option(OPTICS_BUILD_TESTS "Build native unit tests" OFF)
 if(OPTICS_BUILD_TESTS)
   enable_testing()
-  add_executable(optics_native_tests native/tests/test_native.cpp)
+  add_executable(optics_native_tests
+    native/tests/test_main.cpp
+    native/tests/test_expression.cpp
+    native/tests/test_kernels.cpp)
   target_link_libraries(optics_native_tests PRIVATE optics_core)
   add_test(NAME native_tests COMMAND optics_native_tests)
 endif()
@@ -54,7 +65,12 @@ if(NUMPY_RC)
   message(FATAL_ERROR "The numpy Python package is required (pip install numpy)")
 endif()
 
-pybind11_add_module(_native native/src/bindings.cpp)
+pybind11_add_module(_native
+  native/bindings/module.cpp
+  native/bindings/builders.cpp
+  native/bindings/kernels.cpp
+  native/bindings/tracing.cpp
+  native/bindings/measurement.cpp)
 target_link_libraries(_native PRIVATE optics_core)
 target_include_directories(_native SYSTEM PRIVATE "${NUMPY_INCLUDE_DIR}")
 # Pin the module output so multi-config generators (Visual Studio) do not

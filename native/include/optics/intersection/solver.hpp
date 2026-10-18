@@ -7,10 +7,9 @@
 #include <utility>
 #include <vector>
 
-#include "optics/constants.hpp"
-#include "optics/grid.hpp"
-#include "optics/math.hpp"
-#include "optics/surface.hpp"
+#include "optics/common/constants.hpp"
+#include "optics/geometry/surface.hpp"
+#include "optics/intersection/grid.hpp"
 
 namespace optics::native {
 

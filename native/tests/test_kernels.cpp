@@ -1,71 +1,21 @@
-// Minimal dependency-free checks for the native kernels: expression parsing
-// semantics and the Newton intersection/inversion paths.
-#include <algorithm>
+// Kernel-level checks: placement rotation, the Newton intersection and
+// inversion paths on a sphere patch, plane/mesh primitives and the
+// refraction/reflection directions.
 #include <cmath>
-#include <cstdio>
-#include <string>
 #include <vector>
 
-#include "optics/expression.hpp"
-#include "optics/grid.hpp"
-#include "optics/kernels.hpp"
-#include "optics/solver.hpp"
-#include "optics/surface.hpp"
+#include "optics/common/constants.hpp"
+#include "optics/common/matrix.hpp"
+#include "optics/geometry/surface.hpp"
+#include "optics/intersection/grid.hpp"
+#include "optics/intersection/mesh.hpp"
+#include "optics/intersection/plane.hpp"
+#include "optics/intersection/solver.hpp"
+#include "optics/tracing/direction.hpp"
+
+#include "check.hpp"
 
 namespace {
-
-int g_failures = 0;
-
-#define CHECK(cond)                                                          \
-    do {                                                                     \
-        if (!(cond)) {                                                       \
-            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
-            ++g_failures;                                                    \
-        }                                                                    \
-    } while (0)
-
-bool close(double a, double b, double tol = 1e-9) {
-    return std::abs(a - b) <= tol * std::max(1.0, std::max(std::abs(a), std::abs(b)));
-}
-
-void test_expression() {
-    using namespace optics::native;
-
-    auto eval_src = [](const std::string& src, double u, double v) {
-        return eval_expression(*parse_expression(src), u, v);
-    };
-
-    CHECK(close(eval_src("1 + 2 * 3", 0, 0), 7.0));
-    CHECK(close(eval_src("-2 ** 2", 0, 0), -4.0));   // Python: -(2**2)
-    CHECK(close(eval_src("2 ** -1", 0, 0), 0.5));    // right-assoc with unary
-    CHECK(close(eval_src("7 % 3", 0, 0), 1.0));
-    CHECK(close(eval_src("-7 % 3", 0, 0), 2.0));     // floor-mod
-    CHECK(close(eval_src("sqrt(1 - (u**2) - (v**2))", 0.5, 0.0), std::sqrt(0.75)));
-    CHECK(std::isnan(eval_src("sqrt(u)", -1.0, 0.0)));
-    CHECK(std::isinf(eval_src("u / (v - 0.5)", 0.3, 0.5)));
-    CHECK(std::isnan(eval_src("u / (v - 0.5)", 0.0, 0.5)));
-    CHECK(close(eval_src("abs(u) + exp(0) + log(1) - sin(0) - cos(0)", -2.0, 0.0), 2.0));
-    CHECK(close(eval_src("(u + 1) * (v - 2)", 1.0, 3.0), 2.0));
-
-    auto must_throw = [&](const std::string& src) {
-        bool threw = false;
-        try {
-            parse_expression(src);
-        } catch (const ExpressionError&) {
-            threw = true;
-        }
-        CHECK(threw);
-    };
-    must_throw("pi");
-    must_throw("e");
-    must_throw("u[0]");
-    must_throw("u .real");
-    must_throw("open('f')");
-    must_throw("1 +");
-    must_throw("foo(u)");
-    must_throw("(lambda: 1)()");
-    must_throw("u, v");
-}
 
 void test_rotation() {
     using namespace optics::native;
@@ -203,16 +153,9 @@ void test_direction() {
 
 }  // namespace
 
-int main() {
-    test_expression();
+void test_kernels() {
     test_rotation();
     test_intersect_and_invert();
     test_plane_and_mesh();
     test_direction();
-    if (g_failures == 0) {
-        std::printf("native tests passed\n");
-        return 0;
-    }
-    std::fprintf(stderr, "%d native test failures\n", g_failures);
-    return 1;
 }

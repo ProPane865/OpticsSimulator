@@ -1,14 +1,16 @@
 // Compiled surface model and the kernel surface descriptor: expression
 // evaluation, finite-difference tangents (C++ mirror of
-// ``optics/numerical/_codegen_runtime.py``) and descriptor-domain membership
-// / derivative policy (mirror of ``optics/numerical/desc.py``).
+// ``optics/numerical/_codegen_runtime.py``), descriptor-domain membership,
+// aperture membership and derivative policy (mirror of
+// ``optics/numerical/desc.py``) and world-space surface normals.
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <utility>
 
-#include "optics/expression.hpp"
-#include "optics/math.hpp"
+#include "optics/common/matrix.hpp"
+#include "optics/expression/expression.hpp"
 
 namespace optics::native {
 
@@ -80,5 +82,10 @@ bool desc_accepts(const SurfaceDesc& d, double u, double v);
 
 // Analytic tangents with the interior pull-back / FD fallback.
 std::pair<Vec3, Vec3> desc_derivatives(const SurfaceDesc& d, double u, double v);
+
+// World-space unit normal at ``(u, v)`` (``-cross(r_u, r_v)`` rotated by the
+// descriptor); ``nullopt`` outside the domain/aperture or when the tangent
+// cross product is degenerate.
+std::optional<Vec3> surface_normal(const SurfaceDesc& desc, double u, double v);
 
 }  // namespace optics::native

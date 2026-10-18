@@ -1,10 +1,11 @@
 // Compiled surface model and descriptor helpers.
-#include "optics/surface.hpp"
+#include "optics/geometry/surface.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
-#include "optics/constants.hpp"
+#include "optics/common/constants.hpp"
 
 namespace optics::native {
 
@@ -179,6 +180,19 @@ std::pair<Vec3, Vec3> desc_derivatives(const SurfaceDesc& d, double u, double v)
         frac *= 2.0;
     }
     return {partial_desc(d, u, v, 1.0, 0.0), partial_desc(d, u, v, 0.0, 1.0)};
+}
+
+std::optional<Vec3> surface_normal(const SurfaceDesc& desc, double u, double v) {
+    if (!desc_accepts(desc, u, v)) {
+        return std::nullopt;
+    }
+    const auto rv = desc_derivatives(desc, u, v);
+    Vec3 n = -cross3(rv.first, rv.second);
+    const double norm_len = norm(n);
+    if (!std::isfinite(norm_len) || norm_len <= 0.0) {
+        return std::nullopt;
+    }
+    return desc.rot * (n / norm_len);
 }
 
 }  // namespace optics::native

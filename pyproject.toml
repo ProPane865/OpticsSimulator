@@ -28,7 +28,7 @@ opticssim = "ui.app:main"
 [tool.scikit-build]
 build-dir = "build/{wheel_tag}"
 wheel.packages = ["optics", "rendering", "ui"]
-sdist.include = ["native/src/*", "native/include/optics/*", "native/tests/*"]
+sdist.include = ["native/**"]
 
 [tool.ruff]
 line-length = 120

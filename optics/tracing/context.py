@@ -47,7 +47,6 @@ def build_trace_context(
         else:
             tri = wall.triangles()
             normals = wall.face_normals()
-        lo, hi = el.local_bounds()
         ctxs.append(
             build_element_context(
                 d1,
@@ -55,8 +54,6 @@ def build_trace_context(
                 g1,
                 g2,
                 float(el.material.refractive_index),
-                lo,
-                hi,
                 tri,
                 normals,
                 el.surface1.is_graph_over_xy,

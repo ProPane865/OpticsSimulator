@@ -12,9 +12,13 @@ def test_native_path_active_for_standard_surface(make_element):
     s = _sphere_surface(make_element)
     assert s._eval_local is not None
     assert s._eval_grid is not None
-    assert s._local_tangents is not None
     desc = s.native_descriptor
     assert desc is not None
+    # Tangents come from the native descriptor (with the interior-pullback
+    # fallback), not a per-surface Python callable.
+    assert callable(desc.derivatives)
+    ru, rv = s.derivatives_local(0.1, 0.2)
+    assert np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))
     from optics.numerical.desc import desc_eval
 
     np.testing.assert_array_equal(

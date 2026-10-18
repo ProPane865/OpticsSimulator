@@ -12,7 +12,6 @@ from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any, cast
 
-import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtUiTools import QUiLoader
 from vispy import app as vispy_app
@@ -114,9 +113,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         # and every measurement plane; otherwise fall back to the separate
         # measure/retrace paths.
         if rays and planes:
-            origins = np.asarray([r.origin for r in rays], dtype=float)
-            dirs = np.asarray([r.direction for r in rays], dtype=float)
-            powers = np.asarray([r.power for r in rays], dtype=float)
+            origins, dirs, powers = state.rays_arrays()
             combined = trace_segments_and_planes(
                 elements, origins, dirs, powers, RAY_LENGTH, planes
             )
@@ -236,20 +233,16 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
     interaction responsive. Best-effort: any failure just leaves the work
     for the first interactive trace.
     """
-    import numpy as np
-
     from optics.config import refractive_element_from_config
     from optics.tracing import trace_segments_batch
 
     try:
         if not elements:
             elements = [refractive_element_from_config(DEFAULT_ELEMENT_CONFIG)]
-        rays = PointSource(**DEFAULT_SOURCE_CONFIG).emit_rays()
-        origins = np.asarray([r.origin for r in rays], dtype=float)
-        dirs = np.asarray([r.direction for r in rays], dtype=float)
+        origins, dirs, powers = PointSource(**DEFAULT_SOURCE_CONFIG).emit_arrays()
         trace_segments_batch(elements, origins, dirs, ray_length=6.0)
         plane = MeasurementPlane(**DEFAULT_MEASUREMENT_CONFIG)
-        plane.measure(rays, list(elements))
+        MeasurementPlane.measure_batch_arrays([plane], origins, dirs, powers, list(elements))
     except Exception:
         pass
 

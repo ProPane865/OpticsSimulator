@@ -66,7 +66,6 @@ def main(argv: "list[str] | None" = None) -> int:
     report.add("setup (one-time)", "native descriptor build", seconds)
 
     def rebuild_grid() -> None:
-        surface.solver._grid_cache.clear()
         surface.solver._native_grid_cache.clear()
         surface.solver.native_grid()
 

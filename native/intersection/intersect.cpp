@@ -13,6 +13,23 @@ namespace {
 
 constexpr double kInf = std::numeric_limits<double>::infinity();
 
+// ``numpy.linspace(a, b, n)`` (endpoint included; a single sample is ``[a]``).
+void linspace(double a, double b, int n, std::vector<double>& out) {
+    out.assign(static_cast<std::size_t>(n < 0 ? 0 : n), 0.0);
+    if (n <= 0) {
+        return;
+    }
+    if (n == 1) {
+        out[0] = a;
+        return;
+    }
+    const double step = (b - a) / (n - 1);
+    for (int i = 0; i < n; ++i) {
+        out[static_cast<std::size_t>(i)] = a + step * i;
+    }
+    out[static_cast<std::size_t>(n - 1)] = b;
+}
+
 }  // namespace
 
 std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const double* o, const double* d,
@@ -131,6 +148,52 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
         }
     }
     return HitUV{hit_t[best], hit_u[best], hit_v[best]};
+}
+
+SeedGrid build_seed_grid(const SurfaceDesc& desc, int grid_n) {
+    SeedGrid g;
+    if (grid_n < 1) {
+        grid_n = 1;
+    }
+    std::vector<double> us;
+    std::vector<double> vs;
+    linspace(desc.u_min, desc.u_max, grid_n, us);
+    linspace(desc.v_min, desc.v_max, grid_n, vs);
+    const std::size_t n = static_cast<std::size_t>(grid_n);
+    const std::size_t total = n * n;
+    g.uf.resize(total);
+    g.vf.resize(total);
+    g.pts.resize(3 * total);
+    g.finite.resize(total);
+    for (int r = 0; r < grid_n; ++r) {
+        for (int c = 0; c < grid_n; ++c) {
+            const std::size_t k = static_cast<std::size_t>(r) * n + static_cast<std::size_t>(c);
+            const double u = us[static_cast<std::size_t>(c)];
+            const double v = vs[static_cast<std::size_t>(r)];
+            g.uf[k] = u;
+            g.vf[k] = v;
+            const Vec3 p = desc.model->eval_local(u, v);
+            g.pts[3 * k + 0] = p[0];
+            g.pts[3 * k + 1] = p[1];
+            g.pts[3 * k + 2] = p[2];
+            g.finite[k] = (std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]))
+                              ? static_cast<unsigned char>(1)
+                              : static_cast<unsigned char>(0);
+        }
+    }
+    for (std::size_t k = 0; k < total; ++k) {
+        if (!g.finite[k] || !desc_accepts(desc, g.uf[k], g.vf[k])) {
+            continue;
+        }
+        g.uf_valid.push_back(g.uf[k]);
+        g.vf_valid.push_back(g.vf[k]);
+        const Vec3 local = make_vec3(g.pts[3 * k + 0], g.pts[3 * k + 1], g.pts[3 * k + 2]);
+        const Vec3 world = desc.rot * local + desc.trans;
+        g.p_world.push_back(world[0]);
+        g.p_world.push_back(world[1]);
+        g.p_world.push_back(world[2]);
+    }
+    return g;
 }
 
 }  // namespace optics::native

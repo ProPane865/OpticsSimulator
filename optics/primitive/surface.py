@@ -35,7 +35,6 @@ class Surface:
         self._model = fns.model
         self._eval_local = fns.eval_local
         self._eval_grid = fns.eval_grid
-        self._local_tangents = fns.derivatives_local
         if transform is None:
             self.transform = Transform(np.eye(3, 3), np.zeros(3))
         elif isinstance(transform, Transform):
@@ -165,73 +164,23 @@ class Surface:
         vs = np.ascontiguousarray(V.reshape(-1), dtype=float)
         return self._eval_grid(us, vs).reshape(shape + (3,))
 
-    def _partial_local(self, u: float, v: float, du: float, dv: float) -> np.ndarray:
-        """One-sided finite-difference partial in direction ``(du, dv)``.
-
-        The step is halved until the evaluation stays finite, so it still works
-        right at the edge of the aperture rim where tangents diverge.
-        """
-        base = self.evaluate_local(u, v)
-        if not np.all(np.isfinite(base)):
-            return np.full(3, np.nan)
-        step = _c.FD_STEP_REL * max(1.0, abs(u), abs(v))
-        for sign in (1.0, -1.0):
-            h = step
-            for _ in range(_c.FD_STEP_SHRINKS):
-                p = self.evaluate_local(u + sign * du * h, v + sign * dv * h)
-                if np.all(np.isfinite(p)):
-                    return (p - base) / (sign * h)
-                h *= 0.5
-        return np.full(3, np.nan)
-
-    def _interior_derivatives(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
-        """Tangents at the nearest interior point, used where they blow up.
-
-        At an aperture rim a graph surface becomes vertical and a finite-difference
-        sample crosses into an undefined region. Pulling back toward the interior
-        of the parameter domain and evaluating there gives the limiting tangent
-        directions, which is the geometrically correct rim frame.
-        """
-        (u_min, u_max), (v_min, v_max) = self.parameter_range
-        du = 0.5 * (u_min + u_max) - u
-        dv = 0.5 * (v_min + v_max) - v
-        if du == 0.0 and dv == 0.0:
-            return self._partial_local(u, v, 1.0, 0.0), self._partial_local(u, v, 0.0, 1.0)
-        span = max(abs(u_max - u_min), abs(v_max - v_min), 1.0)
-        length = float(np.hypot(du, dv))
-        frac = _c.DERIV_INTERIOR_FRAC * span / length
-        for _ in range(_c.DERIV_INTERIOR_TRIES):
-            if frac >= 1.0:
-                break
-            uu = u + du * frac
-            vv = v + dv * frac
-            if self.accepts_parameters(uu, vv):
-                ru, rv = self._local_tangents(uu, vv)
-                if np.all(np.isfinite(ru)) and np.all(np.isfinite(rv)):
-                    return ru, rv
-            frac *= 2.0
-        return self._partial_local(u, v, 1.0, 0.0), self._partial_local(u, v, 0.0, 1.0)
-
     def derivatives_local(self, u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
-        """Return du and dv tangent vectors (finite differences)."""
-        u = float(u)
-        v = float(v)
-        ru, rv = self._local_tangents(u, v)
-        if not (np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))):
-            ru, rv = self._interior_derivatives(u, v)
+        """Return the ``du``/``dv`` tangent vectors at ``(u, v)`` (local space).
+
+        The finite-difference tangent, including the interior pull-back / rim
+        fallback used where it blows up, runs natively on the surface descriptor.
+        """
+        ru, rv = self.native_descriptor.derivatives(float(u), float(v))
         return ru, rv
 
     def normal(self, u: float, v: float) -> np.ndarray | None:
-        """World-space unit normal."""
-        if not self.accepts_parameters(u, v):
-            return None
+        """World-space unit normal (``None`` outside the domain/aperture).
 
-        ru, rv = self.derivatives_local(u, v)
-        n = -np.cross(ru, rv)
-        norm = np.linalg.norm(n)
-        if not np.isfinite(norm) or norm <= 0.0:
-            return None
-        return self.transform.vector_to_world(n / norm)
+        Computed natively on the surface descriptor (the interior pull-back and
+        the ``-cross(r_u, r_v)`` orientation with the world rotation).
+        """
+        n = self.native_descriptor.normal(float(u), float(v))
+        return None if n is None else np.asarray(n, dtype=float)
 
     def in_domain(self, u: Any, v: Any) -> Any:
         """Vectorized check whether parameters (u, v) lie in the domain."""

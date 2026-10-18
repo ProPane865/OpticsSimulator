@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+import numpy as np
+
 from optics.config import stack_from_config
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray
@@ -139,6 +141,7 @@ class ProjectState:
         self._elements: list[RefractiveElement] = []
         self._source: PointSource = source if source is not None else PointSource(**DEFAULT_SOURCE_CONFIG)
         self._rays: list[Ray] = list(rays) if rays is not None else list(self._source.emit_rays())
+        self._rays_arrays: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
         self._planes: list[MeasurementPlane] = []
         self._plane_names: list[str] = []
 
@@ -158,6 +161,28 @@ class ProjectState:
     @property
     def rays(self) -> list[Ray]:
         return self._rays
+
+    def rays_arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """The ray fan as contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers.
+
+        Materialized lazily from :attr:`rays` and cached; the cache is dropped
+        whenever the source/rays change, so per-refresh trace/measure passes can
+        reuse the arrays without re-marshalling the ``Ray`` list every time.
+        """
+        arrays = self._rays_arrays
+        if arrays is None:
+            rays = self._rays
+            n = len(rays)
+            origins = np.empty((n, 3), dtype=float)
+            dirs = np.empty((n, 3), dtype=float)
+            powers = np.empty(n, dtype=float)
+            for i, ray in enumerate(rays):
+                origins[i] = ray.origin
+                dirs[i] = ray.direction
+                powers[i] = ray.power
+            arrays = (origins, dirs, powers)
+            self._rays_arrays = arrays
+        return arrays
 
     @property
     def planes(self) -> list[MeasurementPlane]:
@@ -192,6 +217,7 @@ class ProjectState:
     def set_source(self, source: PointSource, rays: list[Ray]) -> None:
         self._source = source
         self._rays = rays
+        self._rays_arrays = None
 
     # -- measurement plane operations ---------------------------------------
     def add_plane(self, name: str, plane: MeasurementPlane) -> None:
@@ -207,7 +233,8 @@ class ProjectState:
         self._plane_names.pop(index)
 
     def measure_all(self) -> None:
-        MeasurementPlane.measure_batch(self._planes, self._rays, self._elements)
+        origins, dirs, powers = self.rays_arrays()
+        MeasurementPlane.measure_batch_arrays(self._planes, origins, dirs, powers, self._elements)
 
     # -- document (de)serialization -----------------------------------------
     def load_document(self, document: object) -> tuple[list[RefractiveElement], bool]:
@@ -246,6 +273,7 @@ class ProjectState:
         self._elements = elements
         self._source = new_source
         self._rays = new_rays
+        self._rays_arrays = None
         self._planes = new_planes
         self._plane_names = new_names
         return elements, replaced

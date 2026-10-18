@@ -20,7 +20,6 @@ class RefractiveElement:
         self.surface2 = surface2
         self.material = material
         self._sidewall: Any = _SIDEWALL_UNSET
-        self._local_aabb: tuple[np.ndarray, np.ndarray] | None = None
 
     @property
     def transform(self) -> Transform:
@@ -53,22 +52,3 @@ class RefractiveElement:
                 else:
                     self._sidewall = None
         return self._sidewall
-
-    def local_bounds(self) -> "tuple[np.ndarray, np.ndarray]":
-        """Cached axis-aligned bounds of both surfaces in the local frame."""
-        if self._local_aabb is None:
-            lo = np.full(3, np.inf)
-            hi = np.full(3, -np.inf)
-            for surface in (self.surface1, self.surface2):
-                (u_min, u_max), (v_min, v_max) = surface.parameter_range
-                us = np.linspace(u_min, u_max, _c.CONTAINMENT_BOUNDS_N)
-                vs = np.linspace(v_min, v_max, _c.CONTAINMENT_BOUNDS_N)
-                U, V = np.meshgrid(us, vs)
-                pts = surface.evaluate_local(U, V).reshape(-1, 3)
-                pts = pts[np.all(np.isfinite(pts), axis=1)]
-                if pts.size == 0:
-                    continue
-                lo = np.minimum(lo, pts.min(axis=0))
-                hi = np.maximum(hi, pts.max(axis=0))
-            self._local_aabb = (lo, hi)
-        return self._local_aabb

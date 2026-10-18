@@ -6,6 +6,7 @@
 #include <pybind11/stl.h>
 
 #include <cstdint>
+#include <cstring>
 #include <tuple>
 #include <vector>
 
@@ -134,6 +135,36 @@ py::object py_refract_or_reflect(const py::array_t<double>& incident,
     return py::make_tuple(np3(rv.first), rv.second);
 }
 
+std::tuple<double, double, bool> py_parameters_at(const SurfaceDesc& desc, const SeedGrid& grid,
+                                                  const py::array_t<double>& point) {
+    const Vec3 pv = to_vec3(point, "point");
+    const auto uv = [&] {
+        const py::gil_scoped_release release;
+        return optics::native::parameters_at(desc, grid, pv.v);
+    }();
+    if (!uv.has_value()) {
+        return {0.0, 0.0, false};
+    }
+    return {uv->first, uv->second, true};
+}
+
+py::array_t<double> py_build_rim(const SurfaceDesc& desc, const SeedGrid& grid, double radius,
+                                 double cx, double cy, int n) {
+    require(n >= 0, "n: expected a non-negative sample count");
+    std::vector<double> pts;
+    {
+        const py::gil_scoped_release release;
+        pts = optics::native::build_rim(desc, grid, radius, cx, cy, n);
+    }
+    const std::size_t rows = pts.size() / 3;
+    py::array_t<double> out(std::vector<py::ssize_t>{static_cast<py::ssize_t>(rows), 3},
+                            std::vector<py::ssize_t>{24, 8});
+    if (!pts.empty()) {
+        std::memcpy(out.request().ptr, pts.data(), pts.size() * sizeof(double));
+    }
+    return out;
+}
+
 }  // namespace
 
 namespace optics::bindings {
@@ -147,6 +178,9 @@ void register_kernels(py::module_& m) {
           py::arg("u"), py::arg("v"));
     m.def("parameters_at_xy", &py_parameters_at_xy, py::arg("desc"), py::arg("grid"), py::arg("x"),
           py::arg("y"));
+    m.def("parameters_at", &py_parameters_at, py::arg("desc"), py::arg("grid"), py::arg("point"));
+    m.def("build_rim", &py_build_rim, py::arg("desc"), py::arg("grid"), py::arg("radius"),
+          py::arg("cx"), py::arg("cy"), py::arg("n"));
     m.def("plane_intersect", &py_plane_intersect, py::arg("ro"), py::arg("d"), py::arg("o"),
           py::arg("n"), py::arg("eps"));
     m.def("mesh_intersect", &py_mesh_intersect, py::arg("o"), py::arg("d"), py::arg("tri"),

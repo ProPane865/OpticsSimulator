@@ -4,12 +4,17 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "optics/common/constants.hpp"
 #include "optics/geometry/surface.hpp"
 #include "optics/intersection/grid.hpp"
+#include "optics/intersection/solver.hpp"
 #include "optics/tracing/context.hpp"
 
 #include "register.hpp"
@@ -23,7 +28,52 @@ using optics::native::SeedGrid;
 using optics::native::SurfaceDesc;
 using optics::native::SurfaceModel;
 using optics::native::TraceStack;
+using optics::native::Vec3;
 using namespace optics::bindings;
+
+// ``numpy.linspace(a, b, n)`` (endpoint included; a single sample is ``[a]``).
+void linspace(double a, double b, int n, std::vector<double>& out) {
+    out.assign(static_cast<std::size_t>(n < 0 ? 0 : n), 0.0);
+    if (n <= 0) {
+        return;
+    }
+    if (n == 1) {
+        out[0] = a;
+        return;
+    }
+    const double step = (b - a) / (n - 1);
+    for (int i = 0; i < n; ++i) {
+        out[static_cast<std::size_t>(i)] = a + step * i;
+    }
+    out[static_cast<std::size_t>(n - 1)] = b;
+}
+
+// Axis-aligned bounds of both surfaces sampled over their parameter domain in
+// the local frame (mirror of ``RefractiveElement.local_bounds``); ``+inf``/
+// ``-inf`` when no finite sample exists.
+void local_bounds(const SurfaceDesc& d1, const SurfaceDesc& d2, Vec3& lo, Vec3& hi) {
+    const SurfaceDesc* descs[2] = {&d1, &d2};
+    for (const SurfaceDesc* d : descs) {
+        std::vector<double> us;
+        std::vector<double> vs;
+        linspace(d->u_min, d->u_max, optics::native::CONTAINMENT_BOUNDS_N, us);
+        linspace(d->v_min, d->v_max, optics::native::CONTAINMENT_BOUNDS_N, vs);
+        const int n = optics::native::CONTAINMENT_BOUNDS_N;
+        for (int r = 0; r < n; ++r) {
+            for (int c = 0; c < n; ++c) {
+                const Vec3 p = d->model->eval_local(us[static_cast<std::size_t>(c)],
+                                                    vs[static_cast<std::size_t>(r)]);
+                if (!optics::native::finite3(p)) {
+                    continue;
+                }
+                for (int j = 0; j < 3; ++j) {
+                    lo[j] = std::min(lo[j], p[j]);
+                    hi[j] = std::max(hi[j], p[j]);
+                }
+            }
+        }
+    }
+}
 
 std::shared_ptr<SurfaceModel> make_model(const std::string& x_src, const std::string& y_src,
                                          const std::string& z_src, double u_min, double u_max,
@@ -112,10 +162,7 @@ std::shared_ptr<SeedGrid> build_grid(const py::array_t<double>& p_world,
 std::shared_ptr<ElementContext> build_element_context(
     const std::shared_ptr<SurfaceDesc>& desc1, const std::shared_ptr<SurfaceDesc>& desc2,
     const std::shared_ptr<SeedGrid>& grid1, const std::shared_ptr<SeedGrid>& grid2, double index,
-    const py::array_t<double>& lo, const py::array_t<double>& hi, const py::array_t<double>& tri,
-    const py::array_t<double>& normals, bool graph1, bool graph2) {
-    const ConstDoubles lo_d = read_doubles(lo, 1, "lo");
-    const ConstDoubles hi_d = read_doubles(hi, 1, "hi");
+    const py::array_t<double>& tri, const py::array_t<double>& normals, bool graph1, bool graph2) {
     const py::buffer_info tri_info = tri.request();
     require(tri_info.ndim == 3 && tri_info.shape[1] == 3 && tri_info.shape[2] == 3,
             "tri: expected shape (K, 3, 3)");
@@ -134,10 +181,12 @@ std::shared_ptr<ElementContext> build_element_context(
     ctx->grid1 = grid1;
     ctx->grid2 = grid2;
     ctx->index = index;
+    const double inf = std::numeric_limits<double>::infinity();
     for (int i = 0; i < 3; ++i) {
-        ctx->lo[i] = lo_d.data[i];
-        ctx->hi[i] = hi_d.data[i];
+        ctx->lo[i] = inf;
+        ctx->hi[i] = -inf;
     }
+    local_bounds(*desc1, *desc2, ctx->lo, ctx->hi);
     ctx->tri.assign(static_cast<const double*>(tri_info.ptr),
                     static_cast<const double*>(tri_info.ptr) + tri_info.size);
     ctx->normals.assign(static_cast<const double*>(nm_info.ptr),
@@ -208,6 +257,16 @@ void register_builders(py::module_& m) {
                  return py::make_tuple(np3(rv.first), np3(rv.second));
              },
              py::arg("u"), py::arg("v"))
+        .def(
+            "normal",
+            [](const SurfaceDesc& self, double u, double v) {
+                const auto nv = optics::native::surface_normal(self, u, v);
+                if (!nv.has_value()) {
+                    return py::object(py::none());
+                }
+                return py::object(np3(*nv));
+            },
+            py::arg("u"), py::arg("v"))
         .def("accepts", &optics::native::desc_accepts, py::arg("u"), py::arg("v"));
 
     py::class_<SeedGrid, std::shared_ptr<SeedGrid>>(m, "SeedGrid");
@@ -223,9 +282,20 @@ void register_builders(py::module_& m) {
           py::arg("translation"));
     m.def("build_grid", &build_grid, py::arg("p_world"), py::arg("uf_valid"), py::arg("vf_valid"),
           py::arg("pts"), py::arg("finite"), py::arg("uf"), py::arg("vf"));
+    m.def(
+        "build_seed_grid",
+        [](const SurfaceDesc& desc, int grid_n) {
+            auto grid = std::make_shared<SeedGrid>();
+            {
+                const py::gil_scoped_release release;
+                *grid = optics::native::build_seed_grid(desc, grid_n);
+            }
+            return grid;
+        },
+        py::arg("desc"), py::arg("grid_n"));
     m.def("build_element_context", &build_element_context, py::arg("desc1"), py::arg("desc2"),
-          py::arg("grid1"), py::arg("grid2"), py::arg("refractive_index"), py::arg("lo"),
-          py::arg("hi"), py::arg("tri"), py::arg("normals"), py::arg("graph1"), py::arg("graph2"));
+          py::arg("grid1"), py::arg("grid2"), py::arg("refractive_index"), py::arg("tri"),
+          py::arg("normals"), py::arg("graph1"), py::arg("graph2"));
     m.def("build_trace_stack", &build_trace_stack, py::arg("contexts"));
 }
 

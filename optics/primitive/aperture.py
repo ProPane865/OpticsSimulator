@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .. import constants as _c
+from ..numerical.invert import build_rim_kernel
 
 if TYPE_CHECKING:
     from .surface import Surface
@@ -127,31 +128,16 @@ class CircularAperture(Aperture):
             _RIM_CACHE.move_to_end(key)
             local = cached
         else:
-            theta = np.linspace(0, 2.0 * np.pi, n, endpoint=False)
-            targets = np.column_stack([
-                self.center[0] + self.radius * np.cos(theta),
-                self.center[1] + self.radius * np.sin(theta)
-            ])
-
-            points = []
-            last = None
-
-            for x, y in targets:
-                uv = surface.parameters_at_xy(x, y, seed=last)
-
-                if uv is None:
-                    raise ValueError(f"Aperture boundary point ({x}, {y}) does not lie on the surface")
-
-                u, v = uv
-                last = uv
-                p = surface.evaluate_local(u, v)
-
-                if not np.all(np.isfinite(p)):
-                    raise ValueError("Non-finite point on aperture boundary")
-
-                points.append(p)
-
-            local = np.array(points, dtype=float)
+            # Invert the rim circle onto the surface in a single native pass
+            # (continuation seeding, matching the previous per-point loop).
+            local = build_rim_kernel(
+                surface.native_descriptor,
+                surface.solver.native_grid(),
+                self.radius,
+                float(self.center[0]),
+                float(self.center[1]),
+                int(n),
+            )
             _RIM_CACHE[key] = local
             _RIM_CACHE.move_to_end(key)
             while len(_RIM_CACHE) > _RIM_CACHE_MAX:

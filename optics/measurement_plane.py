@@ -152,28 +152,23 @@ class MeasurementPlane:
             )
         )
 
-    def _measure_into(
-        self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
+    def _measure_into_arrays(
+        self,
+        origins: np.ndarray,
+        dirs: np.ndarray,
+        powers: np.ndarray,
+        stack: Any = None,
     ) -> float:
-        """Trace rays through ``elements`` and accumulate power into the grid.
+        """Trace ray arrays and accumulate power into the (reset) grid.
 
         Assumes the grid is already reset. Rays are traced in parallel (native
-        threads) through the stack kernel; bin accumulation stays serial so
-        the grid is deterministic.
+        threads) through the stack kernel; bin accumulation stays serial so the
+        grid is deterministic.
         """
-        if not rays:
-            return 0.0
-        stack: Any = None
-        if elements:
-            stack = build_trace_context(elements)
-            if stack is None:
-                raise ValueError("Element stack cannot be traced natively")
-        origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
-        dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
-        powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
-        us = np.full(len(rays), np.nan)
-        vs = np.full(len(rays), np.nan)
-        pws = np.zeros(len(rays))
+        n = origins.shape[0]
+        us = np.full(n, np.nan)
+        vs = np.full(n, np.nan)
+        pws = np.zeros(n)
         if stack is not None:
             _native.measure_stack(
                 stack,
@@ -197,6 +192,22 @@ class MeasurementPlane:
             )
         return self.accumulate(us, vs, pws)
 
+    def _measure_into(
+        self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
+    ) -> float:
+        """Trace rays through ``elements`` and accumulate power into the grid."""
+        if not rays:
+            return 0.0
+        stack: Any = None
+        if elements:
+            stack = build_trace_context(elements)
+            if stack is None:
+                raise ValueError("Element stack cannot be traced natively")
+        origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
+        dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
+        powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
+        return self._measure_into_arrays(origins, dirs, powers, stack)
+
     def measure(
         self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
     ) -> float:
@@ -217,17 +228,40 @@ class MeasurementPlane:
         directly against each plane.
         """
         plane_list = list(planes)
+        if not plane_list:
+            return []
+        if rays:
+            origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
+            dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
+            powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
+        else:
+            origins = np.empty((0, 3), dtype=float)
+            dirs = np.empty((0, 3), dtype=float)
+            powers = np.empty((0,), dtype=float)
+        return MeasurementPlane.measure_batch_arrays(plane_list, origins, dirs, powers, elements)
+
+    @staticmethod
+    def measure_batch_arrays(
+        planes: Sequence["MeasurementPlane"],
+        origins: np.ndarray,
+        dirs: np.ndarray,
+        powers: np.ndarray,
+        elements: Sequence[RefractiveElement] | None = None,
+    ) -> "list[float]":
+        """Array-based :meth:`measure_batch` (no per-ray marshalling).
+
+        ``origins``/``dirs`` are ``(N, 3)`` and ``powers`` is ``(N,)``; the fan
+        is traced through ``elements`` once (or measured directly when empty).
+        """
+        plane_list = list(planes)
         for plane in plane_list:
             plane.reset()
         if not plane_list:
             return []
-        if not rays:
+        if origins.shape[0] == 0:
             return [0.0] * len(plane_list)
         if not elements:
-            return [plane._measure_into(rays, None) for plane in plane_list]
-        origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
-        dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
-        powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
+            return [plane._measure_into_arrays(origins, dirs, powers) for plane in plane_list]
         raw = measure_planes_raw(elements, origins, dirs, powers, plane_list)
         if raw is None:
             raise ValueError("Element stack cannot be traced natively")

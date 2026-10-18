@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from . import _native
 from .primitive import Ray
 
 SINGLE_POINT = "single_point"
@@ -66,12 +67,26 @@ class PointSource:
         if not np.isfinite(self.cone_angle) or not 0.0 <= self.cone_angle <= 360.0:
             raise ValueError("Cone angle must be finite and between 0 and 360 degrees")
 
-    def emit_rays(self) -> list[Ray]:
+    def emit_arrays(self) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+        """Emit the ray fan as contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers.
+
+        Built directly by the native kernel with unit directions, so this is the
+        marshalling-free path used by the tracing/measurement hot paths. Only
+        the ``single_point`` source type is supported.
+        """
         if self.source_type == POINT_ARRAY:
             raise NotImplementedError("Point array sources are not implemented")
         if self.source_type != SINGLE_POINT:
             raise ValueError(f"Unknown source type: {self.source_type}")
+        origins, dirs, powers = _native.emit_cone(
+            self.position, self.power, self.num_rays, self.cone_angle
+        )
+        return (
+            np.ascontiguousarray(origins, dtype=float),
+            np.ascontiguousarray(dirs, dtype=float),
+            np.ascontiguousarray(powers, dtype=float),
+        )
 
-        directions = fibonacci_cone_directions(self.num_rays, self.cone_angle)
-        ray_power = self.power / self.num_rays
-        return [Ray(self.position.copy(), d, ray_power) for d in directions]
+    def emit_rays(self) -> list[Ray]:
+        origins, dirs, powers = self.emit_arrays()
+        return [Ray(origins[i], dirs[i], float(powers[i])) for i in range(origins.shape[0])]

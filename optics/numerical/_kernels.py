@@ -68,28 +68,33 @@ def build_grid(
     )
 
 
+def build_seed_grid(desc: Any, grid_n: int) -> Any:
+    """Assemble a native seed grid directly from a native surface descriptor."""
+    return _native.build_seed_grid(desc, int(grid_n))
+
+
 def build_element_context(
     desc1: Any,
     desc2: Any,
     grid1: Any,
     grid2: Any,
     refractive_index: float,
-    lo: np.ndarray,
-    hi: np.ndarray,
     tri: np.ndarray,
     normals: np.ndarray,
     graph1: bool,
     graph2: bool,
 ) -> Any:
-    """Assemble a native element context (front/rear surfaces + sidewall)."""
+    """Assemble a native element context (front/rear surfaces + sidewall).
+
+    The element's local axis-aligned bounds are derived natively from the two
+    surface descriptors, so they are not passed in.
+    """
     return _native.build_element_context(
         desc1,
         desc2,
         grid1,
         grid2,
         float(refractive_index),
-        np.ascontiguousarray(lo, dtype=float),
-        np.ascontiguousarray(hi, dtype=float),
         np.ascontiguousarray(tri, dtype=float),
         np.ascontiguousarray(normals, dtype=float),
         bool(graph1),

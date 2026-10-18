@@ -35,6 +35,8 @@ inline constexpr double POINT_MATCH_TOL = 1e-8;
 inline constexpr double RAY_EPSILON = 1e-9;
 inline constexpr double MIN_HIT_T = 1e-7;
 inline constexpr int MAX_INTERNAL_BOUNCES = 8;
+// Grid resolution used to bound an element's local volume for containment tests.
+inline constexpr int CONTAINMENT_BOUNDS_N = 16;
 
 // --- Sidewall (Moller-Trumbore) intersection ---
 inline constexpr double DET_SINGULAR_EPS = 1e-14;

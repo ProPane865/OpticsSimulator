@@ -1,11 +1,12 @@
-// Surface/descriptor/grid/element/stack builders and the opaque handle
-// classes exposed to Python.
+// Surface/element/stack builders and the opaque native handle classes
+// exposed to Python.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <string>
@@ -13,7 +14,6 @@
 
 #include "optics/common/constants.hpp"
 #include "optics/geometry/surface.hpp"
-#include "optics/intersection/grid.hpp"
 #include "optics/intersection/solver.hpp"
 #include "optics/tracing/context.hpp"
 
@@ -24,9 +24,7 @@ namespace {
 
 using optics::native::Element;
 using optics::native::Mat3;
-using optics::native::SeedGrid;
 using optics::native::Surface;
-using optics::native::SurfaceDesc;
 using optics::native::SurfaceModel;
 using optics::native::TraceStack;
 using optics::native::Vec3;
@@ -111,12 +109,12 @@ std::shared_ptr<Element> build_element(const std::shared_ptr<Surface>& surface1,
 }
 
 std::shared_ptr<TraceStack> build_trace_stack(
-    const std::vector<std::shared_ptr<Element>>& contexts) {
+    const std::vector<std::shared_ptr<Element>>& elements) {
     auto stack = std::make_shared<TraceStack>();
-    stack->elements.reserve(contexts.size());
-    for (const auto& ctx : contexts) {
-        require(ctx != nullptr, "element context must not be None");
-        stack->elements.push_back(ctx);
+    stack->elements.reserve(elements.size());
+    for (const auto& element : elements) {
+        require(element != nullptr, "element must not be None");
+        stack->elements.push_back(element);
     }
     return stack;
 }
@@ -159,35 +157,105 @@ void register_builders(py::module_& m) {
         .def_property_readonly("v_min", &SurfaceModel::v_min)
         .def_property_readonly("v_max", &SurfaceModel::v_max);
 
-    py::class_<SurfaceDesc, std::shared_ptr<SurfaceDesc>>(m, "SurfaceDesc")
-        .def("eval",
-             [](const SurfaceDesc& self, double u, double v) {
-                 return np3(optics::native::desc_eval(self, u, v));
-             },
-             py::arg("u"), py::arg("v"))
-        .def("derivatives",
-             [](const SurfaceDesc& self, double u, double v) {
-                 const auto rv = optics::native::desc_derivatives(self, u, v);
-                 return py::make_tuple(np3(rv.first), np3(rv.second));
-             },
-             py::arg("u"), py::arg("v"))
+    py::class_<Surface, std::shared_ptr<Surface>>(m, "NativeSurface")
+        .def("is_graph_over_xy", &Surface::is_graph_over_xy)
         .def(
             "normal",
-            [](const SurfaceDesc& self, double u, double v) {
-                const auto nv = optics::native::surface_normal(self, u, v);
+            [](const Surface& self, double u, double v) {
+                const auto nv = self.normal(u, v);
                 if (!nv.has_value()) {
                     return py::object(py::none());
                 }
                 return py::object(np3(*nv));
             },
             py::arg("u"), py::arg("v"))
-        .def("accepts", &optics::native::desc_accepts, py::arg("u"), py::arg("v"));
-
-    py::class_<SeedGrid, std::shared_ptr<SeedGrid>>(m, "SeedGrid");
-    py::class_<Surface, std::shared_ptr<Surface>>(m, "NativeSurface")
-        .def("desc", [](const Surface& self) { return self.desc_ptr(); })
-        .def("grid", [](const Surface& self) { return self.grid_ptr(); })
-        .def("is_graph_over_xy", &Surface::is_graph_over_xy);
+        .def(
+            "derivatives",
+            [](const Surface& self, double u, double v) {
+                const auto rv = self.derivatives(u, v);
+                return py::make_tuple(np3(rv.first), np3(rv.second));
+            },
+            py::arg("u"), py::arg("v"))
+        .def(
+            "derivatives_local",
+            [](const Surface& self, double u, double v) {
+                const auto rv = self.derivatives_local(u, v);
+                return py::make_tuple(np3(rv.first), np3(rv.second));
+            },
+            py::arg("u"), py::arg("v"))
+        .def(
+            "intersect",
+            [](const Surface& self, const py::array_t<double>& o, const py::array_t<double>& d) {
+                const Vec3 ov = to_vec3(o, "origin");
+                const Vec3 dv = to_vec3(d, "direction");
+                const auto hit = [&] {
+                    const py::gil_scoped_release release;
+                    return self.intersect(ov, dv);
+                }();
+                if (!hit.has_value()) {
+                    return std::tuple<double, double, double, bool>{0.0, 0.0, 0.0, false};
+                }
+                return std::tuple<double, double, double, bool>{hit->t, hit->u, hit->v, true};
+            },
+            py::arg("o"), py::arg("d"))
+        .def(
+            "parameters_at_local",
+            [](const Surface& self, const py::array_t<double>& point) {
+                const Vec3 pv = to_vec3(point, "point");
+                const auto uv = [&] {
+                    const py::gil_scoped_release release;
+                    return self.parameters_at_local(pv);
+                }();
+                if (!uv.has_value()) {
+                    return std::tuple<double, double, bool>{0.0, 0.0, false};
+                }
+                return std::tuple<double, double, bool>{uv->first, uv->second, true};
+            },
+            py::arg("point"))
+        .def(
+            "parameters_at_xy",
+            [](const Surface& self, double x, double y) {
+                const auto uv = [&] {
+                    const py::gil_scoped_release release;
+                    return self.parameters_at_xy(x, y);
+                }();
+                if (!uv.has_value()) {
+                    return std::tuple<double, double, bool>{0.0, 0.0, false};
+                }
+                return std::tuple<double, double, bool>{uv->first, uv->second, true};
+            },
+            py::arg("x"), py::arg("y"))
+        .def(
+            "solve_xy",
+            [](const Surface& self, double x_target, double y_target, double u, double v) {
+                const auto uv = [&] {
+                    const py::gil_scoped_release release;
+                    return optics::native::solve_xy(self.desc(), x_target, y_target, u, v);
+                }();
+                if (!uv.has_value()) {
+                    return std::tuple<double, double, bool>{0.0, 0.0, false};
+                }
+                return std::tuple<double, double, bool>{uv->first, uv->second, true};
+            },
+            py::arg("x_target"), py::arg("y_target"), py::arg("u"), py::arg("v"))
+        .def(
+            "rim",
+            [](const Surface& self, double radius, double cx, double cy, int n) {
+                require(n >= 0, "n: expected a non-negative sample count");
+                std::vector<double> pts;
+                {
+                    const py::gil_scoped_release release;
+                    pts = self.rim(radius, cx, cy, n);
+                }
+                const std::size_t rows = pts.size() / 3;
+                py::array_t<double> out(std::vector<py::ssize_t>{static_cast<py::ssize_t>(rows), 3},
+                                        std::vector<py::ssize_t>{24, 8});
+                if (!pts.empty()) {
+                    std::memcpy(out.request().ptr, pts.data(), pts.size() * sizeof(double));
+                }
+                return out;
+            },
+            py::arg("radius"), py::arg("cx"), py::arg("cy"), py::arg("n"));
     py::class_<Element, std::shared_ptr<Element>>(m, "Element");
     py::class_<TraceStack, std::shared_ptr<TraceStack>>(m, "TraceStack")
         .def("__len__", [](const TraceStack& self) { return self.size(); });
@@ -198,20 +266,9 @@ void register_builders(py::module_& m) {
           py::arg("u_min"), py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("ap_r"),
           py::arg("ap_cx"), py::arg("ap_cy"), py::arg("rotation"), py::arg("translation"),
           py::arg("grid_n") = optics::native::SEED_GRID_N);
-    m.def(
-        "build_seed_grid",
-        [](const SurfaceDesc& desc, int grid_n) {
-            auto grid = std::make_shared<SeedGrid>();
-            {
-                const py::gil_scoped_release release;
-                *grid = optics::native::build_seed_grid(desc, grid_n);
-            }
-            return grid;
-        },
-        py::arg("desc"), py::arg("grid_n"));
     m.def("build_element", &build_element, py::arg("surface1"), py::arg("surface2"),
           py::arg("refractive_index"), py::arg("tri"), py::arg("normals"));
-    m.def("build_trace_stack", &build_trace_stack, py::arg("contexts"));
+    m.def("build_trace_stack", &build_trace_stack, py::arg("elements"));
 }
 
 }  // namespace optics::bindings

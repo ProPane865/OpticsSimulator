@@ -5,9 +5,8 @@ import numpy as np
 
 from . import _native
 from . import constants as _c
-from .numerical.plane import plane_intersect_kernel
-from .numerical.vector import normalize
 from .primitive import Ray
+from .primitive.vector import normalize
 
 if TYPE_CHECKING:
     from .system import OpticalSystem
@@ -92,11 +91,11 @@ class MeasurementPlane:
         if not (np.all(np.isfinite(ro)) and np.all(np.isfinite(d))):
             return None
 
-        u, v, t, ok = plane_intersect_kernel(
+        u, v, t, ok = _native.plane_intersect(
             np.ascontiguousarray(ro, dtype=float),
             np.ascontiguousarray(d, dtype=float),
             np.ascontiguousarray(self.o, dtype=float),
-            self.n,
+            np.ascontiguousarray(self.n, dtype=float),
             _EPS,
         )
         if not ok:
@@ -128,44 +127,41 @@ class MeasurementPlane:
 
         return i, j
 
-    def _project_arrays(
+    def _project_direct(
         self,
         origins: np.ndarray,
         dirs: np.ndarray,
         powers: np.ndarray,
-        stack: Any = None,
     ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
-        """Hit parameters ``(u, v)`` and powers for every ray against this plane.
+        """Hit parameters ``(u, v)`` and powers for every straight ray.
 
-        Rays are traced in parallel (native threads) through the stack kernel
-        when one is given, else measured directly; no binning happens here.
+        Direct (untraced) measurement against this plane; rays travelling
+        through an optical system are measured via
+        :meth:`~optics.system.OpticalSystem.measure_planes` instead.
         """
         n = origins.shape[0]
         us = np.full(n, np.nan)
         vs = np.full(n, np.nan)
         pws = np.zeros(n)
-        if stack is not None:
-            _native.measure_stack(
-                stack,
-                origins,
-                dirs,
-                powers,
-                self.o,
-                self.n,
-                _EPS,
-                self.u_min,
-                self.u_max,
-                self.v_min,
-                self.v_max,
-                us,
-                vs,
-                pws,
-            )
-        else:
-            _native.measure_direct(
-                origins, dirs, powers, self.o, self.n, _EPS, us, vs, pws
-            )
+        _native.measure_direct(
+            origins, dirs, powers, self.o, self.n, _EPS, us, vs, pws
+        )
         return us, vs, pws
+
+    def _accumulate(
+        self,
+        result: "MeasurementResult",
+        origins: np.ndarray,
+        dirs: np.ndarray,
+        powers: np.ndarray,
+        system: "OpticalSystem | None" = None,
+    ) -> None:
+        """Trace the ray arrays through ``system`` once and bin into ``result``."""
+        if system is None:
+            result.accumulate(*self._project_direct(origins, dirs, powers))
+            return
+        us, vs, pws = system.measure_planes(origins, dirs, powers, [self])
+        result.accumulate(us[0], vs[0], pws[0])
 
     def _into(
         self, result: "MeasurementResult", rays: Sequence[Ray],
@@ -174,11 +170,10 @@ class MeasurementPlane:
         """Trace rays through ``system`` and accumulate power into ``result``."""
         if not rays:
             return result
-        stack = None if system is None else system.trace_stack
         origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
         dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
         powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
-        result.accumulate(*self._project_arrays(origins, dirs, powers, stack))
+        self._accumulate(result, origins, dirs, powers, system)
         return result
 
     def measure(
@@ -233,7 +228,7 @@ class MeasurementPlane:
             results = []
             for plane in plane_list:
                 result = plane.new_result()
-                result.accumulate(*plane._project_arrays(origins, dirs, powers))
+                result.accumulate(*plane._project_direct(origins, dirs, powers))
                 results.append(result)
             return results
         us, vs, pws = system.measure_planes(origins, dirs, powers, plane_list)

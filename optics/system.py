@@ -1,11 +1,12 @@
-"""The optical bench as one piece of persistent native state.
+﻿"""The optical bench as one piece of persistent native state.
 
 An :class:`OpticalSystem` owns the ordered element stack and the native trace
 stack assembled from it. Each element already carries its own native element
 (surfaces, sidewall mesh, axis-aligned bounds and graph flags, all built
 once), so the system is a thin owning aggregate: it builds the native
 ``TraceStack`` a single time at construction and every trace or measurement
-reuses it.
+reuses it. It is the only public tracing entry point: the native stack is an
+implementation detail reached through the system's methods, never handed out.
 
 Construction is the validation point. An element whose aperture cannot be
 encoded natively raises :class:`ValueError` here, when the system is built,
@@ -14,15 +15,17 @@ rays.
 """
 
 from collections.abc import Iterator, Sequence
-from typing import Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from . import _native
 from . import constants as _c
 from .element import RefractiveElement
-from .numerical._kernels import build_trace_stack
 from .primitive import Ray
+
+if TYPE_CHECKING:
+    from .measurement_plane import MeasurementPlane
 
 _MAX_SEGS_PER_ELEMENT = 2 * _c.MAX_INTERNAL_BOUNCES + 3
 _SEGMENT_KIND_NAMES = ("incident", "internal", "exit")
@@ -32,7 +35,7 @@ def _segments_capacity(n_elements: int) -> int:
     return _MAX_SEGS_PER_ELEMENT * n_elements + 2
 
 
-def _plane_columns(planes: Sequence[Any]) -> "tuple[np.ndarray, ...]":
+def _plane_columns(planes: "Sequence[MeasurementPlane]") -> "tuple[np.ndarray, ...]":
     """Stack per-plane geometry into ``(P, 3)`` origins/normals and ``(P,)`` ranges."""
     if not planes:
         empty3 = np.zeros((0, 3), dtype=float)
@@ -47,13 +50,13 @@ def _plane_columns(planes: Sequence[Any]) -> "tuple[np.ndarray, ...]":
     return po, pn, u_min, u_max, v_min, v_max
 
 
-def trace_segments_from_stack(
-    ctx: Any,
+def _trace_segments(
+    stack: _native.TraceStack,
     origins: np.ndarray,
     dirs: np.ndarray,
-    ray_length: float = 3.0,
+    ray_length: float,
 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
-    """Parallel per-ray path tracing on a native stack.
+    """Parallel per-ray path tracing on the native stack.
 
     Returns ``(starts, ends, kinds, counts)`` with per-ray segment lists; an
     empty stack produces one straight incident segment per ray.
@@ -61,25 +64,25 @@ def trace_segments_from_stack(
     origins = np.ascontiguousarray(origins, dtype=float)
     dirs = np.ascontiguousarray(dirs, dtype=float)
     n = origins.shape[0]
-    cap = _segments_capacity(len(ctx))
+    cap = _segments_capacity(len(stack))
     starts = np.empty((n, cap, 3), dtype=float)
     ends = np.empty((n, cap, 3), dtype=float)
     kinds = np.empty((n, cap), dtype=np.int8)
     counts = np.zeros(n, dtype=np.int64)
     _native.trace_segments_batch(
-        ctx, origins, dirs, float(ray_length), starts, ends, kinds, counts
+        stack, origins, dirs, float(ray_length), starts, ends, kinds, counts
     )
     return starts, ends, kinds, counts
 
 
-def measure_planes_from_stack(
-    ctx: Any,
+def _measure_planes(
+    stack: _native.TraceStack,
     origins: np.ndarray,
     dirs: np.ndarray,
     powers: np.ndarray,
-    planes: Sequence[Any],
+    planes: "Sequence[MeasurementPlane]",
 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
-    """Trace every ray through a native stack once and hit every plane.
+    """Trace every ray through the native stack once and hit every plane.
 
     Returns ``(us, vs, pws)`` shaped ``(P, N)`` (plane-major); an empty stack
     measures the straight rays directly against each plane.
@@ -94,20 +97,20 @@ def measure_planes_from_stack(
     vs = np.full((p, n), np.nan)
     pws = np.zeros((p, n))
     _native.measure_planes_multi(
-        ctx, origins, dirs, powers, po, pn, u_min, u_max, v_min, v_max, _c.PLANE_EPS, us, vs, pws
+        stack, origins, dirs, powers, po, pn, u_min, u_max, v_min, v_max, _c.PLANE_EPS, us, vs, pws
     )
     return us, vs, pws
 
 
-def trace_segments_and_planes_from_stack(
-    ctx: Any,
+def _trace_segments_and_planes(
+    stack: _native.TraceStack,
     origins: np.ndarray,
     dirs: np.ndarray,
     powers: np.ndarray,
     ray_length: float,
-    planes: Sequence[Any],
+    planes: "Sequence[MeasurementPlane]",
 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
-    """Single-trace combined path on a native stack.
+    """Single-trace combined path on the native stack.
 
     Walks every ray through the stack exactly once and produces both the
     rendering segment buffers ``(starts, ends, kinds, counts)`` and the
@@ -120,7 +123,7 @@ def trace_segments_and_planes_from_stack(
     po, pn, u_min, u_max, v_min, v_max = _plane_columns(planes)
     n = origins.shape[0]
     p = len(planes)
-    cap = _segments_capacity(len(ctx))
+    cap = _segments_capacity(len(stack))
     starts = np.empty((n, cap, 3), dtype=float)
     ends = np.empty((n, cap, 3), dtype=float)
     kinds = np.empty((n, cap), dtype=np.int8)
@@ -129,22 +132,22 @@ def trace_segments_and_planes_from_stack(
     vs = np.full((p, n), np.nan)
     pws = np.zeros((p, n))
     _native.trace_segments_and_planes(
-        ctx, origins, dirs, powers, float(ray_length), po, pn, u_min, u_max, v_min, v_max,
+        stack, origins, dirs, powers, float(ray_length), po, pn, u_min, u_max, v_min, v_max,
         _c.PLANE_EPS, starts, ends, kinds, counts, us, vs, pws,
     )
     return starts, ends, kinds, counts, us, vs, pws
 
 
-def _trace_path_on_stack(
-    ray: Ray, ctx: Any, ray_length: float
+def _trace_path(
+    ray: Ray, stack: _native.TraceStack, ray_length: float
 ) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], Ray | None]":
-    """Single-ray ``(segments, final_ray)`` walk on a native stack."""
-    cap = _segments_capacity(len(ctx))
+    """Single-ray ``(segments, final_ray)`` walk on the native stack."""
+    cap = _segments_capacity(len(stack))
     starts = np.empty((cap, 3), dtype=float)
     ends = np.empty((cap, 3), dtype=float)
     kinds = np.empty(cap, dtype=np.int8)
     count, exited, fo, fd = _native.trace_stack_segments(
-        ctx,
+        stack,
         np.ascontiguousarray(ray.origin, dtype=float),
         np.ascontiguousarray(ray.direction, dtype=float),
         float(ray_length),
@@ -168,16 +171,13 @@ class OpticalSystem:
         self._elements: tuple[RefractiveElement, ...] = tuple(elements)
         # Building every native element here is what makes configuration
         # errors raise now instead of during the first trace.
-        self._stack: Any = build_trace_stack([el.native_element for el in self._elements])
+        self._stack: _native.TraceStack = _native.build_trace_stack(
+            [el.native_element for el in self._elements]
+        )
 
     @property
     def elements(self) -> tuple[RefractiveElement, ...]:
         return self._elements
-
-    @property
-    def trace_stack(self) -> Any:
-        """The persistent native ``TraceStack`` shared by every call."""
-        return self._stack
 
     def __len__(self) -> int:
         return len(self._elements)
@@ -190,7 +190,7 @@ class OpticalSystem:
         self, ray: Ray, ray_length: float = 3.0
     ) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], Ray | None]":
         """Single-ray ``(segments, final_ray)`` through the stack."""
-        return _trace_path_on_stack(ray, self._stack, ray_length)
+        return _trace_path(ray, self._stack, ray_length)
 
     def trace_segments(
         self,
@@ -199,7 +199,7 @@ class OpticalSystem:
         ray_length: float = 3.0,
     ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
         """Batched ``(starts, ends, kinds, counts)`` segment buffers."""
-        return trace_segments_from_stack(self._stack, origins, dirs, ray_length)
+        return _trace_segments(self._stack, origins, dirs, ray_length)
 
     # -- measurement ---------------------------------------------------------
     def measure_planes(
@@ -207,10 +207,10 @@ class OpticalSystem:
         origins: np.ndarray,
         dirs: np.ndarray,
         powers: np.ndarray,
-        planes: Sequence[Any],
+        planes: "Sequence[MeasurementPlane]",
     ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
         """One trace hitting every plane: ``(us, vs, pws)`` shaped ``(P, N)``."""
-        return measure_planes_from_stack(self._stack, origins, dirs, powers, planes)
+        return _measure_planes(self._stack, origins, dirs, powers, planes)
 
     def trace_segments_and_planes(
         self,
@@ -218,9 +218,9 @@ class OpticalSystem:
         dirs: np.ndarray,
         powers: np.ndarray,
         ray_length: float,
-        planes: Sequence[Any],
+        planes: "Sequence[MeasurementPlane]",
     ) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
         """Single-trace combined rendering segments + all-plane hits."""
-        return trace_segments_and_planes_from_stack(
+        return _trace_segments_and_planes(
             self._stack, origins, dirs, powers, ray_length, planes
         )

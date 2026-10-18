@@ -1,5 +1,6 @@
-// Stack-tracing entry points: single-ray segments, batched segment buffers
-// and the trace-to-plane driver.
+// Stack-tracing entry points: single-ray segments and the batched segment
+// buffer driver. Trace-to-plane traversal is internal to the C++ measurement
+// kernels.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
@@ -67,34 +68,6 @@ void py_trace_segments_batch(const TraceStack& stack, const py::array_t<double>&
     });
 }
 
-py::object py_trace_stack_to_plane(const TraceStack& stack, const py::array_t<double>& o,
-                                   const py::array_t<double>& d, const py::array_t<double>& po,
-                                   const py::array_t<double>& pn, double eps, double u_min,
-                                   double u_max, double v_min, double v_max,
-                                   const py::array_t<double>& out_o,
-                                   const py::array_t<double>& out_d) {
-    const Vec3 ov = to_vec3(o, "origin");
-    const Vec3 dv = to_vec3(d, "direction");
-    const Vec3 pov = to_vec3(po, "plane origin");
-    const Vec3 pnv = to_vec3(pn, "plane normal");
-    double* o_out = write_doubles(out_o, "out_o");
-    double* d_out = write_doubles(out_d, "out_d");
-    require(out_o.request().size == 3 && out_d.request().size == 3, "out_o/out_d: expected (3,)");
-    const optics::native::PlaneRegion region{u_min, u_max, v_min, v_max};
-    const TraceOptions options{0.0, eps};
-    optics::native::Vec3 final_o;
-    optics::native::Vec3 final_d;
-    const bool ok = [&] {
-        const py::gil_scoped_release release;
-        return trace_stack_to_plane(stack, ov, dv, pov, pnv, region, options, final_o, final_d);
-    }();
-    for (int i = 0; i < 3; ++i) {
-        o_out[i] = final_o[i];
-        d_out[i] = final_d[i];
-    }
-    return py::bool_(ok);
-}
-
 }  // namespace
 
 namespace optics::bindings {
@@ -134,10 +107,6 @@ void register_tracing(py::module_& m) {
     m.def("trace_segments_batch", &py_trace_segments_batch, py::arg("stack"), py::arg("origins"),
           py::arg("dirs"), py::arg("ray_length"), py::arg("starts"), py::arg("ends"),
           py::arg("kinds"), py::arg("counts"));
-    m.def("trace_stack_to_plane", &py_trace_stack_to_plane, py::arg("stack"), py::arg("o"),
-          py::arg("d"), py::arg("po"), py::arg("pn"), py::arg("eps"), py::arg("u_min"),
-          py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("out_o"),
-          py::arg("out_d"));
 }
 
 }  // namespace optics::bindings

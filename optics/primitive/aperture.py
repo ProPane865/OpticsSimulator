@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .. import constants as _c
-from ..numerical.invert import build_rim_kernel
 
 if TYPE_CHECKING:
     from .surface import Surface
@@ -67,8 +66,8 @@ class Aperture:
     def native_params(self) -> "tuple[float, float, float] | None":
         """Circular slots ``(radius, cx, cy)`` for the native kernels.
 
-        ``None`` for aperture types the kernels cannot encode; the surface
-        descriptor build then fails, and the stack cannot trace natively.
+        ``None`` for aperture types the kernels cannot encode; building the
+        surface's native object then fails, and the stack cannot trace.
         """
         return None
 
@@ -129,10 +128,9 @@ class CircularAperture(Aperture):
             local = cached
         else:
             # Invert the rim circle onto the surface in a single native pass
-            # (continuation seeding, matching the previous per-point loop).
-            local = build_rim_kernel(
-                surface.native_descriptor,
-                surface.solver.native_grid(),
+            # on the persistent surface (continuation seeding, matching the
+            # previous per-point loop).
+            local = surface.native_surface.rim(
                 self.radius,
                 float(self.center[0]),
                 float(self.center[1]),

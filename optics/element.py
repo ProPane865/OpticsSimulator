@@ -1,11 +1,11 @@
-"""Closed refractive element: geometry and cached sidewall construction."""
+﻿"""Closed refractive element: geometry and cached sidewall construction."""
 
 from typing import Any
 
 import numpy as np
 
+from . import _native
 from . import constants as _c
-from .numerical._kernels import build_element
 from .primitive import LensSidewall, Material, Surface, Transform
 
 _SIDEWALL_UNSET = object()
@@ -21,7 +21,7 @@ class RefractiveElement:
         self.surface2 = surface2
         self.material = material
         self._sidewall: Any = _SIDEWALL_UNSET
-        self._native_element: Any = _SIDEWALL_UNSET
+        self._native_element: _native.Element | None = None
 
     @property
     def transform(self) -> Transform:
@@ -56,7 +56,7 @@ class RefractiveElement:
         return self._sidewall
 
     @property
-    def native_element(self) -> Any:
+    def native_element(self) -> "_native.Element":
         """Persistent native element, assembled once for this element's life.
 
         Wraps the two native surfaces, the sidewall mesh and the refractive
@@ -64,7 +64,7 @@ class RefractiveElement:
         at construction, so trace-stack assembly is a pure reference. Raises
         :class:`ValueError` when a surface aperture cannot be encoded.
         """
-        if self._native_element is _SIDEWALL_UNSET:
+        if self._native_element is None:
             s1 = self.surface1.native_surface
             s2 = self.surface2.native_surface
             wall = self.sidewall
@@ -74,11 +74,11 @@ class RefractiveElement:
             else:
                 tri = wall.triangles()
                 normals = wall.face_normals()
-            self._native_element = build_element(
+            self._native_element = _native.build_element(
                 s1,
                 s2,
                 float(self.material.refractive_index),
-                tri,
-                normals,
+                np.ascontiguousarray(tri, dtype=float),
+                np.ascontiguousarray(normals, dtype=float),
             )
         return self._native_element

@@ -1,6 +1,6 @@
-"""Stage-level profile of the native surface-codegen path.
+﻿"""Stage-level profile of the native surface-codegen path.
 
-``optics.numerical.codegen.compile_parametric_surface`` validates a surface's
+``optics.expression.compile_parametric_surface`` validates a surface's
 ``(x(u,v), y(u,v), z(u,v))`` expressions and lowers them to a native model
 with a single ``optics._native.compile_surface`` call (C++ parse + AST build;
 evaluation is an interpreter pass over the tree, so there is no per-surface
@@ -25,8 +25,7 @@ import bench_common as bc
 import numpy as np
 
 import optics._native as _native
-import optics.numerical.codegen as cg
-from optics.numerical._kernels import make_surface
+import optics.expression as cg
 
 # Every surface shares one square parameter domain (matching the bundled
 # meniscus in bench_common.element_config()).
@@ -89,10 +88,11 @@ def _child_stages(scenario: str) -> None:
     record("first eval_local / eval_grid / derivatives (tree walk)", _first_evals)
 
     record(
-        "make_surface (descriptor + seed grid + graph probe)",
-        lambda: make_surface(
+        "make_surface (native surface: seed grid + probe)",
+        lambda: _native.make_surface(
             model, x_src, y_src, z_src, u_min, u_max, v_min, v_max, -1.0, 0.0, 0.0,
-            np.eye(3, 3), np.zeros(3), 64,
+            np.ascontiguousarray(np.eye(3, 3), dtype=float),
+            np.ascontiguousarray(np.zeros(3), dtype=float), 64,
         ),
     )
 
@@ -155,7 +155,7 @@ def _top_stage(stages: "dict[str, float]") -> str:
 
 def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Stage-level profile of optics.numerical.codegen",
+        description="Stage-level profile of optics.expression",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

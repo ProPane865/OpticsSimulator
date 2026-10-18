@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..numerical.vector import normalize
+from .vector import normalize
 
 
 @dataclass(frozen=True, eq=False)

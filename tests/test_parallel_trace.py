@@ -53,7 +53,7 @@ def test_trace_segments_matches_trace_path(sphere):
 
 def test_empty_stack_traces_straight_natively():
     system = OpticalSystem()
-    assert system.trace_stack is not None
+    assert system._stack is not None
     ray = Ray(np.array([0.1, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
     segs, final = system.trace_path(ray, ray_length=3.0)
     assert [k for _, _, k in segs] == ["incident"]

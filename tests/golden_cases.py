@@ -1,4 +1,4 @@
-"""Pinned-behavior golden cases (Phase 0 refactor safety net).
+﻿"""Pinned-behavior golden cases (Phase 0 refactor safety net).
 
 Every required scenario (plane, sphere, arbitrary expression, transformed
 surface, aperture, two-surface element, TIR, multi-element stack, sidewall,
@@ -15,8 +15,8 @@ import numpy as np
 
 from optics.config import refractive_element_from_config
 from optics.measurement_plane import MeasurementPlane
-from optics.numerical.vector import rotation_from_z
 from optics.primitive import CircularAperture, Ray, Surface, Transform
+from optics.primitive.vector import rotation_from_z
 from optics.source import PointSource, fibonacci_cone_directions
 from optics.system import OpticalSystem
 

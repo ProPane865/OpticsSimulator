@@ -74,23 +74,19 @@ array buffers only.
   dependencies):
   - `primitive/`: geometric primitives — `ray.py`, `transform.py`, `hit.py`,
     `material.py`, `aperture.py`, `sidewall.py` (lens rims intersected via
-    the native Möller–Trumbore mesh kernel) and `surface.py` (parametric
-    surfaces compiled from validated expression strings)
-  - `numerical/`: thin Python wrappers around the native kernels —
-    `codegen.py` (restricted, safe surface-expression grammar enforced by the
-    native parser; expression strings → native surface model via
-    `_native.compile_surface`, lru-cached), `_kernels.py` and `desc.py`
-    (descriptor/context assembly), `solver.py`, `intersect.py`, `invert.py`,
-    `plane.py`, `mesh.py` (native intersection/inversion/plane/mesh kernels)
-    and `vector.py`
-  - `tracing/`: element/stack tracing on the native kernels —
-    `element.py` (`RefractiveElement`: cached sidewall and element-bounds
-    construction feeding the native trace contexts), `kernels.py` (native
-    trace-kernel entry points), `context.py` (opaque,
-    element-count-independent native trace stacks, batched parallel tracing,
-    and the fused segments+planes pass), `stack.py` (rendering path building)
+    the native Möller–Trumbore mesh kernel), `vector.py` (native vector
+    helpers) and `surface.py` (parametric surfaces delegating all numerical
+    operations to the persistent native surface)
+  - `expression.py`: restricted, safe surface-expression grammar enforced by
+    the native parser; expression strings → native surface model via
+    `_native.compile_surface`, lru-cached
+  - `element.py`: `RefractiveElement` (cached sidewall construction, one
+    persistent native element for its lifetime)
+  - `system.py`: `OpticalSystem`, the only public tracing entry point — an
+    immutable element stack owning one persistent native trace stack, with
+    batched parallel tracing, measurement and the fused segments+planes pass
   - `measurement_plane.py`: planar detector accumulating ray power (native
-    accumulation, fused with tracing when a stack is traced)
+    accumulation, fused with tracing when a system is traced)
   - `constants.py`: numerical tolerances and solver defaults
   - `source.py`: point sources and ray emission
   - `config.py`: JSON → element/stack loading

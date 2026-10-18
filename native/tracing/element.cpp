@@ -121,21 +121,15 @@ std::shared_ptr<const Element> Element::create(std::shared_ptr<const Surface> su
     std::shared_ptr<Element> elem(new Element());
     elem->surface1 = std::move(surface1);
     elem->surface2 = std::move(surface2);
-    elem->desc1 = elem->surface1->desc_ptr();
-    elem->desc2 = elem->surface2->desc_ptr();
-    elem->grid1 = elem->surface1->grid_ptr();
-    elem->grid2 = elem->surface2->grid_ptr();
     elem->index = refractive_index;
     for (int i = 0; i < 3; ++i) {
         elem->lo[i] = kInf;
         elem->hi[i] = -kInf;
     }
-    sample_surface_bounds(*elem->desc1, elem->lo, elem->hi);
-    sample_surface_bounds(*elem->desc2, elem->lo, elem->hi);
+    sample_surface_bounds(elem->surface1->desc(), elem->lo, elem->hi);
+    sample_surface_bounds(elem->surface2->desc(), elem->lo, elem->hi);
     elem->tri = std::move(tri);
     elem->normals = std::move(normals);
-    elem->graph1 = elem->surface1->is_graph_over_xy();
-    elem->graph2 = elem->surface2->is_graph_over_xy();
     return elem;
 }
 
@@ -145,14 +139,14 @@ ElementHit element_first_hit(const Element& elem, const Vec3& o, const Vec3& d,
     bool found = false;
     Vec3 bp{};
     Vec3 bn{};
-    ElementHit h0 = surface_hit(*elem.desc1, *elem.grid1, o, d, min_t);
+    ElementHit h0 = surface_hit(elem.surface1->desc(), elem.surface1->grid(), o, d, min_t);
     if (h0.found && h0.t < best_t) {
         best_t = h0.t;
         found = true;
         bp = h0.p;
         bn = h0.n;
     }
-    ElementHit h1 = surface_hit(*elem.desc2, *elem.grid2, o, d, min_t);
+    ElementHit h1 = surface_hit(elem.surface2->desc(), elem.surface2->grid(), o, d, min_t);
     if (h1.found && h1.t < best_t) {
         best_t = h1.t;
         found = true;
@@ -173,7 +167,7 @@ ElementHit element_first_hit(const Element& elem, const Vec3& o, const Vec3& d,
 }
 
 bool element_contains_point(const Element& elem, const Vec3& p) {
-    const SurfaceDesc& desc = *elem.desc1;
+    const SurfaceDesc& desc = elem.surface1->desc();
     const Vec3 local = desc.transform.to_local(p);
     if (!finite3(local)) {
         return false;
@@ -183,8 +177,10 @@ bool element_contains_point(const Element& elem, const Vec3& p) {
             return false;
         }
     }
-    const double z1 = local_surface_z(*elem.desc1, *elem.grid1, elem.graph1, local);
-    const double z2 = local_surface_z(*elem.desc2, *elem.grid2, elem.graph2, local);
+    const double z1 = local_surface_z(elem.surface1->desc(), elem.surface1->grid(),
+                                      elem.surface1->is_graph_over_xy(), local);
+    const double z2 = local_surface_z(elem.surface2->desc(), elem.surface2->grid(),
+                                      elem.surface2->is_graph_over_xy(), local);
     if (std::isnan(z1) || std::isnan(z2)) {
         return false;
     }

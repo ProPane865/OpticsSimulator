@@ -63,7 +63,7 @@ def _rays_as_objects(origins, dirs):
 
 
 @pytest.mark.parametrize("name", ["doublet.json", "triplet.json"])
-def test_measure_planes_multi_matches_measure_stack(name):
+def test_measure_planes_matches_per_plane_measure(name):
     elements = _stack(name)
     origins, dirs = _rays()
     powers = np.ones(origins.shape[0])

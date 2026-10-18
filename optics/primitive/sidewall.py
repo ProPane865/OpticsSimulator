@@ -1,7 +1,7 @@
 import numpy as np
 
+from .. import _native
 from .. import constants as _c
-from ..numerical.mesh import mesh_intersect_kernel
 from .hit import MeshHit
 from .ray import Ray
 
@@ -73,8 +73,13 @@ class LensSidewall:
 
         ray = Ray(o, d, ray.power)
 
-        t, face, u_k, v_k, found = mesh_intersect_kernel(
-            o, d, self._tri, _c.DET_SINGULAR_EPS, _c.BARY_TOL, _c.MIN_FACE_T
+        t, face, u_k, v_k, found = _native.mesh_intersect(
+            np.ascontiguousarray(o, dtype=float),
+            np.ascontiguousarray(d, dtype=float),
+            np.ascontiguousarray(self._tri, dtype=float),
+            _c.DET_SINGULAR_EPS,
+            _c.BARY_TOL,
+            _c.MIN_FACE_T,
         )
         if not found:
             return None

@@ -1,8 +1,6 @@
 // Compiled surface model and the kernel surface descriptor: expression
-// evaluation, finite-difference tangents (C++ mirror of
-// ``optics/numerical/_codegen_runtime.py``), descriptor-domain membership,
-// aperture membership and derivative policy (mirror of
-// ``optics/numerical/desc.py``) and world-space surface normals.
+// evaluation, finite-difference tangents, descriptor-domain membership,
+// aperture membership, derivative policy and world-space surface normals.
 #pragma once
 
 #include <cstddef>
@@ -123,9 +121,6 @@ class Surface {
     const Options& options() const { return opt_; }
     const SurfaceDesc& desc() const { return *desc_; }
     const SeedGrid& grid() const { return *grid_; }
-    // Shared handles for the kernel entry points (kept alive by the surface).
-    const std::shared_ptr<SurfaceDesc>& desc_ptr() const { return desc_; }
-    const std::shared_ptr<SeedGrid>& grid_ptr() const { return grid_; }
 
     // Compiled local geometry.
     Vec3 eval_local(double u, double v) const;

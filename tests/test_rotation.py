@@ -1,7 +1,7 @@
-import numpy as np
+﻿import numpy as np
 import pytest
 
-from optics.numerical.vector import rotation_from_z
+from optics.primitive.vector import rotation_from_z
 
 DIRECTIONS = [
     [0, 0, 1],

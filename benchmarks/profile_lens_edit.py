@@ -1,10 +1,10 @@
-"""Profile the lens create/modify hot path (headless, stdlib-only).
+﻿"""Profile the lens create/modify hot path (headless, stdlib-only).
 
 Drives the exact call sequence ``ElementEditor.apply()`` performs when a lens is
 created or its properties are applied, with no Qt/GL, and reports where the time
 goes:
 
-* ``optics.config.refractive_element_from_config`` (surface compile + solver),
+* ``optics.config.refractive_element_from_config`` (surface compile),
 * re-meshing both surfaces (``rendering.meshing.SurfaceMesher``),
 * the sidewall rim inversion (``RefractiveElement.sidewall``),
 * per-plane measurement (``MeasurementPlane.measure``),
@@ -33,8 +33,8 @@ import bench_common as bc
 import numpy as np
 
 from optics.config import refractive_element_from_config
+from optics.expression import compile_parametric_surface
 from optics.measurement_plane import MeasurementPlane
-from optics.numerical.codegen import compile_parametric_surface
 from optics.project import DEFAULT_MEASUREMENT_CONFIG
 from optics.system import OpticalSystem
 from rendering.meshing import SurfaceMesher
@@ -207,7 +207,7 @@ compile_microbench.counter = 0
 
 def system_microbench(n_elements: int, repeats: int) -> float:
     elements = bc.make_stack(n_elements)
-    OpticalSystem(elements)  # warm surface descriptors + seed grids
+    OpticalSystem(elements)  # warm native surfaces + elements
     return bc.time_call(lambda: OpticalSystem(elements), warmup=1, repeats=repeats)
 
 
@@ -222,7 +222,7 @@ def run_cold_scenario(rays: int) -> None:
 # --- cProfile -----------------------------------------------------------------
 
 def profile_apply(edit: LensEdit, planes: "list[MeasurementPlane]", top: int = 25) -> str:
-    phase_breakdown(edit, planes)  # warm (descriptors/grids/caches built)
+    phase_breakdown(edit, planes)  # warm (native objects/caches built)
     phase_breakdown.counter = 0
 
     profiler = cProfile.Profile()

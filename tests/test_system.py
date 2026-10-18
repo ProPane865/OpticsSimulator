@@ -41,10 +41,10 @@ class TestConstruction:
         assert len(system) == 1
         assert system.elements == (sphere,)
         assert list(system) == [sphere]
-        stack = system.trace_stack
-        assert stack is system.trace_stack
+        stack = system._stack
+        assert stack is system._stack
         assert system.trace_segments(*_rays()[:2], RAY_LENGTH) is not None
-        assert system.trace_stack is stack  # reused, not rebuilt
+        assert system._stack is stack  # reused, not rebuilt
 
     def test_empty_system_traces_straight(self):
         system = OpticalSystem()

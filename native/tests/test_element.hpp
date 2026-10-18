@@ -1,7 +1,8 @@
 // Shared fixtures for the element/stack/measurement suites: a square
-// parallel-plane plate element assembled field-by-field exactly the way the
-// ``build_element_context`` transitional path fills ``Element`` (world-space
-// sidewall triangles, local-frame AABB bounds, graph-over-xy surface flags).
+// parallel-plane plate element assembled through the persistent
+// ``Element::create`` path (world-space sidewall triangles; the element-local
+// AABB and graph-over-xy flags are derived from the surfaces at
+// construction).
 #pragma once
 
 #include <cstdio>
@@ -9,40 +10,37 @@
 #include <utility>
 #include <vector>
 
-#include "optics/common/constants.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/geometry/surface.hpp"
-#include "optics/intersection/solver.hpp"
 #include "optics/tracing/context.hpp"
 
 namespace fixture {
 
-using optics::native::DOMAIN_TOL;
 using optics::native::Element;
 using optics::native::ElementRef;
 using optics::native::make_vec3;
-using optics::native::NoAperture;
-using optics::native::SeedGrid;
-using optics::native::SurfaceDesc;
-using optics::native::SurfaceModel;
+using optics::native::Surface;
 using optics::native::TraceStack;
 
-// A horizontal plane patch ``z = height`` over ``[-half, half]^2``. The
-// height is baked into the expression (identity transform) so both faces of
-// a plate share the element-local frame, as ``RefractiveElement`` faces do.
-inline std::shared_ptr<const SurfaceDesc> plate_face(double height, double half) {
+// A horizontal plane patch ``z = height`` over ``[-half, half]^2`` shifted to
+// ``trans_z`` in world space. The height is baked into the expression so both
+// faces of a plate share the element-local frame, as ``RefractiveElement``
+// faces do.
+inline std::shared_ptr<const Surface> plate_face(double height, double half, double trans_z,
+                                                 int grid_n) {
     char z_src[64];
     std::snprintf(z_src, sizeof(z_src), "%g", height);
-    auto desc = std::make_shared<SurfaceDesc>();
-    desc->model = SurfaceModel::compile("u", "v", z_src, -half, half, -half, half);
-    desc->u_min = -half;
-    desc->u_max = half;
-    desc->v_min = -half;
-    desc->v_max = half;
-    desc->tu = DOMAIN_TOL * 2.0;
-    desc->tv = DOMAIN_TOL * 2.0;
-    desc->aperture = NoAperture{};
-    return desc;
+    Surface::Options o;
+    o.x_src = "u";
+    o.y_src = "v";
+    o.z_src = z_src;
+    o.u_min = -half;
+    o.u_max = half;
+    o.v_min = -half;
+    o.v_max = half;
+    o.grid_n = grid_n;
+    o.trans = make_vec3(0.0, 0.0, trans_z);
+    return Surface::create(std::move(o));
 }
 
 // Square-cylinder sidewalls around ``[-half, half]^2`` between ``z_bot`` and
@@ -76,32 +74,14 @@ inline void square_walls(double half, double z_bot, double z_top, std::vector<do
 // the whole plate optionally shifted to ``trans_z`` in world space.
 inline Element make_plate(double index, double half, double z_bot, double z_top,
                                  double trans_z, int grid_n, bool walls) {
-    auto face_top = plate_face(z_top, half);
-    auto face_bot = plate_face(z_bot, half);
-    if (trans_z != 0.0) {
-        const optics::native::Vec3 tz = make_vec3(0.0, 0.0, trans_z);
-        auto shift = [&](const std::shared_ptr<const SurfaceDesc>& d) {
-            auto copy = std::make_shared<SurfaceDesc>(*d);
-            copy->transform.trans = tz;
-            return copy;
-        };
-        face_top = shift(face_top);
-        face_bot = shift(face_bot);
-    }
-    Element ctx;
-    ctx.desc1 = face_top;
-    ctx.desc2 = face_bot;
-    ctx.grid1 = std::make_shared<const SeedGrid>(build_seed_grid(*face_top, grid_n));
-    ctx.grid2 = std::make_shared<const SeedGrid>(build_seed_grid(*face_bot, grid_n));
-    ctx.index = index;
-    ctx.lo = make_vec3(-half, -half, z_bot);
-    ctx.hi = make_vec3(half, half, z_top);
-    ctx.graph1 = true;
-    ctx.graph2 = true;
+    std::vector<double> tri;
+    std::vector<double> normals;
     if (walls) {
-        square_walls(half, z_bot + trans_z, z_top + trans_z, ctx.tri, ctx.normals);
+        square_walls(half, z_bot + trans_z, z_top + trans_z, tri, normals);
     }
-    return ctx;
+    return *Element::create(plate_face(z_top, half, trans_z, grid_n),
+                            plate_face(z_bot, half, trans_z, grid_n), index, std::move(tri),
+                            std::move(normals));
 }
 
 inline ElementRef make_plate_ptr(double index, double half, double z_bot, double z_top,

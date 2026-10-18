@@ -1,7 +1,7 @@
-// Element and stack tracing kernels (mirror of ``optics/tracing/kernels.py``
-// and the stack walk of the measurement-plane kernels): nearest-face hits,
-// element containment, internal bounces, the geometric-order stack walk and
-// the single-trace hop recording shared with the measurement kernels.
+// Element and stack tracing kernels (mirrors of the element/stack walk
+// exposed through ``OpticalSystem``): nearest-face hits, element containment,
+// internal bounces, the geometric-order stack walk and the single-trace hop
+// recording shared with the measurement kernels.
 #pragma once
 
 #include <cstddef>

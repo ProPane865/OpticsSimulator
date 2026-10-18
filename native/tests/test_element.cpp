@@ -32,8 +32,8 @@ fixture::Element small_plate() {
     return fixture::make_plate(1.5, 1.0, -0.5, 0.5, 0.0, 48, true);
 }
 
-// The persistent ``Element::create`` path must derive the same AABB, graph
-// flag and refractive index as the field-assembled fixture plate.
+// The persistent ``Element::create`` path must derive the AABB, graph flags
+// (owned by the surfaces) and refractive index exactly as configured.
 void test_create_persists_state() {
     auto face = [](double height, double half) {
         char z_src[64];
@@ -52,15 +52,13 @@ void test_create_persists_state() {
     const auto elem = optics::native::Element::create(
         face(0.5, 1.0), face(-0.5, 1.0), 1.5, std::vector<double>{}, std::vector<double>{});
     CHECK(elem->surface1 != nullptr && elem->surface2 != nullptr);
-    CHECK(elem->desc1 == elem->surface1->desc_ptr());
-    CHECK(elem->grid1 == elem->surface1->grid_ptr());
     CHECK(close(elem->index, 1.5));
     CHECK(close(elem->lo[0], -1.0) && close(elem->lo[1], -1.0) && close(elem->lo[2], -0.5));
     CHECK(close(elem->hi[0], 1.0) && close(elem->hi[1], 1.0) && close(elem->hi[2], 0.5));
-    CHECK(elem->graph1 && elem->graph2);
+    CHECK(elem->surface1->is_graph_over_xy() && elem->surface2->is_graph_over_xy());
     CHECK(elem->n_tris() == 0);
 
-    // Trace matches the field-assembled fixture plate bit-for-bit.
+    // Trace matches the fixture plate bit-for-bit.
     const optics::native::ElementHit hit =
         optics::native::element_first_hit(*elem, make_vec3(0.1, 0.2, 3.0),
                                           make_vec3(0.0, 0.0, -1.0), 0.0);

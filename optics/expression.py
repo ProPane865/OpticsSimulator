@@ -15,12 +15,12 @@ parse time with :class:`ExpressionError`.
 """
 
 import functools
-from collections.abc import Sequence
-from typing import Any, NamedTuple
+from collections.abc import Callable, Sequence
+from typing import NamedTuple
 
 import numpy as np
 
-from .. import _native
+from . import _native
 
 
 class ExpressionError(ValueError):
@@ -33,10 +33,10 @@ class SurfaceFunctions(NamedTuple):
     x_src: str
     y_src: str
     z_src: str
-    eval_local: Any
-    eval_grid: Any
-    derivatives_local: Any
-    model: Any
+    eval_local: "Callable[[float, float], np.ndarray]"
+    eval_grid: "Callable[[np.ndarray, np.ndarray], np.ndarray]"
+    derivatives_local: "Callable[[float, float], tuple[np.ndarray, np.ndarray]]"
+    model: _native.SurfaceModel
 
 
 @functools.lru_cache(maxsize=64)

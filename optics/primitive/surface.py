@@ -3,10 +3,9 @@ from typing import Any
 
 import numpy as np
 
+from .. import _native
 from .. import constants as _c
-from ..numerical._kernels import make_surface
-from ..numerical.codegen import compile_parametric_surface
-from ..numerical.solver import SurfaceSolver
+from ..expression import compile_parametric_surface
 from .aperture import Aperture
 from .hit import Hit
 from .ray import Ray
@@ -44,10 +43,7 @@ class Surface:
         self.u_range = u_range
         self.v_range = v_range
         self.aperture = aperture
-        self.solver = SurfaceSolver(self)
-        self._native: Any | None = None
-        self._desc_handle: Any | None = None
-        self._grid_handle: Any | None = None
+        self._native: _native.NativeSurface | None = None
         self._graph_xy: bool | None = None
 
     def _aperture_params(self) -> "tuple[float, float, float]":
@@ -68,52 +64,32 @@ class Surface:
         return float(ap_r), float(ap_cx), float(ap_cy)
 
     @property
-    def native_surface(self) -> Any:
-        """The persistent native surface (descriptor + seed grid + graph flag).
+    def native_surface(self) -> "_native.NativeSurface":
+        """The persistent native surface (seed grid + graph flag included).
 
         Built lazily on first native use and cached for the surface's lifetime;
-        the seed grid is sampled once, so no per-trace descriptor/grid work
+        the seed grid is sampled once, so no per-trace native setup work
         remains.
         """
         if self._native is None:
             ap_r, ap_cx, ap_cy = self._aperture_params()
-            self._native = make_surface(
+            self._native = _native.make_surface(
                 self._model,
-                self.x_expr,
-                self.y_expr,
-                self.z_expr,
-                self.u_range[0],
-                self.u_range[1],
-                self.v_range[0],
-                self.v_range[1],
-                ap_r,
-                ap_cx,
-                ap_cy,
-                self.transform.rotation,
-                self.transform.translation,
-                _c.SEED_GRID_N,
+                str(self.x_expr),
+                str(self.y_expr),
+                str(self.z_expr),
+                float(self.u_range[0]),
+                float(self.u_range[1]),
+                float(self.v_range[0]),
+                float(self.v_range[1]),
+                float(ap_r),
+                float(ap_cx),
+                float(ap_cy),
+                np.ascontiguousarray(self.transform.rotation, dtype=float),
+                np.ascontiguousarray(self.transform.translation, dtype=float),
+                int(_c.SEED_GRID_N),
             )
         return self._native
-
-    @property
-    def native_descriptor(self) -> Any:
-        """Native descriptor for this surface, used by the kernel paths.
-
-        Owned by the persistent native surface; the Python handle is fetched
-        once and cached so repeated kernel calls reuse one wrapper object.
-        Building can raise :class:`ValueError` when the surface carries an
-        aperture the kernels cannot encode.
-        """
-        if self._desc_handle is None:
-            self._desc_handle = self.native_surface.desc()
-        return self._desc_handle
-
-    @property
-    def native_grid(self) -> Any:
-        """The persistent seed grid owned by the native surface."""
-        if self._grid_handle is None:
-            self._grid_handle = self.native_surface.grid()
-        return self._grid_handle
 
     @property
     def is_graph_over_xy(self) -> bool:
@@ -144,7 +120,14 @@ class Surface:
         return self.aperture.contains(self, u, v)
 
     def parameters_at(self, pos: np.ndarray | Sequence[float]) -> "tuple[float, float] | None":
-        return self.solver.parameters_at(pos)
+        """Local parameters whose surface point matches ``pos`` within a tolerance."""
+        p = self.transform.point_to_local(np.asarray(pos, dtype=float))
+        if not np.all(np.isfinite(p)):
+            return None
+        u, v, ok = self.native_surface.parameters_at_local(np.ascontiguousarray(p, dtype=float))
+        if not ok:
+            return None
+        return float(u), float(v)
 
     def parameters_at_xy(
         self,
@@ -152,7 +135,16 @@ class Surface:
         y: float,
         seed: "tuple[float, float] | None" = None,
     ) -> "tuple[float, float] | None":
-        return self.solver.parameters_at_xy(x, y, seed=seed)
+        """Local parameters whose point projects to local ``(x, y)``."""
+        x = float(x)
+        y = float(y)
+
+        if seed is not None:
+            su, sv, ok = self.native_surface.solve_xy(x, y, float(seed[0]), float(seed[1]))
+            if ok:
+                return su, sv
+        u, v, ok = self.native_surface.parameters_at_xy(x, y)
+        return (u, v) if ok else None
 
     def normal_at(self, pos: np.ndarray | Sequence[float]) -> np.ndarray | None:
         uv = self.parameters_at(pos)
@@ -180,10 +172,26 @@ class Surface:
         return self.aperture.mask(self, U, V, X, Y, Z)
 
     def intersect(self, ray: Ray) -> Hit | None:
-        hit = self.solver.intersect(ray.origin, ray.direction)
-        if hit is None:
+        """Nearest forward hit of the ray on this surface, or ``None``.
+
+        The direction is normalized for the native kernel (its contract);
+        the hit point is taken along the original ray, matching the
+        historical parameterization by ``ray.at``.
+        """
+        o = ray.origin
+        d = ray.direction
+        if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
             return None
-        t, u, v = hit
+        d_norm = float(np.linalg.norm(d))
+        if d_norm == 0.0:
+            return None
+        d = d / d_norm
+        t, u, v, ok = self.native_surface.intersect(
+            np.ascontiguousarray(o, dtype=float),
+            np.ascontiguousarray(d, dtype=float),
+        )
+        if not ok:
+            return None
         return Hit(ray.at(t), t, u, v)
 
     def evaluate_local(self, U: Any, V: Any) -> np.ndarray:
@@ -202,18 +210,18 @@ class Surface:
         """Return the ``du``/``dv`` tangent vectors at ``(u, v)`` (local space).
 
         The finite-difference tangent, including the interior pull-back / rim
-        fallback used where it blows up, runs natively on the surface descriptor.
+        fallback used where it blows up, runs natively on the surface.
         """
-        ru, rv = self.native_descriptor.derivatives(float(u), float(v))
+        ru, rv = self.native_surface.derivatives(float(u), float(v))
         return ru, rv
 
     def normal(self, u: float, v: float) -> np.ndarray | None:
         """World-space unit normal (``None`` outside the domain/aperture).
 
-        Computed natively on the surface descriptor (the interior pull-back and
-        the ``-cross(r_u, r_v)`` orientation with the world rotation).
+        Computed natively on the surface (the interior pull-back and the
+        ``-cross(r_u, r_v)`` orientation with the world rotation).
         """
-        n = self.native_descriptor.normal(float(u), float(v))
+        n = self.native_surface.normal(float(u), float(v))
         return None if n is None else np.asarray(n, dtype=float)
 
     def in_domain(self, u: Any, v: Any) -> Any:

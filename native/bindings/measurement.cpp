@@ -1,6 +1,7 @@
-// Measurement entry points: detector power accumulation, direct and
-// stack-traced plane measurement, the multi-plane single-trace pass and the
-// fused rendering-segments + planes batch.
+// Measurement entry points: detector power accumulation, direct plane
+// measurement, the multi-plane single-trace pass and the fused
+// rendering-segments + planes batch. Stack-traced measurement runs through
+// the multi-plane pass; the single-stack kernel stays internal to C++.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
@@ -54,29 +55,6 @@ void py_measure_direct(const py::array_t<double>& origins, const py::array_t<dou
     const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
     optics::native::measure_direct(rays, ov, nv, eps, out);
-}
-
-void py_measure_stack(const TraceStack& stack, const py::array_t<double>& origins,
-                      const py::array_t<double>& dirs, const py::array_t<double>& powers,
-                      const py::array_t<double>& o, const py::array_t<double>& nrm, double eps,
-                      double u_min, double u_max, double v_min, double v_max,
-                      const py::array_t<double>& us, const py::array_t<double>& vs,
-                      const py::array_t<double>& pws) {
-    const ConstDoubles od = read_doubles(origins, 2, "origins");
-    const ConstDoubles dd = read_doubles(dirs, 2, "dirs");
-    const ConstDoubles pw = read_doubles(powers, 1, "powers");
-    const std::size_t n = pw.size;
-    require(od.size == 3 * n && dd.size == 3 * n, "origins/dirs: expected (N, 3)");
-    const Vec3 ov = to_vec3(o, "plane origin");
-    const Vec3 nv = to_vec3(nrm, "plane normal");
-    double* ud = write_doubles(us, "us");
-    double* vd = write_doubles(vs, "vs");
-    double* pd = write_doubles(pws, "pws");
-    const optics::native::RayBatchView rays{od.data, dd.data, pw.data, n};
-    const optics::native::PlaneRegion region{u_min, u_max, v_min, v_max};
-    const optics::native::MeasurementOutputView out{ud, vd, pd};
-    const py::gil_scoped_release release;
-    optics::native::measure_stack(stack, rays, ov, nv, eps, region, out);
 }
 
 // Shared plane-array validation: reads ``(P, 3)`` origins/normals and ``(P,)``
@@ -191,10 +169,6 @@ void register_measurement(py::module_& m) {
     m.def("measure_direct", &py_measure_direct, py::arg("origins"), py::arg("dirs"),
           py::arg("powers"), py::arg("o"), py::arg("n"), py::arg("eps"), py::arg("us"),
           py::arg("vs"), py::arg("pws"));
-    m.def("measure_stack", &py_measure_stack, py::arg("stack"), py::arg("origins"), py::arg("dirs"),
-          py::arg("powers"), py::arg("o"), py::arg("n"), py::arg("eps"), py::arg("u_min"),
-          py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("us"), py::arg("vs"),
-          py::arg("pws"));
     m.def("measure_planes_multi", &py_measure_planes_multi, py::arg("stack"), py::arg("origins"),
           py::arg("dirs"), py::arg("powers"), py::arg("po"), py::arg("pn"), py::arg("u_min"),
           py::arg("u_max"), py::arg("v_min"), py::arg("v_max"), py::arg("eps"), py::arg("us"),

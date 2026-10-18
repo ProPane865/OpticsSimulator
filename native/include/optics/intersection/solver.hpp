@@ -1,6 +1,6 @@
 // Damped Newton iteration and the ray/surface intersection and parameter
-// inversion drivers (C++ mirrors of ``optics/numerical/intersect.py`` and
-// ``invert.py``).
+// inversion drivers, called through the persistent ``Surface`` object
+// (``geometry/surface.hpp``) and the element/stack trace kernels.
 #pragma once
 
 #include <optional>
@@ -47,15 +47,14 @@ std::optional<std::pair<double, double>> solve_xy(const SurfaceDesc& desc, doubl
 std::optional<std::pair<double, double>> parameters_at_xy(const SurfaceDesc& desc,
                                                           const SeedGrid& grid, double x, double y);
 
-// Sample a ``grid_n`` x ``grid_n`` parameter grid into a seed grid, matching the
-// NumPy reference in ``optics.numerical.solver.SurfaceSolver._seed_grid``: a
+// Sample a ``grid_n`` x ``grid_n`` parameter grid into a seed grid: a
 // ``'xy'`` meshgrid flattened row-major, local points via ``eval_local``,
 // validity from ``finite & desc_accepts`` and world points for valid samples.
 SeedGrid build_seed_grid(const SurfaceDesc& desc, int grid_n);
 
-// Local ``(u, v)`` whose surface point matches ``p_local`` within a tolerance
-// (C++ mirror of ``SurfaceSolver.parameters_at``): a direct-seed accept test
-// first, then the nearest valid grid sample's Newton inversion.
+// Local ``(u, v)`` whose surface point matches ``p_local`` within a tolerance:
+// a direct-seed accept test first, then the nearest valid grid sample's
+// Newton inversion.
 std::optional<std::pair<double, double>> parameters_at(const SurfaceDesc& desc, const SeedGrid& grid,
                                                        const Vec3& p_local);
 

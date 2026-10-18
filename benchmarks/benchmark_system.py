@@ -63,9 +63,8 @@ class SystemBench:
 
     def fresh_surface_cold(self) -> Surface:
         surface = self.fresh_surface()
-        if surface.native_descriptor is None:  # pragma: no cover - guards the bench
-            raise AssertionError("surface lost its native descriptor")
-        surface.solver.native_grid()
+        if surface.native_surface is None:  # pragma: no cover - guards the bench
+            raise AssertionError("surface lost its native surface")
         return surface
 
     def fresh_element(self) -> None:
@@ -140,7 +139,7 @@ def main(argv: "list[str] | None" = None) -> int:
     )
     report.add(
         "construction",
-        "surface + first descriptor/grid",
+        "surface + first native surface",
         bc.time_call(bench.fresh_surface_cold, 0, args.repeats, args.budget),
     )
     report.add(

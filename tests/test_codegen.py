@@ -1,7 +1,7 @@
-import numpy as np
+﻿import numpy as np
 import pytest
 
-from optics.numerical.codegen import ExpressionError
+from optics.expression import ExpressionError
 
 
 def _sphere_surface(make_element):
@@ -12,15 +12,18 @@ def test_native_path_active_for_standard_surface(make_element):
     s = _sphere_surface(make_element)
     assert s._eval_local is not None
     assert s._eval_grid is not None
-    desc = s.native_descriptor
-    assert desc is not None
-    # Tangents come from the native descriptor (with the interior-pullback
-    # fallback), not a per-surface Python callable.
-    assert callable(desc.derivatives)
+    native = s.native_surface
+    assert native is not None
+    # Tangents and normals come from the persistent native surface (with the
+    # interior-pullback fallback), not a per-surface Python callable.
     ru, rv = s.derivatives_local(0.1, 0.2)
     assert np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))
+    ru_native, rv_native = native.derivatives(0.1, 0.2)
+    np.testing.assert_array_equal(ru_native, ru)
+    np.testing.assert_array_equal(rv_native, rv)
+    np.testing.assert_allclose(native.normal(0.1, 0.2), s.normal(0.1, 0.2))
     np.testing.assert_array_equal(
-        desc.eval(0.1, 0.2), s.evaluate_local(0.1, 0.2)
+        s._model.eval_local(0.1, 0.2), s.evaluate_local(0.1, 0.2)
     )
 
 

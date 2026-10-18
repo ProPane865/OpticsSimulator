@@ -9,7 +9,6 @@
 
 #include "optics/common/vector.hpp"
 #include "optics/geometry/surface.hpp"
-#include "optics/intersection/grid.hpp"
 
 namespace optics::native {
 
@@ -19,9 +18,9 @@ namespace optics::native {
 void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi);
 
 // One closed refractive element: two persistent surfaces (each owning its
-// descriptor, seed grid and graph-over-xy flag), the world-space sidewall
-// mesh and the element-local axis-aligned bounds sampled once at
-// construction. The trace kernels read the fields directly.
+// descriptor, seed grid and graph-over-xy flag, which the kernels read
+// through the surfaces), the world-space sidewall mesh and the element-local
+// axis-aligned bounds sampled once at construction.
 class Element {
   public:
     // Sidewall triangles ``(K, 3, 3)`` and unit normals ``(K, 3)`` are
@@ -35,19 +34,11 @@ class Element {
 
     std::shared_ptr<const Surface> surface1;
     std::shared_ptr<const Surface> surface2;
-    // Shared handles into the two surfaces (zero-rebuild access for the
-    // kernels).
-    std::shared_ptr<const SurfaceDesc> desc1;
-    std::shared_ptr<const SurfaceDesc> desc2;
-    std::shared_ptr<const SeedGrid> grid1;
-    std::shared_ptr<const SeedGrid> grid2;
     double index = 1.0;
     Vec3 lo{};  // element-local AABB (from the surface models, built once)
     Vec3 hi{};
     std::vector<double> tri;      // (K, 3, 3) flattened row-major
     std::vector<double> normals;  // (K, 3) flattened row-major
-    bool graph1 = false;
-    bool graph2 = false;
 
     std::size_t n_tris() const { return tri.size() / 9; }
 

@@ -1,8 +1,9 @@
 """Ray/surface intersection benchmark: native kernel timings.
 
 Scenario: one element's front surface, ``--rays`` rays (default 10,000)
-through the native ``surface_intersect_kernel`` kernel (seed grid +
-damped-Newton), with setup stages timed separately.
+through the production :meth:`optics.primitive.Surface.intersect` path (the
+persistent native surface's seed grid + damped-Newton kernel), with setup
+stages timed separately.
 
     python benchmarks/benchmark_intersection.py [--cold] [--json out.json]
 """
@@ -14,25 +15,21 @@ from pathlib import Path
 
 import bench_common as bc
 
-from optics.numerical.intersect import surface_intersect_kernel
-
 
 class NativeBench:
     def __init__(self, rays: int) -> None:
         self.rays = rays
         self.element = bc.make_element(0.0)
         self.surface = self.element.surface1
-        self.desc = self.surface.native_descriptor
-        if self.desc is None:
-            raise RuntimeError("surface lost the native kernel path")
-        self.grid = self.surface.solver.native_grid()
-        self.origins, self.dirs = bc.make_rays(rays)
+        origins, dirs = bc.make_rays(rays)
+        self.ray_objects = bc.make_ray_objects(origins, dirs)
 
     def run(self) -> int:
         hits = 0
-        for i in range(self.rays):
-            _, _, _, ok = surface_intersect_kernel(self.desc, self.grid, self.origins[i], self.dirs[i])
-            hits += int(ok)
+        intersect = self.surface.intersect
+        for ray in self.ray_objects:
+            hit = intersect(ray)
+            hits += int(hit is not None)
         return hits
 
 
@@ -64,13 +61,13 @@ def main(argv: "list[str] | None" = None) -> int:
     report.add("setup (one-time)", "element build incl. expression codegen", seconds)
 
     def first_native_touch() -> None:
-        # One persistent native surface holds descriptor + seed grid + graph
-        # probe, built once on first native use.
+        # One persistent native surface holds the seed grid + graph probe,
+        # built once on first native use.
         _ = surface.native_surface
 
     seconds = bc.time_call(first_native_touch, warmup=0, repeats=1)
     report.add(
-        "setup (one-time)", "native surface (descriptor + seed grid + probe)", seconds
+        "setup (one-time)", "native surface (seed grid + probe)", seconds
     )
 
     nb = NativeBench(args.rays)
@@ -78,7 +75,7 @@ def main(argv: "list[str] | None" = None) -> int:
     if hits == 0:
         print("warning: no rays hit the surface, check the ray fan", file=sys.stderr)
     nb_seconds = bc.time_call(nb.run, args.warmup, args.repeats, args.budget)
-    report.add("timed", "native surface_intersect_kernel", nb_seconds, args.rays, f"{hits:,} hits")
+    report.add("timed", "Surface.intersect (per ray)", nb_seconds, args.rays, f"{hits:,} hits")
 
     if args.cold:
         cold, wall = bc.run_cold(Path(__file__), "native", args.child_rays)

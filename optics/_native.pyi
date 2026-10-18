@@ -5,40 +5,29 @@ from typing import Any
 def compile_surface(
     x: str, y: str, z: str, u_min: float, u_max: float, v_min: float, v_max: float
 ) -> Any: ...
-def build_surface_desc(
+def make_surface(
     model: Any,
+    x: str,
+    y: str,
+    z: str,
     u_min: float,
     u_max: float,
     v_min: float,
     v_max: float,
-    tu: float,
-    tv: float,
     ap_r: float,
     ap_cx: float,
     ap_cy: float,
     rotation: Any,
     translation: Any,
-) -> Any: ...
-def build_grid(
-    p_world: Any,
-    uf_valid: Any,
-    vf_valid: Any,
-    pts: Any,
-    finite: Any,
-    uf: Any,
-    vf: Any,
+    grid_n: int = ...,
 ) -> Any: ...
 def build_seed_grid(desc: Any, grid_n: int) -> Any: ...
-def build_element_context(
-    desc1: Any,
-    desc2: Any,
-    grid1: Any,
-    grid2: Any,
+def build_element(
+    surface1: Any,
+    surface2: Any,
     refractive_index: float,
     tri: Any,
     normals: Any,
-    graph1: bool,
-    graph2: bool,
 ) -> Any: ...
 def build_trace_stack(contexts: list[Any]) -> Any: ...
 

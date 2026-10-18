@@ -8,7 +8,7 @@ goes:
 * re-meshing both surfaces (``rendering.meshing.SurfaceMesher``),
 * the sidewall rim inversion (``RefractiveElement.sidewall``),
 * per-plane measurement (``MeasurementPlane.measure``),
-* the rendering batch trace (``trace_segments_batch``),
+* the rendering batch trace (``OpticalSystem.trace_segments``),
 * the measurement-plane visual rebuild (``_measurement_vertex_colors``).
 
 Two views: a per-phase breakdown of a single apply (fresh edited element inside
@@ -36,8 +36,7 @@ from optics.config import refractive_element_from_config
 from optics.measurement_plane import MeasurementPlane
 from optics.numerical.codegen import compile_parametric_surface
 from optics.project import DEFAULT_MEASUREMENT_CONFIG
-from optics.tracing import build_trace_context, trace_segments_batch
-from optics.tracing.context import trace_segments_and_planes
+from optics.system import OpticalSystem
 from rendering.meshing import SurfaceMesher
 from rendering.visualize import _measurement_vertex_colors
 
@@ -118,29 +117,29 @@ def phase_breakdown(
     t["sidewall"] = time.perf_counter() - mark
 
     mark = time.perf_counter()
-    for plane in planes:
-        plane.measure(edit.rays, stack)
+    system = OpticalSystem(stack)
+    measure_results = [plane.measure(edit.rays, system) for plane in planes]
     t["measure_all"] = time.perf_counter() - mark
 
     mark = time.perf_counter()
-    trace_segments_batch(stack, edit.origins, edit.dirs, bc.RAY_LENGTH)
+    system.trace_segments(edit.origins, edit.dirs, bc.RAY_LENGTH)
     t["trace_batch"] = time.perf_counter() - mark
 
     # New single-trace paths (what the UI now does): measure every plane off one
     # trace, and the combined render+measure walk used by ``_refresh_trace``.
     mark = time.perf_counter()
-    MeasurementPlane.measure_batch(planes, edit.rays, stack)
+    MeasurementPlane.measure_batch(planes, edit.rays, system)
     t["measure_batch"] = time.perf_counter() - mark
 
     mark = time.perf_counter()
-    trace_segments_and_planes(
-        stack, edit.origins, edit.dirs, edit.powers, bc.RAY_LENGTH, planes
+    system.trace_segments_and_planes(
+        edit.origins, edit.dirs, edit.powers, bc.RAY_LENGTH, planes
     )
     t["combined"] = time.perf_counter() - mark
 
     mark = time.perf_counter()
-    for plane in planes:
-        _measurement_vertex_colors(plane)
+    for result in measure_results:
+        _measurement_vertex_colors(result)
     t["plane_color"] = time.perf_counter() - mark
 
     legacy = (
@@ -206,10 +205,10 @@ def compile_microbench(repeats: int) -> "tuple[float, float]":
 compile_microbench.counter = 0
 
 
-def context_microbench(n_elements: int, repeats: int) -> float:
+def system_microbench(n_elements: int, repeats: int) -> float:
     elements = bc.make_stack(n_elements)
-    build_trace_context(elements)  # warm surface descriptors + seed grids
-    return bc.time_call(lambda: build_trace_context(elements), warmup=1, repeats=repeats)
+    OpticalSystem(elements)  # warm surface descriptors + seed grids
+    return bc.time_call(lambda: OpticalSystem(elements), warmup=1, repeats=repeats)
 
 
 # --- Cold start ---------------------------------------------------------------
@@ -261,6 +260,7 @@ def unified_apply(edit: LensEdit, planes: "list[MeasurementPlane]", mesh_n: int 
     el, stack = edit._edited_element(counter)
     total += time.perf_counter() - mark
     mark = time.perf_counter()
+    system = OpticalSystem(stack)
     SurfaceMesher(el.surface1).mesh(mesh_n)
     SurfaceMesher(el.surface2).mesh(mesh_n)
     total += time.perf_counter() - mark
@@ -268,13 +268,16 @@ def unified_apply(edit: LensEdit, planes: "list[MeasurementPlane]", mesh_n: int 
     _ = el.sidewall
     total += time.perf_counter() - mark
     mark = time.perf_counter()
-    trace_segments_and_planes(
-        stack, edit.origins, edit.dirs, edit.powers, bc.RAY_LENGTH, planes
+    out = system.trace_segments_and_planes(
+        edit.origins, edit.dirs, edit.powers, bc.RAY_LENGTH, planes
     )
     total += time.perf_counter() - mark
     mark = time.perf_counter()
-    for plane in planes:
-        _measurement_vertex_colors(plane)
+    us, vs, pws = out[4:]
+    for q in range(len(planes)):
+        result = planes[q].new_result()
+        result.accumulate(us[q], vs[q], pws[q])
+        _measurement_vertex_colors(result)
     total += time.perf_counter() - mark
     return total
 
@@ -324,8 +327,8 @@ def main(argv: "list[str] | None" = None) -> int:
     print(f"  lru-cache hit (reuse compiled)  {hit * 1e6:>9.1f} us")
 
     # 2) Trace-context rebuild, isolated.
-    ctx_s = context_microbench(args.elements, args.repeats)
-    print(f"\n[build_trace_context]  {ctx_s * 1000:>9.3f} ms  ({args.elements} elements, warm)")
+    ctx_s = system_microbench(args.elements, args.repeats)
+    print(f"\n[OpticalSystem construction]  {ctx_s * 1000:>9.3f} ms  ({args.elements} elements, warm)")
 
     # 3) Per-phase breakdown of a single apply.
     edit = LensEdit(args.elements, args.rays)
@@ -368,7 +371,7 @@ def main(argv: "list[str] | None" = None) -> int:
         report = bc.Report("lens edit profile", quiet=True)
         report.add("micro", "compile miss (us)", miss * 1e6)
         report.add("micro", "compile hit (us)", hit * 1e6)
-        report.add("micro", "build_trace_context", ctx_s)
+        report.add("micro", "OpticalSystem construction", ctx_s)
         for key in (
             "build", "mesh_surface1", "mesh_surface2", "sidewall", "measure_all",
             "measure_batch", "trace_batch", "combined", "plane_color",

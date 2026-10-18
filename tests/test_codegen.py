@@ -19,10 +19,8 @@ def test_native_path_active_for_standard_surface(make_element):
     assert callable(desc.derivatives)
     ru, rv = s.derivatives_local(0.1, 0.2)
     assert np.all(np.isfinite(ru)) and np.all(np.isfinite(rv))
-    from optics.numerical.desc import desc_eval
-
     np.testing.assert_array_equal(
-        desc_eval(desc, 0.1, 0.2), s.evaluate_local(0.1, 0.2)
+        desc.eval(0.1, 0.2), s.evaluate_local(0.1, 0.2)
     )
 
 

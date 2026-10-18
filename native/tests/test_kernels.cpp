@@ -50,9 +50,8 @@ struct SphereCase {
         desc.v_max = 1.0;
         desc.tu = DOMAIN_TOL * 2.0;
         desc.tv = DOMAIN_TOL * 2.0;
-        desc.ap_r = -1.0;
-        desc.rot = Mat3::identity();
-        desc.trans = make_vec3(0.0, 0.0, 0.0);
+        desc.aperture = NoAperture{};
+        desc.transform = Transform{};
 
         const int n = 7;
         std::vector<double> us(static_cast<std::size_t>(n));
@@ -86,7 +85,8 @@ void test_intersect_and_invert() {
     SphereCase sphere;
     const double o[3] = {0.45, 0.45, 5.0};
     const double d[3] = {0.0, 0.0, -1.0};
-    const auto hit = optics::native::surface_intersect(sphere.desc, sphere.grid, o, d);
+    const auto hit = optics::native::surface_intersect(
+        sphere.desc, sphere.grid, optics::native::as_vec3(o), optics::native::as_vec3(d));
     CHECK(hit.has_value());
     if (hit.has_value()) {
         const double expected_t = 5.0 - std::sqrt(1.0 - 0.45 * 0.45 - 0.45 * 0.45);
@@ -119,7 +119,9 @@ void test_plane_and_mesh() {
     const double d[3] = {0.0, 0.0, -1.0};
     const double o[3] = {0.0, 0.0, 0.0};
     const double n[3] = {0.0, 0.0, 1.0};
-    const auto hit = optics::native::plane_intersect(ro, d, o, n, 1e-12);
+    const auto hit = optics::native::plane_intersect(
+        optics::native::as_vec3(ro), optics::native::as_vec3(d), optics::native::as_vec3(o),
+        optics::native::as_vec3(n), 1e-12);
     CHECK(hit.has_value());
     if (hit.has_value()) {
         CHECK(close(hit->at(0), 0.0) && close(hit->at(1), 0.0) && close(hit->at(2), 2.0));
@@ -130,7 +132,8 @@ void test_plane_and_mesh() {
         1.0, -1.0, 1.0,    //
         0.0, 1.0, 1.0,
     };
-    const auto mesh = optics::native::mesh_intersect(ro, d, tri, 1e-14, 1e-12, 1e-9);
+    const auto mesh = optics::native::mesh_intersect(
+        optics::native::as_vec3(ro), optics::native::as_vec3(d), tri, 1e-14, 1e-12, 1e-9);
     CHECK(mesh.has_value());
     if (mesh.has_value()) {
         CHECK(close(mesh->t, 1.0));

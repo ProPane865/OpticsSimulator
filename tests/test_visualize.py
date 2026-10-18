@@ -6,7 +6,7 @@ from vispy import scene
 import rendering.visualize as visualize
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray, Surface
-from optics.tracing import trace_stack_path
+from optics.system import OpticalSystem
 from rendering import demo
 from rendering.meshing import SurfaceMesher
 
@@ -52,7 +52,7 @@ def test_surface_positions_tilted_matches_rotation(make_element):
 
 def test_trace_ray_on_axis(sphere):
     ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0)
-    segments, out = trace_stack_path(ray, [sphere])
+    segments, out = OpticalSystem([sphere]).trace_path(ray)
     p1 = segments[0][1]
     assert np.all(np.isfinite(p1))
     assert np.isclose(np.linalg.norm(p1), 1.0, atol=1e-8)
@@ -63,7 +63,7 @@ def test_trace_ray_on_axis(sphere):
 
 def test_trace_ray_off_axis_finite(sphere):
     ray = Ray(np.array([0.5, 0.0, 2.5]), np.array([0.0, 0.0, -1.0]), 1.0)
-    segments, out = trace_stack_path(ray, [sphere])
+    segments, out = OpticalSystem([sphere]).trace_path(ray)
     assert segments
     for start, end, _ in segments:
         assert np.all(np.isfinite(start))
@@ -77,7 +77,7 @@ def test_trace_ray_off_axis_finite(sphere):
 
 def test_trace_ray_miss_returns_none(sphere):
     ray = Ray(np.array([0.0, 0.0, 2.5]), np.array([0.0, 0.0, 1.0]), 1.0)
-    segments, _ = trace_stack_path(ray, [sphere])
+    segments, _ = OpticalSystem([sphere]).trace_path(ray)
     assert [kind for _, _, kind in segments] == ["incident"]
 
 
@@ -209,8 +209,8 @@ def test_make_measurement_plane_visual_has_vertex_colors():
         for u in (-1.0, 0.0, 1.0)
         for v in (-1.0, 0.0, 1.0)
     ]
-    plane.measure(rays)
-    mesh = visualize.make_measurement_plane_visual(plane)
+    result = plane.measure(rays)
+    mesh = visualize.make_measurement_plane_visual(plane, result)
     ru, rv = plane.ru, plane.rv
     assert mesh.mesh_data.has_vertex_color()
     assert len(mesh.mesh_data.get_vertices()) == (ru + 1) * (rv + 1)
@@ -220,7 +220,7 @@ def test_make_measurement_plane_visual_has_vertex_colors():
 
 def test_make_measurement_plane_visual_empty_is_flat():
     plane = _measurement_plane()
-    mesh = visualize.make_measurement_plane_visual(plane)
+    mesh = visualize.make_measurement_plane_visual(plane, plane.new_result())
     assert mesh.mesh_data.has_vertex_color()
     colors = np.asarray(mesh.mesh_data.get_vertex_colors())
     assert colors.shape[0] == (plane.ru + 1) * (plane.rv + 1)

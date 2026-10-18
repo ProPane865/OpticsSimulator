@@ -36,7 +36,7 @@ double max_abs(const double* x, int n) {
     return m;
 }
 
-SmallVec residual_vec(int kind, const SurfaceDesc& desc, const double* o, const double* d,
+SmallVec residual_vec(int kind, const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
                       double x_target, double y_target, const double* x) {
     SmallVec f;
     if (kind == kNewtonIntersect) {
@@ -55,15 +55,15 @@ SmallVec residual_vec(int kind, const SurfaceDesc& desc, const double* o, const 
     return f;
 }
 
-SmallMat jacobian_mat(int kind, const SurfaceDesc& desc, const double* o, const double* d,
+SmallMat jacobian_mat(int kind, const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
                       double x_target, double y_target, const double* x) {
     SmallMat j;
     if (kind == kNewtonIntersect) {
         const auto rv = desc_derivatives(desc, x[1], x[2]);
         const Vec3 ru = rv.first;
         const Vec3 rrv = rv.second;
-        const Vec3 cu = desc.rot * ru;
-        const Vec3 cv = desc.rot * rrv;
+        const Vec3 cu = desc.transform.vector_to_world(ru);
+        const Vec3 cv = desc.transform.vector_to_world(rrv);
         j.rows = j.cols = 3;
         j.at(0, 0) = -d[0];
         j.at(1, 0) = -d[1];
@@ -93,8 +93,8 @@ SmallMat jacobian_mat(int kind, const SurfaceDesc& desc, const double* o, const 
 
 }  // namespace
 
-std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, const double* o,
-                                         const double* d, double x_target, double y_target,
+std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, const Vec3& o,
+                                         const Vec3& d, double x_target, double y_target,
                                          const double* x0, int n0, bool clamp) {
     std::vector<double> x(x0, x0 + n0);
     int status = SOLVER_EXH;

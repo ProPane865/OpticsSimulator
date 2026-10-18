@@ -8,13 +8,14 @@ versioned file semantics can be reasoned about and unit-tested in isolation.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import numpy as np
 
 from optics.config import stack_from_config
-from optics.measurement_plane import MeasurementPlane
+from optics.element import RefractiveElement
+from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.primitive import Ray
 from optics.project import (
     DEFAULT_SOURCE_CONFIG,
@@ -22,7 +23,7 @@ from optics.project import (
     parse_project,
 )
 from optics.source import PointSource
-from optics.tracing import RefractiveElement
+from optics.system import OpticalSystem
 
 __all__ = [
     "DEFAULT_ELEMENT_CONFIG",
@@ -144,6 +145,8 @@ class ProjectState:
         self._rays_arrays: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
         self._planes: list[MeasurementPlane] = []
         self._plane_names: list[str] = []
+        self._plane_results: list[MeasurementResult] = []
+        self._system: OpticalSystem | None = None
 
     # -- read-only accessors -------------------------------------------------
     @property
@@ -153,6 +156,20 @@ class ProjectState:
     @property
     def elements(self) -> list[RefractiveElement]:
         return self._elements
+
+    @property
+    def system(self) -> OpticalSystem:
+        """Persistent native system over the current element stack.
+
+        Built lazily and dropped whenever the elements change, so the trace
+        and measurement passes reuse one native ``TraceStack`` and
+        configuration errors surface at (re)build, not per trace.
+        """
+        system = self._system
+        if system is None:
+            system = OpticalSystem(self._elements)
+            self._system = system
+        return system
 
     @property
     def source(self) -> PointSource:
@@ -192,6 +209,11 @@ class ProjectState:
     def plane_names(self) -> list[str]:
         return self._plane_names
 
+    @property
+    def plane_results(self) -> list[MeasurementResult]:
+        """Accumulated detector image per plane (parallel to :attr:`planes`)."""
+        return self._plane_results
+
     # -- naming --------------------------------------------------------------
     def new_element_name(self) -> str:
         return unique_name("", (self._schema or {}).keys(), prefix="lens")
@@ -205,12 +227,14 @@ class ProjectState:
             self._schema = {}
         self._schema[name] = config
         self._elements.append(element)
+        self._system = None
 
     def replace_element(self, name: str, config: dict[str, Any], element: RefractiveElement) -> int:
         assert self._schema is not None
         index = list(self._schema.keys()).index(name)
         self._schema[name] = config
         self._elements[index] = element
+        self._system = None
         return index
 
     # -- source / rays -------------------------------------------------------
@@ -220,21 +244,35 @@ class ProjectState:
         self._rays_arrays = None
 
     # -- measurement plane operations ---------------------------------------
-    def add_plane(self, name: str, plane: MeasurementPlane) -> None:
-        plane.measure(self._rays, self._elements)
+    def add_plane(self, name: str, plane: MeasurementPlane) -> MeasurementResult:
+        result = plane.measure(self._rays, self.system)
         self._planes.append(plane)
         self._plane_names.append(name)
+        self._plane_results.append(result)
+        return result
 
-    def replace_plane(self, index: int, plane: MeasurementPlane) -> None:
+    def replace_plane(
+        self, index: int, plane: MeasurementPlane, result: MeasurementResult | None = None
+    ) -> None:
         self._planes[index] = plane
+        self._plane_results[index] = (
+            plane.measure(self._rays, self.system) if result is None else result
+        )
 
     def remove_plane(self, index: int) -> None:
         self._planes.pop(index)
         self._plane_names.pop(index)
+        self._plane_results.pop(index)
+
+    def set_plane_results(self, results: Sequence[MeasurementResult]) -> None:
+        """Store the per-plane images produced by one combined trace."""
+        self._plane_results = list(results)
 
     def measure_all(self) -> None:
         origins, dirs, powers = self.rays_arrays()
-        MeasurementPlane.measure_batch_arrays(self._planes, origins, dirs, powers, self._elements)
+        self._plane_results = MeasurementPlane.measure_batch_arrays(
+            self._planes, origins, dirs, powers, self.system
+        )
 
     # -- document (de)serialization -----------------------------------------
     def load_document(self, document: object) -> tuple[list[RefractiveElement], bool]:
@@ -250,32 +288,37 @@ class ProjectState:
 
         new_source = source if source is not None else self._source
         new_rays = source.emit_rays() if source is not None else self._rays
+        # Build the system up front: plane measurement needs the stack, and
+        # this keeps construction-time validation inside the load.
+        new_system = OpticalSystem(elements)
 
         if planes is not None:
             new_planes: list[MeasurementPlane] = []
             new_names: list[str] = []
+            new_results: list[MeasurementResult] = []
             used: set[str] = set()
             for base_name, plane in planes:
                 name = unique_name(base_name, used, prefix="plane")
                 used.add(name)
-                plane.measure(new_rays, elements)
+                new_results.append(plane.measure(new_rays, new_system))
                 new_planes.append(plane)
                 new_names.append(name)
             replaced = True
         else:
-            for plane in self._planes:
-                plane.measure(new_rays, elements)
+            new_results = [plane.measure(new_rays, new_system) for plane in self._planes]
             new_planes = self._planes
             new_names = self._plane_names
             replaced = False
 
         self._schema = elements_config
         self._elements = elements
+        self._system = new_system
         self._source = new_source
         self._rays = new_rays
         self._rays_arrays = None
         self._planes = new_planes
         self._plane_names = new_names
+        self._plane_results = new_results
         return elements, replaced
 
     def to_document(self) -> dict[str, Any]:

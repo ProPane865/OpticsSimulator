@@ -22,23 +22,21 @@ struct NewtonResult {
     int status = SOLVER_EXH;
 };
 
-// Damped Newton iteration for ``residual(x) = 0``.
-std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, const double* o,
-                                         const double* d, double x_target, double y_target,
+// Damped Newton iteration for ``residual(x) = 0``. ``o``/``d`` are the ray
+// state for the intersection problem; ``x0``/``n0`` is the raw initial guess.
+std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, const Vec3& o,
+                                         const Vec3& d, double x_target, double y_target,
                                          const double* x0, int n0, bool clamp);
 
 // Full ray/surface Newton solve from one seed (``_newton_intersection_kernel``).
-struct HitUV {
-    double t, u, v;
-};
-
-std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const double* o, const double* d,
+// (The ``HitUV`` result layout lives in ``intersection/grid.hpp``.)
+std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
                                          double u, double v, double t);
 
 // Seed selection + Newton + dedup: the nearest forward hit
 // (``surface_intersect_kernel``).
 std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& grid,
-                                       const double* o, const double* d);
+                                       const Vec3& o, const Vec3& d);
 
 // Newton inversion of local ``(x, y)`` to parameters from one seed
 // (``_solve_xy_kernel``).
@@ -59,7 +57,7 @@ SeedGrid build_seed_grid(const SurfaceDesc& desc, int grid_n);
 // (C++ mirror of ``SurfaceSolver.parameters_at``): a direct-seed accept test
 // first, then the nearest valid grid sample's Newton inversion.
 std::optional<std::pair<double, double>> parameters_at(const SurfaceDesc& desc, const SeedGrid& grid,
-                                                       const double* p_local);
+                                                       const Vec3& p_local);
 
 // Aperture rim: ``n`` local-space boundary points on the circular aperture
 // (C++ mirror of ``CircularAperture.boundary``), each inverted from the previous

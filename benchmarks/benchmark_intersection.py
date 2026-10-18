@@ -62,15 +62,16 @@ def main(argv: "list[str] | None" = None) -> int:
     surface = element.surface1
     seconds = bc.time_call(lambda: bc.make_element(0.0), warmup=0, repeats=1)
     report.add("setup (one-time)", "element build incl. expression codegen", seconds)
-    seconds = bc.time_call(lambda: surface.native_descriptor, warmup=0, repeats=1)
-    report.add("setup (one-time)", "native descriptor build", seconds)
 
-    def rebuild_grid() -> None:
-        surface.solver._native_grid_cache.clear()
-        surface.solver.native_grid()
+    def first_native_touch() -> None:
+        # One persistent native surface holds descriptor + seed grid + graph
+        # probe, built once on first native use.
+        _ = surface.native_surface
 
-    seconds = bc.time_call(rebuild_grid, warmup=0, repeats=1)
-    report.add("setup (one-time)", "seed grid (native_grid)", seconds)
+    seconds = bc.time_call(first_native_touch, warmup=0, repeats=1)
+    report.add(
+        "setup (one-time)", "native surface (descriptor + seed grid + probe)", seconds
+    )
 
     nb = NativeBench(args.rays)
     hits = nb.run()

@@ -1,10 +1,11 @@
 """Differential tests for the single-trace shared walk (measure + render).
 
-These guard the equivalence of the new native kernels against the established
-per-plane / batch paths: ``measure_planes_multi`` vs ``measure_stack``,
-``measure_batch`` vs repeated ``measure``, and ``trace_segments_and_planes``
-vs ``trace_segments_batch`` + ``measure_stack``. The rendering buffers are
-compared byte-for-byte and the plane hits exactly.
+These guard the equivalence of the combined native kernels against the
+established per-plane / batch paths: :meth:`OpticalSystem.measure_planes` vs
+repeated per-plane ``measure``, :meth:`MeasurementPlane.measure_batch` vs
+repeated ``measure``, and :meth:`OpticalSystem.trace_segments_and_planes` vs
+``trace_segments`` + per-plane measure. The rendering buffers are compared
+byte-for-byte and the plane hits exactly.
 """
 
 import json
@@ -15,8 +16,7 @@ import pytest
 
 from optics.config import stack_from_config
 from optics.measurement_plane import MeasurementPlane
-from optics.tracing import trace_segments_batch
-from optics.tracing.context import measure_planes_raw, trace_segments_and_planes
+from optics.system import OpticalSystem
 
 RAY_LENGTH = 3.0
 
@@ -69,15 +69,13 @@ def test_measure_planes_multi_matches_measure_stack(name):
     powers = np.ones(origins.shape[0])
     planes = _planes([-1.5, -3.0, -5.5])
 
-    raw = measure_planes_raw(elements, origins, dirs, powers, planes)
-    assert raw is not None
-    us, vs, pws = raw
+    system = OpticalSystem(elements)
+    us, vs, pws = system.measure_planes(origins, dirs, powers, planes)
     for q, plane in enumerate(planes):
-        plane.measure(_rays_as_objects(origins, dirs), elements)
-        ref = plane.grid.copy()
-        plane.reset()
-        plane.accumulate(us[q], vs[q], pws[q])
-        np.testing.assert_array_equal(plane.grid, ref)
+        ref = plane.measure(_rays_as_objects(origins, dirs), system)
+        check = plane.new_result()
+        check.accumulate(us[q], vs[q], pws[q])
+        np.testing.assert_array_equal(check.grid, ref.grid)
 
 
 @pytest.mark.parametrize("name", ["doublet.json", "triplet.json"])
@@ -86,19 +84,23 @@ def test_measure_batch_matches_per_plane_measure(name):
     origins, dirs = _rays()
     rays = _rays_as_objects(origins, dirs)
     planes = _planes([-1.5, -3.0, -5.5])
+    system = OpticalSystem(elements)
 
-    batch_totals = MeasurementPlane.measure_batch(planes, rays, elements)
-    batch_grids = [p.grid.copy() for p in planes]
+    batch_results = MeasurementPlane.measure_batch(planes, rays, system)
+    batch_grids = [r.grid.copy() for r in batch_results]
 
     per_totals = []
     per_grids = []
     for z in (-1.5, -3.0, -5.5):
         p = _planes([z])[0]
-        per_totals.append(p.measure(rays, elements))
-        per_grids.append(p.grid.copy())
+        per_result = p.measure(rays, system)
+        per_totals.append(per_result.total)
+        per_grids.append(per_result.grid.copy())
 
     for q in range(len(planes)):
-        assert batch_totals[q] == pytest.approx(per_totals[q], rel=1e-12, abs=1e-12)
+        assert batch_results[q].total == pytest.approx(
+            per_totals[q], rel=1e-12, abs=1e-12
+        )
         np.testing.assert_array_equal(batch_grids[q], per_grids[q])
 
 
@@ -110,17 +112,19 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
     planes = _planes([-1.5, -3.0, -5.5])
 
     # Reference rendering buffers.
-    rs, re, rk, rc = trace_segments_batch(elements, origins, dirs, RAY_LENGTH)
+    system = OpticalSystem(elements)
+    rs, re, rk, rc = system.trace_segments(origins, dirs, RAY_LENGTH)
 
     # Reference plane hits.
     ref_grids = []
     for plane in planes:
-        plane.measure(_rays_as_objects(origins, dirs), elements)
-        ref_grids.append(plane.grid.copy())
+        ref_grids.append(
+            plane.measure(_rays_as_objects(origins, dirs), system).grid.copy()
+        )
 
-    combined = trace_segments_and_planes(elements, origins, dirs, powers, RAY_LENGTH, planes)
-    assert combined is not None
-    starts, ends, kinds, counts, us, vs, pws = combined
+    starts, ends, kinds, counts, us, vs, pws = system.trace_segments_and_planes(
+        origins, dirs, powers, RAY_LENGTH, planes
+    )
 
     np.testing.assert_array_equal(counts, rc)
     n = origins.shape[0]
@@ -132,12 +136,14 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
             np.testing.assert_array_equal(kinds[i, :c], rk[i, :c])
 
     for q, plane in enumerate(planes):
-        plane.reset()
-        plane.accumulate(us[q], vs[q], pws[q])
-        np.testing.assert_array_equal(plane.grid, ref_grids[q])
+        check = plane.new_result()
+        check.accumulate(us[q], vs[q], pws[q])
+        np.testing.assert_array_equal(check.grid, ref_grids[q])
 
 
 def test_measure_batch_empty_and_no_planes():
     assert MeasurementPlane.measure_batch([], [], []) == []
     planes = _planes([-3.0])
-    assert MeasurementPlane.measure_batch(planes, [], [1]) == [0.0]
+    results = MeasurementPlane.measure_batch(planes, [], OpticalSystem())
+    assert [r.total for r in results] == [0.0]
+    assert all(r.grid.sum() == 0.0 for r in results)

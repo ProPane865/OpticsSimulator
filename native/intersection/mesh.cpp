@@ -14,7 +14,7 @@ constexpr double kInf = std::numeric_limits<double>::infinity();
 
 }  // namespace
 
-std::optional<MeshHit> mesh_intersect(const double* o, const double* d,
+std::optional<MeshHit> mesh_intersect(const Vec3& o, const Vec3& d,
                                       const std::vector<double>& tri, double det_eps,
                                       double bary_tol, double min_face_t) {
     const std::size_t k_count = tri.size() / 9;
@@ -29,19 +29,17 @@ std::optional<MeshHit> mesh_intersect(const double* o, const double* d,
         Vec3 e1 = as_vec3(base + 3) - a;
         Vec3 e2 = as_vec3(base + 6) - a;
 
-        const Vec3 dv = as_vec3(d);
-        const Vec3 ov = as_vec3(o);
-        const Vec3 h = cross3(dv, e2);
+        const Vec3 h = cross3(d, e2);
         const double det = dot3(e1, h);
         if (std::abs(det) <= det_eps) {
             continue;
         }
         const double inv_det = 1.0 / det;
 
-        const Vec3 s = ov - a;
+        const Vec3 s = o - a;
         const double u = dot3(s, h) * inv_det;
         const Vec3 q = cross3(s, e1);
-        const double v = dot3(q, dv) * inv_det;
+        const double v = dot3(q, d) * inv_det;
         const double t = dot3(e2, q) * inv_det;
 
         if (t > min_face_t && u >= -bary_tol && v >= -bary_tol && u + v <= 1.0 + bary_tol &&

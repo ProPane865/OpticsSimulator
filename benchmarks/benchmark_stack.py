@@ -14,7 +14,7 @@ from pathlib import Path
 
 import bench_common as bc
 
-from optics.tracing import trace_segments_batch
+from optics.system import OpticalSystem
 
 
 class StackBench:
@@ -22,10 +22,10 @@ class StackBench:
         self.rays = rays
         self.elements = bc.make_stack(n_elements)
         self.origins, self.dirs = bc.make_rays(rays)
+        self.system = OpticalSystem(self.elements)
 
     def batch(self) -> int:
-        out = trace_segments_batch(self.elements, self.origins, self.dirs, bc.RAY_LENGTH)
-        assert out is not None
+        out = self.system.trace_segments(self.origins, self.dirs, bc.RAY_LENGTH)
         return int(out[3].sum())
 
 
@@ -66,7 +66,7 @@ def main(argv: "list[str] | None" = None) -> int:
         seconds = bc.time_call(bench.batch, args.warmup, args.repeats, args.budget)
         report.add(
             section,
-            "native batch trace_segments_batch",
+            "native batch trace_segments",
             seconds,
             rays,
             f"{segs / rays:.1f} segs/ray",

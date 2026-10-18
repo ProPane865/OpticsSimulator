@@ -3,7 +3,7 @@ import pytest
 
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import CircularAperture, Ray, Surface
-from optics.tracing import trace_stack_path
+from optics.system import OpticalSystem
 
 GRAZING_ORIGINS = [
     [0.0, 0.0, 0.0],
@@ -34,7 +34,7 @@ def _snell_exit(d_in: np.ndarray, n_from: float, n_to: float) -> np.ndarray:
 
 def _trace_element(element, ray: Ray, ray_length: float = 3.0):
     """Return ``(segments, final_ray)`` through one element via the native kernel."""
-    return trace_stack_path(ray, [element], ray_length=ray_length)
+    return OpticalSystem([element]).trace_path(ray, ray_length)
 
 
 def _exit_point(segments):
@@ -124,9 +124,9 @@ def test_plane_inside_element_measures_internal_ray(make_element):
     )
     ray = Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
-    total = plane.measure([ray], [elem])
-    assert total == pytest.approx(1.0)
+    result = plane.measure([ray], OpticalSystem([elem]))
+    assert result.total == pytest.approx(1.0)
 
     i, j = plane.discretize(0.5, 0.0)
-    assert plane.grid[j, i] == pytest.approx(1.0)
-    assert float(np.sum(plane.grid)) == pytest.approx(1.0)
+    assert result.grid[j, i] == pytest.approx(1.0)
+    assert float(np.sum(result.grid)) == pytest.approx(1.0)

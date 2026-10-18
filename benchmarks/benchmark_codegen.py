@@ -26,7 +26,7 @@ import numpy as np
 
 import optics._native as _native
 import optics.numerical.codegen as cg
-from optics.numerical._kernels import build_descriptor
+from optics.numerical._kernels import make_surface
 
 # Every surface shares one square parameter domain (matching the bundled
 # meniscus in bench_common.element_config()).
@@ -89,10 +89,10 @@ def _child_stages(scenario: str) -> None:
     record("first eval_local / eval_grid / derivatives (tree walk)", _first_evals)
 
     record(
-        "build_surface_desc (descriptor + transform bake-in)",
-        lambda: build_descriptor(
-            model, u_min, u_max, v_min, v_max, 1e-9, 1e-9, -1.0, 0.0, 0.0,
-            np.eye(3, 3), np.zeros(3),
+        "make_surface (descriptor + seed grid + graph probe)",
+        lambda: make_surface(
+            model, x_src, y_src, z_src, u_min, u_max, v_min, v_max, -1.0, 0.0, 0.0,
+            np.eye(3, 3), np.zeros(3), 64,
         ),
     )
 

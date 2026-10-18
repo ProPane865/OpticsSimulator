@@ -1,8 +1,8 @@
 """Single-element trace benchmark: native per-ray vs native batched.
 
 Scenario: one meniscus element, ``--rays`` rays (default 10,000), comparing
-the public per-ray entry point, the per-ray kernel with a prebuilt context,
-and the parallel batch API (native threads).
+per-ray traces on a persistent :class:`OpticalSystem`, per-ray traces that
+rebuild the system every call, and the parallel batch API (native threads).
 
     python benchmarks/benchmark_trace.py [--cold] [--json out.json]
 """
@@ -14,8 +14,7 @@ from pathlib import Path
 
 import bench_common as bc
 
-from optics.tracing import trace_segments_batch, trace_stack_path
-from optics.tracing.context import _trace_stack_path_fast, build_trace_context
+from optics.system import OpticalSystem
 
 
 class TraceBench:
@@ -24,28 +23,24 @@ class TraceBench:
         self.elements = bc.make_stack(1)
         self.origins, self.dirs = bc.make_rays(rays)
         self.ray_objs = bc.make_ray_objects(self.origins, self.dirs)
-        self.ctx = build_trace_context(self.elements)
-        if self.ctx is None:
-            raise RuntimeError("element lost the native trace path")
+        self.system = OpticalSystem(self.elements)
 
-    def per_ray_public(self) -> int:
+    def per_ray_persistent(self) -> int:
         finals = 0
         for ray in self.ray_objs:
-            _, final = trace_stack_path(ray, self.elements, bc.RAY_LENGTH)
+            _, final = self.system.trace_path(ray, bc.RAY_LENGTH)
             finals += int(final is not None)
         return finals
 
-    def per_ray_fast(self) -> int:
-        assert self.ctx is not None
+    def per_ray_rebuilt(self) -> int:
         finals = 0
         for ray in self.ray_objs:
-            _, final = _trace_stack_path_fast(ray, self.ctx, bc.RAY_LENGTH, len(self.elements))
+            _, final = OpticalSystem(self.elements).trace_path(ray, bc.RAY_LENGTH)
             finals += int(final is not None)
         return finals
 
     def batch(self) -> int:
-        out = trace_segments_batch(self.elements, self.origins, self.dirs, bc.RAY_LENGTH)
-        assert out is not None
+        out = self.system.trace_segments(self.origins, self.dirs, bc.RAY_LENGTH)
         return int(out[3].sum())
 
 
@@ -55,7 +50,7 @@ def run_scenario(name: str, rays: int) -> None:
     if name == "batch":
         bench.batch()
     elif name == "fast":
-        bench.per_ray_fast()
+        bench.per_ray_persistent()
     else:
         raise SystemExit(f"unknown scenario: {name}")
 
@@ -79,24 +74,24 @@ def main(argv: "list[str] | None" = None) -> int:
     if hits == 0:
         print("warning: no segments traced, check the ray fan", file=sys.stderr)
 
-    fast_seconds = bc.time_call(bench.per_ray_fast, args.warmup, args.repeats, args.budget)
+    fast_seconds = bc.time_call(bench.per_ray_persistent, args.warmup, args.repeats, args.budget)
     report.add(
         "timed",
-        "native per-ray (prebuilt ctx)",
+        "native per-ray (persistent system)",
         fast_seconds,
         args.rays,
         f"{hits / args.rays:.1f} segs/ray",
     )
-    public_seconds = bc.time_call(bench.per_ray_public, args.warmup, args.repeats, args.budget)
+    rebuilt_seconds = bc.time_call(bench.per_ray_rebuilt, args.warmup, args.repeats, args.budget)
     report.add(
         "timed",
-        "native per-ray trace_stack_path",
-        public_seconds,
+        "native per-ray system rebuilt",
+        rebuilt_seconds,
         args.rays,
-        f"rebuilds ctx per call: {public_seconds / fast_seconds:.1f}x prebuilt",
+        f"rebuilds system per call: {rebuilt_seconds / fast_seconds:.1f}x persistent",
     )
     seconds = bc.time_call(bench.batch, args.warmup, args.repeats, args.budget)
-    report.add("timed", "native batch trace_segments_batch", seconds, args.rays)
+    report.add("timed", "native batch trace_segments", seconds, args.rays)
 
     if args.cold:
         for scenario, label in (("batch", "batch kernel chain"), ("fast", "per-ray kernel chain")):

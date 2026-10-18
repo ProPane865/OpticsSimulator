@@ -32,9 +32,13 @@ option(OPTICS_BUILD_TESTS "Build native unit tests" OFF)
 if(OPTICS_BUILD_TESTS)
   enable_testing()
   add_executable(optics_native_tests
-    native/tests/test_main.cpp
-    native/tests/test_expression.cpp
-    native/tests/test_kernels.cpp)
+ native/tests/test_main.cpp
+ native/tests/test_expression.cpp
+ native/tests/test_kernels.cpp
+ native/tests/test_surface.cpp
+ native/tests/test_element.cpp
+    native/tests/test_stack.cpp
+    native/tests/test_measurement.cpp)
   target_link_libraries(optics_native_tests PRIVATE optics_core)
   add_test(NAME native_tests COMMAND optics_native_tests)
 endif()

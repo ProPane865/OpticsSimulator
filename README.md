@@ -233,6 +233,7 @@ Standalone perf scripts (no extra dependencies) used to judge architecture
 changes against real numbers; run them from the repo root:
 
 ```bash
+python benchmarks/benchmark_system.py        # refactor regression matrix: construction, 1/100/10k rays tracing + measurement
 python benchmarks/benchmark_intersection.py  # 1 surface x 10k rays, native kernel, setup stages broken out
 python benchmarks/benchmark_trace.py         # 1 element x 10k rays: native per-ray, prebuilt ctx, native batch
 python benchmarks/benchmark_stack.py         # 2 elem x 10k and 4 elem x 100k: batch tracing (native threads), cold vs warm
@@ -255,3 +256,20 @@ one native code path, so there is nothing to re-compile between sizes); and
 and takes `--surfaces` (a scenario list), `--json` and `--quiet`. Setup costs
 (expression compilation, seed grids, context build) are timed separately from
 the ray loops; ray fans are deterministically seeded.
+
+### Performance baseline
+
+`benchmarks/BASELINE.json` is the checked-in performance contract (rows from
+`benchmark_system.py` plus the other scripts, with capture metadata). During
+the architecture refactor every change is measured against it with a 10%
+threshold: nothing may regress, and the persistent-native-object phases are
+expected to *improve* the construction and per-call-context rows.
+
+```bash
+python benchmarks/check_baseline.py      # re-run the system matrix, diff vs BASELINE.json (fails on regression)
+python benchmarks/check_baseline.py --advisory   # same, but never fails (used by the advisory CI job)
+python benchmarks/capture_baseline.py    # rebaseline after an intended, reviewed change
+```
+
+The `Benchmarks vs baseline` CI job runs `check_baseline.py --advisory` and
+uploads the report; it never blocks a merge (shared-runner timing is noisy).

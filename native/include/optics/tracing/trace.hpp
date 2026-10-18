@@ -19,11 +19,17 @@ struct ElementHit {
     Vec3 n{};
 };
 
+// Per-trace scalar configuration.
+struct TraceOptions {
+    double ray_length;  // trailing-gap cap for the rendering tail segment
+    double plane_eps;   // degeneracy epsilon for plane intersections
+};
+
 // Nearest face hit (surfaces + sidewall).
-ElementHit element_first_hit(const ElementContext& elem, const double* o, const double* d,
+ElementHit element_first_hit(const Element& elem, const Vec3& o, const Vec3& d,
                              double min_t);
 
-bool element_contains_point(const ElementContext& elem, const double* p);
+bool element_contains_point(const Element& elem, const Vec3& p);
 
 struct ElementTrace {
     Vec3 exit_o{};
@@ -36,7 +42,7 @@ struct ElementTrace {
 };
 
 // Trace one closed element: entry, internal bounces, exit ray.
-ElementTrace trace_element(const ElementContext& elem, const double* o, const double* d);
+ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d);
 
 struct StackSegments {
     int count = 0;
@@ -47,14 +53,14 @@ struct StackSegments {
 
 // Mirrors ``trace_stack_path``; segment kinds 0/1/2 = incident/internal/exit.
 // Writes up to ``cap`` segments into ``starts``/``ends``/``kinds``.
-StackSegments trace_stack_segments(const TraceStack& stack, const double* o, const double* d,
-                                   double ray_length, double* starts, double* ends,
+StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
+                                   const TraceOptions& options, double* starts, double* ends,
                                    signed char* kinds, std::size_t cap);
 
 // Traces until the plane region is reached; writes the reaching ray.
-bool trace_stack_to_plane(const TraceStack& stack, const double* o, const double* d,
-                          const double* po, const double* pn, double eps, double u_min,
-                          double u_max, double v_min, double v_max, double* out_o, double* out_d);
+bool trace_stack_to_plane(const TraceStack& stack, const Vec3& o, const Vec3& d, const Vec3& po,
+                          const Vec3& pn, const PlaneRegion& region, const TraceOptions& options,
+                          Vec3& out_o, Vec3& out_d);
 
 // --- Single geometric-order walk (shared by rendering + all planes) ----------
 //
@@ -80,7 +86,7 @@ struct RayHop {
 using RayHops = std::vector<RayHop>;
 
 // Walks the stack in geometric order, recording one hop per gap/element.
-RayHops build_hops(const TraceStack& stack, const double* o, const double* d);
+RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d);
 
 // Rendering segment buffers, byte-identical to ``trace_stack_segments``:
 // incident + internal segments per element, then the trailing gap capped at

@@ -8,12 +8,15 @@ editors can request redraws without juggling vispy node objects.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import rendering.visualize as visualize
-from optics.measurement_plane import MeasurementPlane
+from optics.element import RefractiveElement
+from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.primitive import Ray
-from optics.tracing import RefractiveElement
+
+if TYPE_CHECKING:
+    from optics.system import OpticalSystem
 
 __all__ = ["SceneController", "make_display"]
 
@@ -73,12 +76,13 @@ class SceneController:
 
     def retrace(
         self,
-        elements: Sequence[RefractiveElement],
+        system: OpticalSystem | Sequence[RefractiveElement],
         rays: Sequence[Ray],
         ray_length: float = RAY_LENGTH,
     ) -> None:
+        """Redraw the rays through a persistent :class:`OpticalSystem`."""
         visualize.remove_nodes(self._ray_nodes)
-        self._ray_nodes = visualize.build_ray_nodes(self._view, elements, rays, ray_length=ray_length)
+        self._ray_nodes = visualize.build_ray_nodes(self._view, system, rays, ray_length=ray_length)
 
     def retrace_from_segments(
         self,
@@ -102,17 +106,26 @@ class SceneController:
         self._element_nodes[index] = visualize.build_element_nodes(self._view, element)
 
     # -- measurement planes --------------------------------------------------
-    def rebuild_planes(self, planes: Sequence[MeasurementPlane]) -> None:
+    def rebuild_planes(
+        self,
+        planes: Sequence[MeasurementPlane],
+        results: Sequence[MeasurementResult],
+    ) -> None:
         for nodes in self._plane_nodes:
             visualize.remove_nodes(nodes)
-        self._plane_nodes = [visualize.build_measurement_nodes(self._view, plane) for plane in planes]
+        self._plane_nodes = [
+            visualize.build_measurement_nodes(self._view, plane, result)
+            for plane, result in zip(planes, results)
+        ]
 
-    def add_plane_nodes(self, plane: MeasurementPlane) -> None:
-        self._plane_nodes.append(visualize.build_measurement_nodes(self._view, plane))
+    def add_plane_nodes(self, plane: MeasurementPlane, result: MeasurementResult) -> None:
+        self._plane_nodes.append(visualize.build_measurement_nodes(self._view, plane, result))
 
-    def replace_plane_nodes(self, index: int, plane: MeasurementPlane) -> None:
+    def replace_plane_nodes(
+        self, index: int, plane: MeasurementPlane, result: MeasurementResult
+    ) -> None:
         visualize.remove_nodes(self._plane_nodes[index])
-        self._plane_nodes[index] = visualize.build_measurement_nodes(self._view, plane)
+        self._plane_nodes[index] = visualize.build_measurement_nodes(self._view, plane, result)
 
     def remove_plane_nodes(self, index: int) -> None:
         visualize.remove_nodes(self._plane_nodes.pop(index))

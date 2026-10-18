@@ -16,7 +16,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtUiTools import QUiLoader
 from vispy import app as vispy_app
 
-from optics.measurement_plane import MeasurementPlane
+from optics.element import RefractiveElement
+from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.primitive import Ray
 from optics.project import (
     DEFAULT_MEASUREMENT_CONFIG,
@@ -25,8 +26,6 @@ from optics.project import (
     parse_project,
 )
 from optics.source import PointSource
-from optics.tracing import RefractiveElement
-from optics.tracing.context import trace_segments_and_planes
 
 from .editors import LABEL_BY_SOURCE_TYPE, SOURCE_TYPE_BY_LABEL, ElementEditor, PlaneEditor, SourceEditor
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
@@ -106,28 +105,29 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     # -- orchestration shared by the editors --------------------------------
     def _refresh_trace(self) -> None:
         state = self._state
-        elements = state.elements
+        system = state.system
         rays = state.rays
         planes = state.planes
-        # When there are both rays and planes, one native walk serves rendering
-        # and every measurement plane; otherwise fall back to the separate
-        # measure/retrace paths.
+        # When there are both rays and planes, one native walk over the
+        # persistent stack serves rendering and every measurement plane;
+        # otherwise use the separate measure/retrace paths.
         if rays and planes:
             origins, dirs, powers = state.rays_arrays()
-            combined = trace_segments_and_planes(
-                elements, origins, dirs, powers, RAY_LENGTH, planes
+            starts, ends, kinds, counts, us, vs, pws = system.trace_segments_and_planes(
+                origins, dirs, powers, RAY_LENGTH, planes
             )
-            if combined is not None:
-                starts, ends, kinds, counts, us, vs, pws = combined
-                for q, plane in enumerate(planes):
-                    plane.reset()
-                    plane.accumulate(us[q], vs[q], pws[q])
-                self._scene.retrace_from_segments(starts, ends, kinds, counts)
-                self._scene.rebuild_planes(planes)
-                return
+            results = []
+            for q in range(len(planes)):
+                result = planes[q].new_result()
+                result.accumulate(us[q], vs[q], pws[q])
+                results.append(result)
+            state.set_plane_results(results)
+            self._scene.retrace_from_segments(starts, ends, kinds, counts)
+            self._scene.rebuild_planes(planes, results)
+            return
         state.measure_all()
-        self._scene.retrace(elements, rays)
-        self._scene.rebuild_planes(planes)
+        self._scene.retrace(system, rays)
+        self._scene.rebuild_planes(planes, state.plane_results)
 
     def _set_status(self, message: str) -> None:
         self.statusBar().showMessage(message)
@@ -153,6 +153,10 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     def planes(self) -> "list[MeasurementPlane]":
         return list(self._state.planes)
 
+    @property
+    def plane_results(self) -> "list[MeasurementResult]":
+        return list(self._state.plane_results)
+
     # -- project load / save -------------------------------------------------
     def load_stack(self, path: str | Path) -> "list[RefractiveElement]":
         path = Path(path)
@@ -162,7 +166,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
         self._scene.full_rebuild(self._state.elements, self._state.rays)
         self._scene.refresh_source(self._state.source)
-        self._scene.rebuild_planes(self._state.planes)
+        self._scene.rebuild_planes(self._state.planes, self._state.plane_results)
         if replaced_planes:
             self._plane_editor.populate_selector()
         self._element_editor.populate_selector()
@@ -228,21 +232,22 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
     """Prime the batch trace/measure paths off the GUI thread.
 
     The native kernels need no compilation, but the first real trace still
-    pays one-time setup (seed grids, descriptor builds for freshly loaded
-    elements); priming it here keeps the first add-element/apply-properties
-    interaction responsive. Best-effort: any failure just leaves the work
-    for the first interactive trace.
+    pays one-time setup (native elements for freshly loaded stacks);
+    priming it here keeps the first add-element/apply-properties interaction
+    responsive. Best-effort: any failure just leaves the work for the first
+    interactive trace.
     """
     from optics.config import refractive_element_from_config
-    from optics.tracing import trace_segments_batch
+    from optics.system import OpticalSystem
 
     try:
         if not elements:
             elements = [refractive_element_from_config(DEFAULT_ELEMENT_CONFIG)]
         origins, dirs, powers = PointSource(**DEFAULT_SOURCE_CONFIG).emit_arrays()
-        trace_segments_batch(elements, origins, dirs, ray_length=6.0)
+        system = OpticalSystem(list(elements))
+        system.trace_segments(origins, dirs, ray_length=6.0)
         plane = MeasurementPlane(**DEFAULT_MEASUREMENT_CONFIG)
-        MeasurementPlane.measure_batch_arrays([plane], origins, dirs, powers, list(elements))
+        MeasurementPlane.measure_batch_arrays([plane], origins, dirs, powers, system)
     except Exception:
         pass
 

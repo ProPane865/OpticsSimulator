@@ -4,11 +4,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import optics.tracing as tracing
 from optics.config import (
     refractive_element_from_config,
     refractive_element_from_json,
 )
+from optics.element import RefractiveElement
 
 
 def _parametric_equation(equation: str) -> str:
@@ -30,7 +30,7 @@ def sphere_schema(repo_root) -> str:
 
 
 @pytest.fixture
-def sphere(sphere_schema) -> tracing.RefractiveElement:
+def sphere(sphere_schema) -> RefractiveElement:
     return refractive_element_from_json(sphere_schema)
 
 
@@ -40,7 +40,7 @@ def offset_lens_schema(repo_root) -> str:
 
 
 @pytest.fixture
-def offset_lens(offset_lens_schema) -> tracing.RefractiveElement:
+def offset_lens(offset_lens_schema) -> RefractiveElement:
     return refractive_element_from_json(offset_lens_schema)
 
 
@@ -52,7 +52,7 @@ def make_element():
         n: float = 1.5,
         orientation=None,
         aperture_radius=None,
-    ) -> tracing.RefractiveElement:
+    ) -> RefractiveElement:
         orientation = (
             np.array([0.0, 0.0, 1.0])
             if orientation is None

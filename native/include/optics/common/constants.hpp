@@ -49,6 +49,7 @@ inline constexpr double VECTOR_PARALLEL_TOL = 1e-12;
 // --- Surface domain / measurement plane ---
 inline constexpr double APERTURE_EPS = 1e-12;
 inline constexpr double DOMAIN_TOL = 1e-9;
+inline constexpr double GRAPH_XY_TOL = 1e-9;
 inline constexpr double PLANE_EPS = 1e-12;
 inline constexpr double DERIV_INTERIOR_FRAC = 1e-6;
 inline constexpr int DERIV_INTERIOR_TRIES = 8;

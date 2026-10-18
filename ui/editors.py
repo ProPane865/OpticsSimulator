@@ -18,7 +18,7 @@ import numpy as np
 from PySide6 import QtGui, QtWidgets
 
 from optics.config import refractive_element_from_config
-from optics.measurement_plane import MeasurementPlane
+from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.project import DEFAULT_MEASUREMENT_CONFIG
 from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource
 
@@ -356,7 +356,7 @@ class PlaneEditor:
             return
         old = planes[index]
 
-        def build() -> MeasurementPlane:
+        def build() -> tuple[MeasurementPlane, MeasurementResult]:
             updated = MeasurementPlane(
                 origin=np.array([spin.value() for spin in self._pos_spins]),
                 normal=np.array([spin.value() for spin in self._normal_spins]),
@@ -364,19 +364,20 @@ class PlaneEditor:
                 v_range=(old.v_min, old.v_max),
                 resolution=[spin.value() for spin in self._resolution_spins],
             )
-            updated.measure(self._state.rays, self._state.elements)
-            return updated
+            result = updated.measure(self._state.rays, self._state.system)
+            return updated, result
 
-        updated = run_validated(
+        applied = run_validated(
             self._window,
             build,
             title="Invalid Measurement Plane Properties",
             message="Could not apply measurement plane properties",
         )
-        if updated is None:
+        if applied is None:
             return
-        self._state.replace_plane(index, updated)
-        self._scene.replace_plane_nodes(index, updated)
+        updated, result = applied
+        self._state.replace_plane(index, updated, result)
+        self._scene.replace_plane_nodes(index, updated, result)
         self._set_status(f"Updated properties for {self._state.plane_names[index]}")
 
     def remove_current(self) -> None:
@@ -411,8 +412,8 @@ class PlaneEditor:
         if plane is None:
             return
         name = self._state.new_plane_name()
-        self._state.add_plane(name, plane)
-        self._scene.add_plane_nodes(plane)
+        result = self._state.add_plane(name, plane)
+        self._scene.add_plane_nodes(plane, result)
         self.populate_selector()
         self.select(name)
         self._set_status(f"Added {name}")

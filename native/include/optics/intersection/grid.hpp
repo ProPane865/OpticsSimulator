@@ -10,6 +10,11 @@
 
 namespace optics::native {
 
+// Ray/surface Newton hit in surface parameters.
+struct HitUV {
+    double t, u, v;
+};
+
 // A sampled parameter grid used to seed Newton for intersections and
 // parameter inversion. ``*_valid`` arrays hold only in-domain/aperture
 // samples. Point arrays are ``(rows, 3)`` flattened row-major.

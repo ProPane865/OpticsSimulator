@@ -14,8 +14,8 @@ namespace {
 
 constexpr double kInf = std::numeric_limits<double>::infinity();
 
-int nearest_unvisited(const TraceStack& stack, std::vector<unsigned char>& visited,
-                      const double* o, const double* d, double t_limit) {
+int nearest_unvisited(const TraceStack& stack, std::vector<unsigned char>& visited, const Vec3& o,
+                      const Vec3& d, double t_limit) {
     int best_i = -1;
     double best_t = kInf;
     for (std::size_t i = 0; i < stack.size(); ++i) {
@@ -32,8 +32,8 @@ int nearest_unvisited(const TraceStack& stack, std::vector<unsigned char>& visit
 
 // As :func:`nearest_unvisited` but also reports the chosen entry distance.
 std::pair<int, double> nearest_unvisited_t(const TraceStack& stack,
-                                           std::vector<unsigned char>& visited, const double* o,
-                                           const double* d, double t_limit) {
+                                           std::vector<unsigned char>& visited, const Vec3& o,
+                                           const Vec3& d, double t_limit) {
     int best_i = -1;
     double best_t = kInf;
     for (std::size_t i = 0; i < stack.size(); ++i) {
@@ -50,25 +50,25 @@ std::pair<int, double> nearest_unvisited_t(const TraceStack& stack,
 
 }  // namespace
 
-StackSegments trace_stack_segments(const TraceStack& stack, const double* o, const double* d,
-                                   double ray_length, double* starts, double* ends,
+StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
+                                   const TraceOptions& options, double* starts, double* ends,
                                    signed char* kinds, std::size_t cap) {
     std::vector<unsigned char> visited(stack.size(), 0);
-    Vec3 cur_o = as_vec3(o);
-    Vec3 cur_d = as_vec3(d);
+    Vec3 cur_o = o;
+    Vec3 cur_d = d;
     signed char kind = 0;
     int count = 0;
     for (;;) {
-        const int best_i = nearest_unvisited(stack, visited, cur_o.v, cur_d.v, kInf);
+        const int best_i = nearest_unvisited(stack, visited, cur_o, cur_d, kInf);
         if (best_i < 0) {
             break;
         }
         visited[static_cast<std::size_t>(best_i)] = 1;
         const ElementTrace tr = trace_element(*stack.elements[static_cast<std::size_t>(best_i)],
-                                              cur_o.v, cur_d.v);
+                                              cur_o, cur_d);
         if (tr.has_incident && static_cast<std::size_t>(count) < cap) {
-            const double* s = cur_o.v;
-            const double* e = tr.incident_pt.v;
+            const Vec3 s = cur_o;
+            const Vec3 e = tr.incident_pt;
             for (int i = 0; i < 3; ++i) {
                 starts[3 * count + i] = s[i];
                 ends[3 * count + i] = e[i];
@@ -99,7 +99,7 @@ StackSegments trace_stack_segments(const TraceStack& stack, const double* o, con
     if (static_cast<std::size_t>(count) < cap) {
         for (int i = 0; i < 3; ++i) {
             starts[3 * count + i] = cur_o[i];
-            ends[3 * count + i] = cur_o[i] + ray_length * cur_d[i];
+            ends[3 * count + i] = cur_o[i] + options.ray_length * cur_d[i];
         }
         kinds[count] = kind;
         ++count;
@@ -107,25 +107,25 @@ StackSegments trace_stack_segments(const TraceStack& stack, const double* o, con
     return StackSegments{count, true, cur_o, cur_d};
 }
 
-bool trace_stack_to_plane(const TraceStack& stack, const double* o, const double* d,
-                          const double* po, const double* pn, double eps, double u_min,
-                          double u_max, double v_min, double v_max, double* out_o, double* out_d) {
+bool trace_stack_to_plane(const TraceStack& stack, const Vec3& o, const Vec3& d, const Vec3& po,
+                          const Vec3& pn, const PlaneRegion& region, const TraceOptions& options,
+                          Vec3& out_o, Vec3& out_d) {
     std::vector<unsigned char> visited(stack.size(), 0);
-    Vec3 cur_o = as_vec3(o);
-    Vec3 cur_d = as_vec3(d);
+    Vec3 cur_o = o;
+    Vec3 cur_d = d;
     for (;;) {
-        std::optional<std::array<double, 3>> plane =
-            plane_intersect(cur_o.v, cur_d.v, po, pn, eps);
+        std::optional<std::array<double, 3>> plane = plane_intersect(cur_o, cur_d, po, pn,
+                                                                     options.plane_eps);
         if (!plane.has_value()) {
             break;
         }
-        const int best_i = nearest_unvisited(stack, visited, cur_o.v, cur_d.v, plane->at(2));
+        const int best_i = nearest_unvisited(stack, visited, cur_o, cur_d, plane->at(2));
         if (best_i < 0) {
             break;
         }
         visited[static_cast<std::size_t>(best_i)] = 1;
         const ElementTrace tr = trace_element(*stack.elements[static_cast<std::size_t>(best_i)],
-                                              cur_o.v, cur_d.v);
+                                              cur_o, cur_d);
         for (int k = 0; k + 1 < tr.n_pts; ++k) {
             const Vec3 seg_o = tr.pts[static_cast<std::size_t>(k)];
             const Vec3 diff = tr.pts[static_cast<std::size_t>(k + 1)] - seg_o;
@@ -135,13 +135,12 @@ bool trace_stack_to_plane(const TraceStack& stack, const double* o, const double
             }
             const Vec3 seg_d = diff / seg_len;
             std::optional<std::array<double, 3>> hit =
-                plane_intersect(seg_o.v, seg_d.v, po, pn, eps);
-            if (hit.has_value() && hit->at(0) >= u_min && hit->at(0) <= u_max &&
-                hit->at(1) >= v_min && hit->at(1) <= v_max && hit->at(2) <= seg_len) {
-                for (int i = 0; i < 3; ++i) {
-                    out_o[i] = seg_o[i];
-                    out_d[i] = seg_d[i];
-                }
+                plane_intersect(seg_o, seg_d, po, pn, options.plane_eps);
+            if (hit.has_value() && hit->at(0) >= region.u_min && hit->at(0) <= region.u_max &&
+                hit->at(1) >= region.v_min && hit->at(1) <= region.v_max &&
+                hit->at(2) <= seg_len) {
+                out_o = seg_o;
+                out_d = seg_d;
                 return true;
             }
         }
@@ -151,10 +150,8 @@ bool trace_stack_to_plane(const TraceStack& stack, const double* o, const double
         cur_o = tr.exit_o;
         cur_d = tr.exit_d;
     }
-    for (int i = 0; i < 3; ++i) {
-        out_o[i] = cur_o[i];
-        out_d[i] = cur_d[i];
-    }
+    out_o = cur_o;
+    out_d = cur_d;
     return true;
 }
 
@@ -163,14 +160,13 @@ bool trace_stack_to_plane(const TraceStack& stack, const double* o, const double
 // The hop records are consumed both here (``format_segments``) and by the
 // measurement kernels (first plane crossing per hop); see ``trace.hpp`` for
 // the walk semantics.
-RayHops build_hops(const TraceStack& stack, const double* o, const double* d) {
+RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d) {
     std::vector<unsigned char> visited(stack.size(), 0);
-    Vec3 cur_o = as_vec3(o);
-    Vec3 cur_d = as_vec3(d);
+    Vec3 cur_o = o;
+    Vec3 cur_d = d;
     RayHops hops;
     for (;;) {
-        const std::pair<int, double> best =
-            nearest_unvisited_t(stack, visited, cur_o.v, cur_d.v, kInf);
+        const std::pair<int, double> best = nearest_unvisited_t(stack, visited, cur_o, cur_d, kInf);
         if (best.first < 0) {
             RayHop tail;
             tail.o = cur_o;
@@ -181,7 +177,7 @@ RayHops build_hops(const TraceStack& stack, const double* o, const double* d) {
         }
         visited[static_cast<std::size_t>(best.first)] = 1;
         const ElementTrace tr =
-            trace_element(*stack.elements[static_cast<std::size_t>(best.first)], cur_o.v, cur_d.v);
+            trace_element(*stack.elements[static_cast<std::size_t>(best.first)], cur_o, cur_d);
         RayHop h;
         h.o = cur_o;
         h.d = cur_d;

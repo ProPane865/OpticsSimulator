@@ -1,6 +1,6 @@
-// Kernel data layouts (mirror of ``optics/numerical/_kernels.py``): one
-// flattened refractive element and a trace stack. The Python builders fill
-// these from numpy arrays; the kernels read them read-only.
+// Persistent trace-stack state: a refractive element assembled from native
+// surfaces (built once at element construction) and the stack of elements the
+// trace kernels walk read-only.
 #pragma once
 
 #include <cstddef>
@@ -13,14 +13,36 @@
 
 namespace optics::native {
 
-// One closed refractive element flattened for the stack-tracing kernels.
-struct ElementContext {
+// Accumulate one surface's local-frame sample bounds into ``lo``/``hi``
+// (mirror of ``RefractiveElement.local_bounds`` sampling; coordinates stay
+// ``+inf``/``-inf`` when no finite sample exists).
+void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi);
+
+// One closed refractive element: two persistent surfaces (each owning its
+// descriptor, seed grid and graph-over-xy flag), the world-space sidewall
+// mesh and the element-local axis-aligned bounds sampled once at
+// construction. The trace kernels read the fields directly.
+class Element {
+  public:
+    // Sidewall triangles ``(K, 3, 3)`` and unit normals ``(K, 3)`` are
+    // world-space, matching the surfaces' transforms; empty for a wall-less
+    // element. Throws ``std::invalid_argument`` on inconsistent inputs.
+    static std::shared_ptr<const Element> create(std::shared_ptr<const Surface> surface1,
+                                                 std::shared_ptr<const Surface> surface2,
+                                                 double refractive_index,
+                                                 std::vector<double> tri,
+                                                 std::vector<double> normals);
+
+    std::shared_ptr<const Surface> surface1;
+    std::shared_ptr<const Surface> surface2;
+    // Shared handles into the two surfaces (zero-rebuild access for the
+    // kernels).
     std::shared_ptr<const SurfaceDesc> desc1;
     std::shared_ptr<const SurfaceDesc> desc2;
     std::shared_ptr<const SeedGrid> grid1;
     std::shared_ptr<const SeedGrid> grid2;
     double index = 1.0;
-    Vec3 lo{};
+    Vec3 lo{};  // element-local AABB (from the surface models, built once)
     Vec3 hi{};
     std::vector<double> tri;      // (K, 3, 3) flattened row-major
     std::vector<double> normals;  // (K, 3) flattened row-major
@@ -28,9 +50,20 @@ struct ElementContext {
     bool graph2 = false;
 
     std::size_t n_tris() const { return tri.size() / 9; }
+
+    Element() = default;
 };
 
-using ElementRef = std::shared_ptr<const ElementContext>;
+using ElementRef = std::shared_ptr<const Element>;
+
+// Rectangular detector extent in world ``(x, y)`` plane parameters (the
+// ``u``/``v`` ranges a measurement plane accepts hits within).
+struct PlaneRegion {
+    double u_min = 0.0;
+    double u_max = 0.0;
+    double v_min = 0.0;
+    double v_max = 0.0;
+};
 
 // A stack of elements traced as a unit. The historical tuple layout padded
 // this to fixed capacities; a native vector carries the real element count

@@ -31,9 +31,12 @@ class SurfaceSolver:
     def native_grid(self, grid_n: int = _c.SEED_GRID_N) -> Any:
         """Seed grid as a native object for the native kernels.
 
-        Sampled natively from the surface descriptor (domain + aperture
-        membership come from the descriptor), so no numpy grid is built here.
+        The default resolution is the persistent grid the native surface
+        samples once at construction. An off-default ``grid_n`` falls back to
+        building a dedicated grid from the descriptor (cached per resolution).
         """
+        if grid_n == _c.SEED_GRID_N:
+            return self.surface.native_grid
         cached = self._native_grid_cache.get(grid_n)
         if cached is None:
             cached = build_seed_grid(self.surface.native_descriptor, grid_n)

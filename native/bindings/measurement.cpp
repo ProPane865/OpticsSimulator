@@ -50,8 +50,10 @@ void py_measure_direct(const py::array_t<double>& origins, const py::array_t<dou
     double* ud = write_doubles(us, "us");
     double* vd = write_doubles(vs, "vs");
     double* pd = write_doubles(pws, "pws");
+    const optics::native::RayBatchView rays{od.data, dd.data, pw.data, n};
+    const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
-    optics::native::measure_direct(od.data, dd.data, pw.data, n, ov.v, nv.v, eps, ud, vd, pd);
+    optics::native::measure_direct(rays, ov, nv, eps, out);
 }
 
 void py_measure_stack(const TraceStack& stack, const py::array_t<double>& origins,
@@ -70,9 +72,11 @@ void py_measure_stack(const TraceStack& stack, const py::array_t<double>& origin
     double* ud = write_doubles(us, "us");
     double* vd = write_doubles(vs, "vs");
     double* pd = write_doubles(pws, "pws");
+    const optics::native::RayBatchView rays{od.data, dd.data, pw.data, n};
+    const optics::native::PlaneRegion region{u_min, u_max, v_min, v_max};
+    const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
-    optics::native::measure_stack(stack, od.data, dd.data, pw.data, n, ov.v, nv.v, eps, u_min,
-                                  u_max, v_min, v_max, ud, vd, pd);
+    optics::native::measure_stack(stack, rays, ov, nv, eps, region, out);
 }
 
 // Shared plane-array validation: reads ``(P, 3)`` origins/normals and ``(P,)``
@@ -119,10 +123,13 @@ void py_measure_planes_multi(const TraceStack& stack, const py::array_t<double>&
     double* ud = write_matrix(us, p, n, "us");
     double* vd = write_matrix(vs, p, n, "vs");
     double* pd = write_matrix(pws, p, n, "pws");
+    const optics::native::RayBatchView rays{od.data, dd.data, pw.data, n};
+    const optics::native::PlaneBatchView plane_view{planes.po,      planes.pn,      planes.u_min,
+                                                    planes.u_max,    planes.v_min,   planes.v_max,
+                                                    p};
+    const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
-    optics::native::measure_planes_multi(stack, od.data, dd.data, pw.data, n, p, planes.po,
-                                         planes.pn, planes.u_min, planes.u_max, planes.v_min,
-                                         planes.v_max, eps, ud, vd, pd);
+    optics::native::measure_planes_multi(stack, rays, plane_view, eps, out);
 }
 
 void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<double>& origins,
@@ -160,12 +167,17 @@ void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<dou
     double* ud = write_matrix(us, p, n, "us");
     double* vd = write_matrix(vs, p, n, "vs");
     double* pd = write_matrix(pws, p, n, "pws");
+    const optics::native::RayBatchView rays{od.data, dd.data, pw.data, n};
+    const optics::native::PlaneBatchView plane_view{planes.po,      planes.pn,      planes.u_min,
+                                                    planes.u_max,    planes.v_min,   planes.v_max,
+                                                    p};
+    const optics::native::TraceOptions options{ray_length, eps};
+    const optics::native::SegmentOutputView segs{
+        static_cast<double*>(s_info.ptr),      static_cast<double*>(e_info.ptr),
+        static_cast<signed char*>(k_info.ptr), static_cast<std::int64_t*>(c_info.ptr), cap};
+    const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
-    optics::native::trace_segments_and_planes(
-        stack, od.data, dd.data, pw.data, n, ray_length, p, planes.po, planes.pn, planes.u_min,
-        planes.u_max, planes.v_min, planes.v_max, eps, static_cast<double*>(s_info.ptr),
-        static_cast<double*>(e_info.ptr), static_cast<signed char*>(k_info.ptr),
-        static_cast<std::int64_t*>(c_info.ptr), cap, ud, vd, pd);
+    optics::native::trace_segments_and_planes(stack, rays, options, plane_view, segs, out);
 }
 
 }  // namespace

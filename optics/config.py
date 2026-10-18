@@ -4,9 +4,9 @@ from typing import Any
 
 import numpy as np
 
+from .element import RefractiveElement
 from .numerical.vector import rotation_from_z
 from .primitive import Aperture, CircularAperture, Material, Surface, Transform
-from .tracing import RefractiveElement
 
 
 def aperture_from_config(config: dict[str, Any]) -> Aperture:

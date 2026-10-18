@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <tuple>
 
+#include "optics/common/constants.hpp"
 #include "optics/common/parallel.hpp"
+#include "optics/common/vector.hpp"
 #include "optics/tracing/trace.hpp"
 
 #include "register.hpp"
@@ -14,6 +16,9 @@
 
 namespace {
 
+using optics::native::as_vec3;
+using optics::native::PLANE_EPS;
+using optics::native::TraceOptions;
 using optics::native::TraceStack;
 using namespace optics::bindings;
 
@@ -51,12 +56,12 @@ void py_trace_segments_batch(const TraceStack& stack, const py::array_t<double>&
     double* ed = static_cast<double*>(e_info.ptr);
     signed char* kd = static_cast<signed char*>(k_info.ptr);
     std::int64_t* cd = static_cast<std::int64_t*>(c_info.ptr);
+    const TraceOptions options{ray_length, PLANE_EPS};
     const py::gil_scoped_release release;
     optics::native::run_chunks(n, [&](std::size_t lo, std::size_t hi) {
         for (std::size_t i = lo; i < hi; ++i) {
-            cd[i] = optics::native::trace_stack_segments(stack, od + 3 * i, dd + 3 * i, ray_length,
-                                                         sd + 3 * cap * i, ed + 3 * cap * i,
-                                                         kd + cap * i, cap)
+            cd[i] = trace_stack_segments(stack, as_vec3(od + 3 * i), as_vec3(dd + 3 * i), options,
+                                         sd + 3 * cap * i, ed + 3 * cap * i, kd + cap * i, cap)
                         .count;
         }
     });
@@ -75,11 +80,18 @@ py::object py_trace_stack_to_plane(const TraceStack& stack, const py::array_t<do
     double* o_out = write_doubles(out_o, "out_o");
     double* d_out = write_doubles(out_d, "out_d");
     require(out_o.request().size == 3 && out_d.request().size == 3, "out_o/out_d: expected (3,)");
+    const optics::native::PlaneRegion region{u_min, u_max, v_min, v_max};
+    const TraceOptions options{0.0, eps};
+    optics::native::Vec3 final_o;
+    optics::native::Vec3 final_d;
     const bool ok = [&] {
         const py::gil_scoped_release release;
-        return optics::native::trace_stack_to_plane(stack, ov.v, dv.v, pov.v, pnv.v, eps, u_min,
-                                                    u_max, v_min, v_max, o_out, d_out);
+        return trace_stack_to_plane(stack, ov, dv, pov, pnv, region, options, final_o, final_d);
     }();
+    for (int i = 0; i < 3; ++i) {
+        o_out[i] = final_o[i];
+        d_out[i] = final_d[i];
+    }
     return py::bool_(ok);
 }
 
@@ -106,11 +118,12 @@ void register_tracing(py::module_& m) {
                     "segment buffers must be writeable");
             const Vec3 ov = to_vec3(o, "origin");
             const Vec3 dv = to_vec3(d, "direction");
+            const TraceOptions options{ray_length, PLANE_EPS};
             optics::native::StackSegments res;
             {
                 const py::gil_scoped_release release;
-                res = optics::native::trace_stack_segments(
-                    stack, ov.v, dv.v, ray_length, static_cast<double*>(s_info.ptr),
+                res = trace_stack_segments(
+                    stack, ov, dv, options, static_cast<double*>(s_info.ptr),
                     static_cast<double*>(e_info.ptr), static_cast<signed char*>(k_info.ptr),
                     static_cast<std::size_t>(s_info.shape[0]));
             }

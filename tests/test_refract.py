@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from optics.primitive import Ray
-from optics.tracing import trace_stack_path
+from optics.system import OpticalSystem
 
 BICONE_S1 = "3 - 0.3*sqrt(x**2 + y**2)"
 BICONE_S2 = "-1 + 2*sqrt(x**2 + y**2)"
@@ -25,7 +25,7 @@ def _refract_direction(d_in: np.ndarray, n_face: np.ndarray, eta: float) -> np.n
 
 def _trace_element(element, ray: Ray, ray_length: float = 3.0):
     """Return ``(segments, final_ray)`` through one element via the native kernel."""
-    return trace_stack_path(ray, [element], ray_length=ray_length)
+    return OpticalSystem([element]).trace_path(ray, ray_length)
 
 
 def _internal_segments(segments):
@@ -208,8 +208,8 @@ def test_trace_stack_independent_of_element_order(make_element):
     plate = make_element("-4", "-5")
     ray = Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
-    forward = trace_stack_path(ray, [lens, plate])[1]
-    reversed_ = trace_stack_path(ray, [plate, lens])[1]
+    forward = OpticalSystem([lens, plate]).trace_path(ray)[1]
+    reversed_ = OpticalSystem([plate, lens]).trace_path(ray)[1]
 
     assert forward is not None
     assert reversed_ is not None
@@ -217,12 +217,12 @@ def test_trace_stack_independent_of_element_order(make_element):
     np.testing.assert_allclose(forward.origin, reversed_.origin, atol=1e-12)
 
 
-def test_trace_stack_path_segment_kinds(make_element):
+def test_trace_path_segment_kinds(make_element):
     lens = make_element("sqrt(1 - (x**2) - (y**2))", "-1")
     plate = make_element("-4", "-5")
     ray = Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
-    segments, final = trace_stack_path(ray, [plate, lens], ray_length=2.0)
+    segments, final = OpticalSystem([plate, lens]).trace_path(ray, 2.0)
     kinds = [kind for _, _, kind in segments]
 
     assert final is not None

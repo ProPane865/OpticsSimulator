@@ -35,7 +35,7 @@ std::tuple<double, double, double, bool> py_newton_intersection(const SurfaceDes
     const Vec3 dv = to_vec3(d, "direction");
     const auto hit = [&] {
         const py::gil_scoped_release release;
-        return optics::native::newton_intersection(desc, ov.v, dv.v, u, v, t);
+        return optics::native::newton_intersection(desc, ov, dv, u, v, t);
     }();
     if (!hit.has_value()) {
         return {0.0, 0.0, 0.0, false};
@@ -51,7 +51,7 @@ std::tuple<double, double, double, bool> py_surface_intersect(const SurfaceDesc&
     const Vec3 dv = to_vec3(d, "direction");
     const auto hit = [&] {
         const py::gil_scoped_release release;
-        return optics::native::surface_intersect(desc, grid, ov.v, dv.v);
+        return optics::native::surface_intersect(desc, grid, ov, dv);
     }();
     if (!hit.has_value()) {
         return {0.0, 0.0, 0.0, false};
@@ -94,7 +94,7 @@ std::tuple<double, double, double, bool> py_plane_intersect(const py::array_t<do
     const Vec3 nv = to_vec3(n, "plane normal");
     const auto hit = [&] {
         const py::gil_scoped_release release;
-        return optics::native::plane_intersect(rov.v, dv.v, ov.v, nv.v, eps);
+        return optics::native::plane_intersect(rov, dv, ov, nv, eps);
     }();
     if (!hit.has_value()) {
         return {0.0, 0.0, 0.0, false};
@@ -116,7 +116,7 @@ std::tuple<double, std::int64_t, double, double, bool> py_mesh_intersect(
     const Vec3 dv = to_vec3(d, "direction");
     const auto hit = [&] {
         const py::gil_scoped_release release;
-        return optics::native::mesh_intersect(ov.v, dv.v, tri_copy, det_eps, bary_tol, min_face_t);
+        return optics::native::mesh_intersect(ov, dv, tri_copy, det_eps, bary_tol, min_face_t);
     }();
     if (!hit.has_value()) {
         return {0.0, -1, 0.0, 0.0, false};
@@ -140,7 +140,7 @@ std::tuple<double, double, bool> py_parameters_at(const SurfaceDesc& desc, const
     const Vec3 pv = to_vec3(point, "point");
     const auto uv = [&] {
         const py::gil_scoped_release release;
-        return optics::native::parameters_at(desc, grid, pv.v);
+        return optics::native::parameters_at(desc, grid, pv);
     }();
     if (!uv.has_value()) {
         return {0.0, 0.0, false};

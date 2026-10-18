@@ -32,7 +32,7 @@ void linspace(double a, double b, int n, std::vector<double>& out) {
 
 }  // namespace
 
-std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const double* o, const double* d,
+std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
                                          double u, double v, double t) {
     const double x0[3] = {t, u, v};
     std::optional<NewtonResult> res =
@@ -53,7 +53,7 @@ std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const double* 
 }
 
 std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& grid,
-                                       const double* o, const double* d) {
+                                       const Vec3& o, const Vec3& d) {
     const std::size_t m = grid.m();
     if (m == 0) {
         return std::nullopt;
@@ -62,16 +62,11 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
     std::vector<double> ts(m);
     std::vector<double> residual(m);
     for (std::size_t i = 0; i < m; ++i) {
-        const double rel0 = p[3 * i + 0] - o[0];
-        const double rel1 = p[3 * i + 1] - o[1];
-        const double rel2 = p[3 * i + 2] - o[2];
-        const double t = rel0 * d[0] + rel1 * d[1] + rel2 * d[2];
+        const Vec3 pv = as_vec3(&p[3 * i]);
+        const double t = dot3(pv - o, d);
         ts[i] = t;
         if (t > 0.0) {
-            const double px = o[0] + t * d[0] - p[3 * i + 0];
-            const double py = o[1] + t * d[1] - p[3 * i + 1];
-            const double pz = o[2] + t * d[2] - p[3 * i + 2];
-            residual[i] = std::sqrt(px * px + py * py + pz * pz);
+            residual[i] = norm(o + t * d - pv);
         } else {
             residual[i] = kInf;
         }
@@ -188,7 +183,7 @@ SeedGrid build_seed_grid(const SurfaceDesc& desc, int grid_n) {
         g.uf_valid.push_back(g.uf[k]);
         g.vf_valid.push_back(g.vf[k]);
         const Vec3 local = make_vec3(g.pts[3 * k + 0], g.pts[3 * k + 1], g.pts[3 * k + 2]);
-        const Vec3 world = desc.rot * local + desc.trans;
+        const Vec3 world = desc.transform.to_world(local);
         g.p_world.push_back(world[0]);
         g.p_world.push_back(world[1]);
         g.p_world.push_back(world[2]);

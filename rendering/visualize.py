@@ -6,9 +6,10 @@ from vispy import scene
 from vispy.color import get_colormap
 from vispy.scene import visuals
 
-from optics.measurement_plane import MeasurementPlane
+from optics.element import RefractiveElement
+from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.primitive import LensSidewall, Ray, Surface
-from optics.tracing import RefractiveElement, trace_segments_batch, trace_stack_path
+from optics.system import OpticalSystem
 
 from .meshing import SurfaceMesher
 
@@ -98,8 +99,8 @@ def _cell_to_vertex_values(grid: np.ndarray) -> np.ndarray:
     return out
 
 
-def _measurement_vertex_colors(plane: MeasurementPlane) -> np.ndarray:
-    irradiance = plane.irradiance()
+def _measurement_vertex_colors(result: MeasurementResult) -> np.ndarray:
+    irradiance = result.irradiance()
     values = _cell_to_vertex_values(irradiance.T)
     flat = np.asarray(MEASUREMENT_COLOR, dtype=float)
     vmax = float(np.nanmax(values)) if values.size else 0.0
@@ -113,7 +114,7 @@ def _measurement_vertex_colors(plane: MeasurementPlane) -> np.ndarray:
     return colors
 
 
-def make_measurement_plane_visual(plane: MeasurementPlane) -> Any:
+def make_measurement_plane_visual(plane: MeasurementPlane, result: MeasurementResult) -> Any:
     ru, rv = plane.ru, plane.rv
     us = np.linspace(plane.u_min, plane.u_max, ru + 1)
     vs = np.linspace(plane.v_min, plane.v_max, rv + 1)
@@ -131,7 +132,7 @@ def make_measurement_plane_visual(plane: MeasurementPlane) -> Any:
         np.column_stack([b, c, d]),
     ])
 
-    colors = _measurement_vertex_colors(plane)
+    colors = _measurement_vertex_colors(result)
     mesh = visuals.Mesh(verts, faces, vertex_colors=colors, shading="flat")
     mesh.set_gl_state(
         blend=True,
@@ -152,8 +153,10 @@ def _measurement_outline(plane: MeasurementPlane) -> list[np.ndarray]:
     return [corners[k] for k in (0, 1, 1, 2, 2, 3, 3, 0)]
 
 
-def build_measurement_nodes(view: Any, plane: MeasurementPlane) -> list[Any]:
-    plane_mesh = make_measurement_plane_visual(plane)
+def build_measurement_nodes(
+    view: Any, plane: MeasurementPlane, result: MeasurementResult | None = None
+) -> list[Any]:
+    plane_mesh = make_measurement_plane_visual(plane, result if result is not None else plane.new_result())
     plane_mesh.order = MEASUREMENT_MESH_ORDER
     nodes = [_attach(view, plane_mesh)]
     outline = _measurement_outline(plane)
@@ -257,17 +260,33 @@ def _append_ray_path(
         prev_kind = kind
 
 
+def _as_system(
+    target: "OpticalSystem | RefractiveElement | Sequence[RefractiveElement]",
+) -> OpticalSystem:
+    """Normalize a ray-tracing target to an :class:`OpticalSystem`.
+
+    Rendering entry points accept a persistent system (the app's path) or a
+    plain element stack (demos and tests), which is wrapped on the fly; the
+    native element state behind it is cached per element either way.
+    """
+    if isinstance(target, OpticalSystem):
+        return target
+    if isinstance(target, RefractiveElement):
+        return OpticalSystem([target])
+    return OpticalSystem(target)
+
+
 def _collect_ray_segments(
-    elements: Sequence[RefractiveElement],
+    system: OpticalSystem,
     rays: Sequence[Ray],
     ray_length: float = 3.0,
 ) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], list[tuple[np.ndarray, tuple[float, float, float, float]]]]":
-    """Return ``(segments, markers)`` for all rays traced through ``elements``.
+    """Return ``(segments, markers)`` for all rays traced through ``system``.
 
     ``segments`` is a list of ``(start, end, kind)`` tuples and ``markers`` a
     list of ``(position, color)`` tuples for entry/exit transition points.
-    Rays are traced in parallel through the native stack kernel when the
-    whole element stack supports it, otherwise one ray at a time.
+    Rays are traced in parallel through the system's persistent native stack
+    (an empty stack traces straight rays); non-finite rays are skipped.
     """
     segments: list[tuple[np.ndarray, np.ndarray, str]] = []
     markers: list[tuple[np.ndarray, tuple[float, float, float, float]]] = []
@@ -278,16 +297,11 @@ def _collect_ray_segments(
         and np.all(np.isfinite(np.asarray(ray.direction, dtype=float)))
     ]
     if finite_rays:
-        batch = trace_segments_batch(
-            elements,
+        starts, ends, kinds, counts = system.trace_segments(
             np.asarray([r.origin for r in finite_rays], dtype=float),
             np.asarray([r.direction for r in finite_rays], dtype=float),
             ray_length=ray_length,
         )
-    else:
-        batch = None
-    if batch is not None:
-        starts, ends, kinds, counts = batch
         for i in range(len(finite_rays)):
             _append_ray_path(
                 segments,
@@ -301,10 +315,6 @@ def _collect_ray_segments(
                     for k in range(int(counts[i]))
                 ],
             )
-        return segments, markers
-    for ray in finite_rays:
-        ray_segments, _ = trace_stack_path(ray, list(elements), ray_length=ray_length)
-        _append_ray_path(segments, markers, ray_segments)
     return segments, markers
 
 
@@ -368,22 +378,21 @@ def _build_ray_visual_nodes(
 
 def build_ray_nodes(
     view: Any,
-    elements: "RefractiveElement | Sequence[RefractiveElement]",
+    system: "OpticalSystem | RefractiveElement | Sequence[RefractiveElement]",
     rays: Sequence[Ray],
     ray_length: float = 3.0,
     show_markers: "bool | None" = None,
 ) -> list[Any]:
     """Draw all rays as one batched line node plus one merged marker mesh.
 
-    Entry/exit intersection markers are disabled by default; set
-    ``SHOW_RAY_INTERSECTION_MARKERS`` to ``True`` or pass ``show_markers``
-    to enable them.
+    Traces through the given :class:`~optics.system.OpticalSystem` (or wraps
+    a plain element stack). Entry/exit intersection markers are disabled by
+    default; set ``SHOW_RAY_INTERSECTION_MARKERS`` to ``True`` or pass
+    ``show_markers`` to enable them.
     """
     if show_markers is None:
         show_markers = SHOW_RAY_INTERSECTION_MARKERS
-    if isinstance(elements, RefractiveElement):
-        elements = [elements]
-    segments, markers = _collect_ray_segments(list(elements), rays, ray_length=ray_length)
+    segments, markers = _collect_ray_segments(_as_system(system), rays, ray_length=ray_length)
     return _build_ray_visual_nodes(view, segments, markers, show_markers)
 
 

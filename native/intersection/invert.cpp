@@ -20,10 +20,10 @@ constexpr double kTwoPi = 6.28318530717958647692528676655900577;
 
 std::optional<std::pair<double, double>> solve_xy(const SurfaceDesc& desc, double x_target,
                                                   double y_target, double u, double v) {
-    const double zeros[3] = {0.0, 0.0, 0.0};
+    const Vec3 zero = make_vec3(0.0, 0.0, 0.0);
     const double x0[2] = {u, v};
     std::optional<NewtonResult> res =
-        newton_solve(kNewtonXY, desc, zeros, zeros, x_target, y_target, x0, 2, false);
+        newton_solve(kNewtonXY, desc, zero, zero, x_target, y_target, x0, 2, false);
     if (!res.has_value()) {
         return std::nullopt;
     }
@@ -86,11 +86,11 @@ std::optional<std::pair<double, double>> parameters_at_xy(const SurfaceDesc& des
 }
 
 std::optional<std::pair<double, double>> parameters_at(const SurfaceDesc& desc, const SeedGrid& grid,
-                                                       const double* p_local) {
-    if (!(std::isfinite(p_local[0]) && std::isfinite(p_local[1]) && std::isfinite(p_local[2]))) {
+                                                       const Vec3& p_local) {
+    if (!finite3(p_local)) {
         return std::nullopt;
     }
-    const Vec3 p = as_vec3(p_local);
+    const Vec3 p = p_local;
     const double u0 = p[0];
     const double v0 = p[1];
     if (desc_accepts(desc, u0, v0)) {

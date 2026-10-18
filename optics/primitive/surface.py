@@ -4,8 +4,8 @@ from typing import Any
 import numpy as np
 
 from .. import constants as _c
+from ..numerical._kernels import make_surface
 from ..numerical.codegen import compile_parametric_surface
-from ..numerical.desc import build_surface_descriptor
 from ..numerical.solver import SurfaceSolver
 from .aperture import Aperture
 from .hit import Hit
@@ -45,52 +45,86 @@ class Surface:
         self.v_range = v_range
         self.aperture = aperture
         self.solver = SurfaceSolver(self)
+        self._native: Any | None = None
+        self._desc_handle: Any | None = None
+        self._grid_handle: Any | None = None
         self._graph_xy: bool | None = None
-        self._native_desc: tuple[Any, ...] | None = None
-        self._native_desc_built = False
+
+    def _aperture_params(self) -> "tuple[float, float, float]":
+        """Circular aperture slots ``(radius, cx, cy)`` for the native kernels.
+
+        ``(-1, 0, 0)`` encodes "no aperture". Raises :class:`ValueError` when
+        the surface carries an aperture the kernels cannot encode, so such a
+        surface cannot take part in a native trace.
+        """
+        if self.aperture is None:
+            return -1.0, 0.0, 0.0
+        params = self.aperture.native_params()
+        if params is None:
+            raise ValueError(
+                "Aperture type is not supported by the native surface kernels"
+            )
+        ap_r, ap_cx, ap_cy = params
+        return float(ap_r), float(ap_cx), float(ap_cy)
+
+    @property
+    def native_surface(self) -> Any:
+        """The persistent native surface (descriptor + seed grid + graph flag).
+
+        Built lazily on first native use and cached for the surface's lifetime;
+        the seed grid is sampled once, so no per-trace descriptor/grid work
+        remains.
+        """
+        if self._native is None:
+            ap_r, ap_cx, ap_cy = self._aperture_params()
+            self._native = make_surface(
+                self._model,
+                self.x_expr,
+                self.y_expr,
+                self.z_expr,
+                self.u_range[0],
+                self.u_range[1],
+                self.v_range[0],
+                self.v_range[1],
+                ap_r,
+                ap_cx,
+                ap_cy,
+                self.transform.rotation,
+                self.transform.translation,
+                _c.SEED_GRID_N,
+            )
+        return self._native
 
     @property
     def native_descriptor(self) -> Any:
         """Native descriptor for this surface, used by the kernel paths.
 
-        Built lazily and cached; building raises :class:`ValueError` when the
-        surface carries an aperture the kernels cannot encode, in which case
-        the surface cannot take part in a native trace.
+        Owned by the persistent native surface; the Python handle is fetched
+        once and cached so repeated kernel calls reuse one wrapper object.
+        Building can raise :class:`ValueError` when the surface carries an
+        aperture the kernels cannot encode.
         """
-        if not self._native_desc_built:
-            self._native_desc_built = True
-            self._native_desc = self._build_native_descriptor()
-        return self._native_desc
+        if self._desc_handle is None:
+            self._desc_handle = self.native_surface.desc()
+        return self._desc_handle
 
-    def _build_native_descriptor(self) -> Any:
-        return build_surface_descriptor(self)
+    @property
+    def native_grid(self) -> Any:
+        """The persistent seed grid owned by the native surface."""
+        if self._grid_handle is None:
+            self._grid_handle = self.native_surface.grid()
+        return self._grid_handle
 
     @property
     def is_graph_over_xy(self) -> bool:
         """Whether the surface is exactly ``(u, v, z(u, v))`` in local space.
 
-        Sampled once and cached; lets callers read the height above a local
-        ``(x, y)`` without running the parameter-inversion solver.
+        Sampled once by the native surface; lets callers read the height above
+        a local ``(x, y)`` without running the parameter-inversion solver.
         """
         if self._graph_xy is None:
-            self._graph_xy = self._check_graph_over_xy()
+            self._graph_xy = bool(self.native_surface.is_graph_over_xy())
         return self._graph_xy
-
-    def _check_graph_over_xy(self) -> bool:
-        (u_min, u_max), (v_min, v_max) = self.parameter_range
-        for u in np.linspace(u_min, u_max, 5)[1:-1]:
-            for v in np.linspace(v_min, v_max, 5)[1:-1]:
-                u = float(u)
-                v = float(v)
-                p = self.evaluate_local(u, v)
-                if not np.all(np.isfinite(p)):
-                    return False
-                if (
-                    abs(float(p[0]) - u) > _c.GRAPH_XY_TOL * max(1.0, abs(u))
-                    or abs(float(p[1]) - v) > _c.GRAPH_XY_TOL * max(1.0, abs(v))
-                ):
-                    return False
-        return True
 
     @property
     def parameter_range(self) -> "tuple[tuple[float, float], tuple[float, float]]":

@@ -2,14 +2,59 @@
 // stack-traced plane intersection, and the fused single-trace rendering +
 // all-planes pass (mirrors of the measurement-plane kernels in
 // ``optics/tracing/context.py``).
+//
+// Raw ``double*`` buffers are appropriate only here, at the batch boundary:
+// each view describes a contiguous NumPy-owned buffer already validated by
+// the bindings; individual numerical operations take ``Vec3``/``PlaneRegion``
+// domain types instead.
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
 
+#include "optics/common/vector.hpp"
 #include "optics/tracing/context.hpp"
+#include "optics/tracing/trace.hpp"
 
 namespace optics::native {
+
+// SoA batch input: ``(N, 3)`` origins/directions and ``(N,)`` powers.
+struct RayBatchView {
+    const double* origins;
+    const double* directions;
+    const double* powers;
+    std::size_t count;
+};
+
+// SoA plane columns: ``(P, 3)`` origins/normals and ``(P,)`` range arrays.
+struct PlaneBatchView {
+    const double* origins;
+    const double* normals;
+    const double* u_min;
+    const double* u_max;
+    const double* v_min;
+    const double* v_max;
+    std::size_t count;
+};
+
+// Rendering segment output buffers: ``starts``/``ends`` are ``(N, cap, 3)``,
+// ``kinds`` ``(N, cap)``, ``counts`` ``(N,)``.
+struct SegmentOutputView {
+    double* starts;
+    double* ends;
+    signed char* kinds;
+    std::int64_t* counts;
+    std::size_t capacity;
+};
+
+// Per-ray ``(u, v, power)`` outputs; plane-major ``(P, N)`` when measuring
+// several planes off one trace, flat ``(N,)`` otherwise. Misses keep the
+// caller-provided values untouched.
+struct MeasurementOutputView {
+    double* us;
+    double* vs;
+    double* powers;
+};
 
 // Accumulate in-extent ray power into ``grid`` (row-major ``(rv, ru)``);
 // returns the total added.
@@ -19,39 +64,28 @@ double accumulate_power(double* grid, const double* u, const double* v, const do
 
 // Plane-intersect every ray (parallel); writes ``(u, v, power)`` per ray,
 // leaving non-hits as-is.
-void measure_direct(const double* origins, const double* dirs, const double* powers, std::size_t n,
-                    const double* o, const double* nrm, double eps, double* us, double* vs,
-                    double* pws);
+void measure_direct(const RayBatchView& rays, const Vec3& o, const Vec3& nrm, double eps,
+                    MeasurementOutputView out);
 
 // Trace rays through the stack (parallel), then hit the plane; writes
 // ``(u, v, power)`` per ray, leaving misses as-is.
-void measure_stack(const TraceStack& stack, const double* origins, const double* dirs,
-                   const double* powers, std::size_t n, const double* o, const double* nrm,
-                   double eps, double u_min, double u_max, double v_min, double v_max, double* us,
-                   double* vs, double* pws);
+void measure_stack(const TraceStack& stack, const RayBatchView& rays, const Vec3& o,
+                   const Vec3& nrm, double eps, const PlaneRegion& region,
+                   MeasurementOutputView out);
 
 // Trace every ray through the stack exactly once (parallel) and evaluate
-// ``p`` planes off that single trace. Plane geometry is column-parallel:
-// ``po``/``pn`` are ``(p, 3)`` and the range arrays are ``(p,)``; output
-// ``us``/``vs``/``pws`` are ``(p, n)`` plane-major. Results match ``p``
-// independent ``measure_stack`` calls (the per-plane traversal is a prefix of
-// the full geometric-order walk, so refractions up to each plane are shared).
-void measure_planes_multi(const TraceStack& stack, const double* origins, const double* dirs,
-                          const double* powers, std::size_t n, std::size_t p, const double* po,
-                          const double* pn, const double* u_min, const double* u_max,
-                          const double* v_min, const double* v_max, double eps, double* us,
-                          double* vs, double* pws);
+// every plane of ``planes`` off that single trace. Output layout is plane-
+// major ``(P, N)`` inside ``out``. Results match independent per-plane
+// ``measure_stack`` calls (the per-plane traversal is a prefix of the full
+// geometric-order walk, so refractions up to each plane are shared).
+void measure_planes_multi(const TraceStack& stack, const RayBatchView& rays,
+                          const PlaneBatchView& planes, double eps, MeasurementOutputView out);
 
 // Single-trace combined path: walks every ray through the stack once and emits
-// both the rendering segment buffers (byte-identical to ``trace_segments_batch``)
-// and the ``(p, n)`` plane measurement buffers. ``starts``/``ends`` are
-// ``(n, cap, 3)``, ``kinds`` ``(n, cap)``, ``counts`` ``(n,)``.
-void trace_segments_and_planes(const TraceStack& stack, const double* origins, const double* dirs,
-                               const double* powers, std::size_t n, double ray_length,
-                               std::size_t p, const double* po, const double* pn,
-                               const double* u_min, const double* u_max, const double* v_min,
-                               const double* v_max, double eps, double* starts, double* ends,
-                               signed char* kinds, std::int64_t* counts, std::size_t cap,
-                               double* us, double* vs, double* pws);
+// both the rendering segment buffers (byte-identical to the per-ray
+// ``trace_stack_segments``) and the plane measurement buffers.
+void trace_segments_and_planes(const TraceStack& stack, const RayBatchView& rays,
+                               const TraceOptions& options, const PlaneBatchView& planes,
+                               SegmentOutputView segments, MeasurementOutputView measurement);
 
 }  // namespace optics::native

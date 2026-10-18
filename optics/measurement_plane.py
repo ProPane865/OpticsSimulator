@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -8,8 +8,9 @@ from . import constants as _c
 from .numerical.plane import plane_intersect_kernel
 from .numerical.vector import normalize
 from .primitive import Ray
-from .tracing import RefractiveElement
-from .tracing.context import build_trace_context, measure_planes_raw
+
+if TYPE_CHECKING:
+    from .system import OpticalSystem
 
 _EPS = _c.PLANE_EPS
 
@@ -30,7 +31,6 @@ class MeasurementPlane:
     u_max: float
     v_min: float
     v_max: float
-    grid: np.ndarray
 
     def __init__(
         self,
@@ -61,7 +61,9 @@ class MeasurementPlane:
         if not (self.u_max > self.u_min and self.v_max > self.v_min):
             raise ValueError("Parameter ranges must be increasing")
 
-        self.grid = np.zeros((self.rv, self.ru), dtype=float)
+    def new_result(self) -> "MeasurementResult":
+        """A fresh, zeroed detector image accumulated against this plane."""
+        return MeasurementResult(self)
 
     @property
     def interval_u(self) -> float:
@@ -126,44 +128,17 @@ class MeasurementPlane:
 
         return i, j
 
-    def reset(self) -> None:
-        self.grid[:] = 0.0
-
-    def accumulate(self, u: Any, v: Any, power: Any) -> float:
-        """Add ray power into bins for parameters inside the plane extent."""
-        u = np.atleast_1d(np.asarray(u, dtype=float))
-        v = np.atleast_1d(np.asarray(v, dtype=float))
-        power = np.atleast_1d(np.asarray(power, dtype=float))
-
-        return float(
-            _native.accumulate(
-                self.grid,
-                np.ascontiguousarray(u),
-                np.ascontiguousarray(v),
-                np.ascontiguousarray(power),
-                self.u_min,
-                self.u_max,
-                self.v_min,
-                self.v_max,
-                self.ru,
-                self.rv,
-                self.interval_u,
-                self.interval_v,
-            )
-        )
-
-    def _measure_into_arrays(
+    def _project_arrays(
         self,
         origins: np.ndarray,
         dirs: np.ndarray,
         powers: np.ndarray,
         stack: Any = None,
-    ) -> float:
-        """Trace ray arrays and accumulate power into the (reset) grid.
+    ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+        """Hit parameters ``(u, v)`` and powers for every ray against this plane.
 
-        Assumes the grid is already reset. Rays are traced in parallel (native
-        threads) through the stack kernel; bin accumulation stays serial so the
-        grid is deterministic.
+        Rays are traced in parallel (native threads) through the stack kernel
+        when one is given, else measured directly; no binning happens here.
         """
         n = origins.shape[0]
         us = np.full(n, np.nan)
@@ -190,42 +165,38 @@ class MeasurementPlane:
             _native.measure_direct(
                 origins, dirs, powers, self.o, self.n, _EPS, us, vs, pws
             )
-        return self.accumulate(us, vs, pws)
+        return us, vs, pws
 
-    def _measure_into(
-        self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
-    ) -> float:
-        """Trace rays through ``elements`` and accumulate power into the grid."""
+    def _into(
+        self, result: "MeasurementResult", rays: Sequence[Ray],
+        system: "OpticalSystem | None" = None,
+    ) -> "MeasurementResult":
+        """Trace rays through ``system`` and accumulate power into ``result``."""
         if not rays:
-            return 0.0
-        stack: Any = None
-        if elements:
-            stack = build_trace_context(elements)
-            if stack is None:
-                raise ValueError("Element stack cannot be traced natively")
+            return result
+        stack = None if system is None else system.trace_stack
         origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
         dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
         powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
-        return self._measure_into_arrays(origins, dirs, powers, stack)
+        result.accumulate(*self._project_arrays(origins, dirs, powers, stack))
+        return result
 
     def measure(
-        self, rays: Sequence[Ray], elements: Sequence[RefractiveElement] | None = None
-    ) -> float:
-        """Trace rays through ``elements`` and accumulate power on the grid."""
-        self.reset()
-        return self._measure_into(rays, elements)
+        self, rays: Sequence[Ray], system: "OpticalSystem | None" = None
+    ) -> "MeasurementResult":
+        """Trace rays through ``system`` into a fresh detector image."""
+        return self._into(self.new_result(), rays, system)
 
     @staticmethod
     def measure_batch(
         planes: Sequence["MeasurementPlane"],
         rays: Sequence[Ray],
-        elements: Sequence[RefractiveElement] | None = None,
-    ) -> "list[float]":
-        """Measure every plane, tracing the ray fan through ``elements`` once.
+        system: "OpticalSystem | None" = None,
+    ) -> "list[MeasurementResult]":
+        """Measure every plane, tracing the ray fan through ``system`` once.
 
-        Each plane's grid is reset then filled; returns the per-plane total in
-        the order of ``planes``. Without elements the rays are measured
-        directly against each plane.
+        Returns a fresh result per plane in the order of ``planes``. Without a
+        system the rays are measured directly against each plane.
         """
         plane_list = list(planes)
         if not plane_list:
@@ -238,7 +209,7 @@ class MeasurementPlane:
             origins = np.empty((0, 3), dtype=float)
             dirs = np.empty((0, 3), dtype=float)
             powers = np.empty((0,), dtype=float)
-        return MeasurementPlane.measure_batch_arrays(plane_list, origins, dirs, powers, elements)
+        return MeasurementPlane.measure_batch_arrays(plane_list, origins, dirs, powers, system)
 
     @staticmethod
     def measure_batch_arrays(
@@ -246,31 +217,84 @@ class MeasurementPlane:
         origins: np.ndarray,
         dirs: np.ndarray,
         powers: np.ndarray,
-        elements: Sequence[RefractiveElement] | None = None,
-    ) -> "list[float]":
+        system: "OpticalSystem | None" = None,
+    ) -> "list[MeasurementResult]":
         """Array-based :meth:`measure_batch` (no per-ray marshalling).
 
         ``origins``/``dirs`` are ``(N, 3)`` and ``powers`` is ``(N,)``; the fan
-        is traced through ``elements`` once (or measured directly when empty).
+        is traced through ``system`` once (or measured directly without one).
         """
         plane_list = list(planes)
-        for plane in plane_list:
-            plane.reset()
         if not plane_list:
             return []
         if origins.shape[0] == 0:
-            return [0.0] * len(plane_list)
-        if not elements:
-            return [plane._measure_into_arrays(origins, dirs, powers) for plane in plane_list]
-        raw = measure_planes_raw(elements, origins, dirs, powers, plane_list)
-        if raw is None:
-            raise ValueError("Element stack cannot be traced natively")
-        us, vs, pws = raw
-        return [
-            plane.accumulate(us[q], vs[q], pws[q]) for q, plane in enumerate(plane_list)
-        ]
+            return [plane.new_result() for plane in plane_list]
+        if system is None:
+            results = []
+            for plane in plane_list:
+                result = plane.new_result()
+                result.accumulate(*plane._project_arrays(origins, dirs, powers))
+                results.append(result)
+            return results
+        us, vs, pws = system.measure_planes(origins, dirs, powers, plane_list)
+        results = []
+        for q in range(len(plane_list)):
+            result = plane_list[q].new_result()
+            result.accumulate(us[q], vs[q], pws[q])
+            results.append(result)
+        return results
+
+
+class MeasurementResult:
+    """Detector image accumulated against one :class:`MeasurementPlane`.
+
+    The accumulated power grid (and its running total) is measurement state:
+    each trace produces a fresh result instead of mutating the plane, so a
+    plane can be re-measured or edited without touching a displayed result.
+    """
+
+    grid: np.ndarray
+
+    def __init__(self, plane: MeasurementPlane) -> None:
+        self._plane = plane
+        self.grid = np.zeros((plane.rv, plane.ru), dtype=float)
+        self._total = 0.0
+
+    @property
+    def plane(self) -> MeasurementPlane:
+        return self._plane
+
+    @property
+    def total(self) -> float:
+        """Total power accumulated so far (sum of every :meth:`accumulate`)."""
+        return self._total
+
+    def accumulate(self, u: Any, v: Any, power: Any) -> float:
+        """Add ray power into bins inside the plane extent; returns the added power."""
+        u = np.atleast_1d(np.asarray(u, dtype=float))
+        v = np.atleast_1d(np.asarray(v, dtype=float))
+        power = np.atleast_1d(np.asarray(power, dtype=float))
+        p = self._plane
+        added = float(
+            _native.accumulate(
+                self.grid,
+                np.ascontiguousarray(u),
+                np.ascontiguousarray(v),
+                np.ascontiguousarray(power),
+                p.u_min,
+                p.u_max,
+                p.v_min,
+                p.v_max,
+                p.ru,
+                p.rv,
+                p.interval_u,
+                p.interval_v,
+            )
+        )
+        self._total += added
+        return added
 
     def irradiance(self) -> np.ndarray:
         """Power per unit true plane area for each bin."""
-        area = self.bin_area / abs(self.n[2])
+        area = self._plane.bin_area / abs(self._plane.n[2])
         return self.grid / area

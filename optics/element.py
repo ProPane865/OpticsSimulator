@@ -4,8 +4,9 @@ from typing import Any
 
 import numpy as np
 
-from .. import constants as _c
-from ..primitive import LensSidewall, Material, Surface, Transform
+from . import constants as _c
+from .numerical._kernels import build_element
+from .primitive import LensSidewall, Material, Surface, Transform
 
 _SIDEWALL_UNSET = object()
 
@@ -20,6 +21,7 @@ class RefractiveElement:
         self.surface2 = surface2
         self.material = material
         self._sidewall: Any = _SIDEWALL_UNSET
+        self._native_element: Any = _SIDEWALL_UNSET
 
     @property
     def transform(self) -> Transform:
@@ -52,3 +54,31 @@ class RefractiveElement:
                 else:
                     self._sidewall = None
         return self._sidewall
+
+    @property
+    def native_element(self) -> Any:
+        """Persistent native element, assembled once for this element's life.
+
+        Wraps the two native surfaces, the sidewall mesh and the refractive
+        index; the axis-aligned bounds and graph flags are derived natively
+        at construction, so trace-stack assembly is a pure reference. Raises
+        :class:`ValueError` when a surface aperture cannot be encoded.
+        """
+        if self._native_element is _SIDEWALL_UNSET:
+            s1 = self.surface1.native_surface
+            s2 = self.surface2.native_surface
+            wall = self.sidewall
+            if wall is None:
+                tri = np.empty((0, 3, 3), dtype=float)
+                normals = np.empty((0, 3), dtype=float)
+            else:
+                tri = wall.triangles()
+                normals = wall.face_normals()
+            self._native_element = build_element(
+                s1,
+                s2,
+                float(self.material.refractive_index),
+                tri,
+                normals,
+            )
+        return self._native_element

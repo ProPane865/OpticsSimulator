@@ -3,7 +3,7 @@ import pytest
 
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray
-from optics.tracing import trace_stack_path
+from optics.system import OpticalSystem
 
 
 def _plane(resolution=(4, 4), normal=(0.0, 0.0, 1.0), origin=(0.0, 0.0, -3.0)):
@@ -106,19 +106,19 @@ def test_measure_conserves_power_on_bin_centers():
         for u in centers
         for v in centers
     ]
-    total = plane.measure(rays)
-    assert total == pytest.approx(16.0)
-    assert plane.grid.sum() == pytest.approx(16.0)
-    assert np.allclose(plane.grid, 1.0)
+    result = plane.measure(rays)
+    assert result.total == pytest.approx(16.0)
+    assert result.grid.sum() == pytest.approx(16.0)
+    assert np.allclose(result.grid, 1.0)
 
 
 def test_measure_excludes_out_of_bounds():
     plane = _plane(resolution=(4, 4))
     inside = Ray(np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
     outside = Ray(np.array([3.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
-    total = plane.measure([inside, outside])
-    assert total == pytest.approx(1.0)
-    assert plane.grid.sum() == pytest.approx(1.0)
+    result = plane.measure([inside, outside])
+    assert result.total == pytest.approx(1.0)
+    assert result.grid.sum() == pytest.approx(1.0)
 
 
 def test_irradiance_uniform_beam():
@@ -129,8 +129,8 @@ def test_irradiance_uniform_beam():
         for u in centers
         for v in centers
     ]
-    plane.measure(rays)
-    irr = plane.irradiance()
+    result = plane.measure(rays)
+    irr = result.irradiance()
     bin_area = plane.bin_area / abs(plane.n[2])
     assert np.allclose(irr, 1.0 / bin_area)
 
@@ -140,14 +140,14 @@ def test_measure_traces_through_elements(make_element):
     plane = _plane()
     ray = Ray(np.array([0.3, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
-    with_stack = plane.measure([ray], [element])
+    with_stack = plane.measure([ray], OpticalSystem([element]))
     without_stack = plane.measure([ray])
 
-    assert with_stack == pytest.approx(1.0)
-    assert with_stack == pytest.approx(without_stack)
+    assert with_stack.total == pytest.approx(1.0)
+    assert with_stack.total == pytest.approx(without_stack.total)
     point, u, v = plane.intersect(ray)
     i, j = plane.discretize(u, v)
-    assert plane.grid[int(j), int(i)] == pytest.approx(1.0)
+    assert with_stack.grid[int(j), int(i)] == pytest.approx(1.0)
 
 
 def test_measure_works_for_intermediate_elements(make_element):
@@ -157,11 +157,11 @@ def test_measure_works_for_intermediate_elements(make_element):
     plane = _plane()
     ray = Ray(np.array([0.3, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
-    measurement = plane.measure([ray], [element1, element2])
+    measurement = plane.measure([ray], OpticalSystem([element1, element2]))
     baseline = plane.measure([ray])
 
-    assert measurement == pytest.approx(1.0)
-    assert measurement == pytest.approx(baseline)
+    assert measurement.total == pytest.approx(1.0)
+    assert measurement.total == pytest.approx(baseline.total)
 
 
 @pytest.mark.parametrize(
@@ -181,7 +181,7 @@ def test_measurement_independent_of_element_list_order(make_element, order):
     plane = _plane()
     ray = Ray(np.array([0.3, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
-    assert plane.measure([ray], elements) == pytest.approx(1.0)
+    assert plane.measure([ray], OpticalSystem(elements)).total == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize(
@@ -200,14 +200,14 @@ def test_measurement_uses_geometric_order_not_list_order(make_element, order):
     plane = _plane()
     ray = Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
 
-    refracted = trace_stack_path(ray, [lens])[1]
+    refracted = OpticalSystem([lens]).trace_path(ray)[1]
     assert refracted is not None
     _, u, v = plane.intersect(refracted)
     i, j = plane.discretize(u, v)
 
-    total = plane.measure([ray], elements)
-    assert total == pytest.approx(1.0)
-    assert plane.grid[int(j), int(i)] == pytest.approx(1.0)
+    result = plane.measure([ray], OpticalSystem(elements))
+    assert result.total == pytest.approx(1.0)
+    assert result.grid[int(j), int(i)] == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize(
@@ -243,4 +243,5 @@ def test_measurement_position_cases(make_element, case):
         ray = Ray(np.array([3.5, 0.2, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
         expected = 0.0
 
-    assert plane.measure([ray], elements) == pytest.approx(expected)
+    system = None if elements is None else OpticalSystem(elements)
+    assert plane.measure([ray], system).total == pytest.approx(expected)

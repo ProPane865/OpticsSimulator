@@ -8,9 +8,8 @@
 
 namespace optics::native {
 
-std::optional<std::array<double, 3>> plane_intersect(const double* ro, const double* d,
-                                                     const double* o, const double* n,
-                                                     double eps) {
+std::optional<std::array<double, 3>> plane_intersect(const Vec3& ro, const Vec3& d, const Vec3& o,
+                                                     const Vec3& n, double eps) {
     const double nz = n[2];
     if (std::abs(nz) <= eps || std::abs(d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) <= eps) {
         return std::nullopt;

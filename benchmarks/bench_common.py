@@ -25,8 +25,8 @@ if str(REPO_ROOT) not in sys.path:
 import numpy as np
 
 from optics.config import refractive_element_from_config
+from optics.element import RefractiveElement
 from optics.primitive import Ray
-from optics.tracing import RefractiveElement
 
 # --- Geometry shared by all scenarios ---------------------------------------
 # Meniscus element from the bundled doublet example: the body spans local

@@ -5,10 +5,18 @@
 
 void test_expression();
 void test_kernels();
+void test_surface();
+void test_element();
+void test_stack();
+void test_measurement();
 
 int main() {
     test_expression();
     test_kernels();
+    test_surface();
+    test_element();
+    test_stack();
+    test_measurement();
     if (g_failures == 0) {
         std::printf("native tests passed\n");
         return 0;

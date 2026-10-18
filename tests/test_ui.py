@@ -524,7 +524,7 @@ def test_save_load_round_trip_preserves_position_and_resolution(
     window2 = OpticsMainWindow(make_display([], []))
     elements = window2.load_stack(out_path)
     assert elements[0].transform.translation[2] == pytest.approx(1.5)
-    assert window2.planes[0].grid.shape == (4, 8)
+    assert window2.plane_results[0].grid.shape == (4, 8)
     window.close()
     window2.close()
 
@@ -826,15 +826,14 @@ def test_measurement_plane_remeasures_on_source_change(qt_app, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
     _trigger_measurement_plane(window)
 
-    plane = window.planes[0]
     editor = _source_editor(window)
     editor["rays"].setValue(8)
     editor["cone"].setValue(30.0)
     _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
 
     assert len(window.planes) == 1
-    assert plane.grid.shape == (64, 64)
-    assert plane.grid.sum() >= 0.0
+    assert window.plane_results[0].grid.shape == (64, 64)
+    assert window.plane_results[0].grid.sum() >= 0.0
     window.close()
 
 
@@ -923,7 +922,7 @@ def test_plane_ok_applies_resolution(qt_app):
 
     assert window.planes[0].ru == 32
     assert window.planes[0].rv == 16
-    assert window.planes[0].grid.shape == (16, 32)
+    assert window.plane_results[0].grid.shape == (16, 32)
     assert "Updated properties for plane1" in window.statusBar().currentMessage()
     window.close()
 

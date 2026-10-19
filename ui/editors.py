@@ -238,7 +238,7 @@ class SourceEditor:
 
         configure_spin(self._power_spin, 0.0, 1000.0, 0.1)
         configure_spin(self._cone_spin, 0.0, 360.0, 1.0)
-        configure_spin(self._num_rays_spin, 1, 512)
+        configure_spin(self._num_rays_spin, 1, 16384)
         for spin in (self._x_spin, self._y_spin, self._z_spin):
             configure_spin(spin, -100.0, 100.0, 0.1)
 

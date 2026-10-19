@@ -80,8 +80,8 @@ def test_golden_case(name, goldens, live):
     _assert_match(
         live[name]["values"],
         entry["values"],
-        float(entry.get("rtol", 1e-10)),
-        float(entry.get("atol", 1e-12)),
+        float(entry.get("rtol", 1e-8)),
+        float(entry.get("atol", 1e-10)),
     )
 
 

@@ -114,6 +114,7 @@ def test_open_action_triggers_load(qt_app, repo_root, monkeypatch):
 def _editor(window):
     return {
         "selector": window.findChild(QtWidgets.QComboBox, "lensSelector"),
+        "remove": window.findChild(QtWidgets.QPushButton, "removeElementButton"),
         "index": window.findChild(QtWidgets.QDoubleSpinBox, "refractiveIndexSpin"),
         "radius": window.findChild(QtWidgets.QDoubleSpinBox, "apertureRadiusSpin"),
         "s1": window.findChild(QtWidgets.QLineEdit, "surface1Edit"),
@@ -140,6 +141,7 @@ def _click(window, role):
 def test_property_editor_disabled_without_stack(qt_app):
     window = OpticsMainWindow(make_display([], []))
     assert not _editor(window)["selector"].isEnabled()
+    assert not _editor(window)["remove"].isEnabled()
     assert not _editor(window)["pos"][0].isEnabled()
     assert not _editor(window)["normal"][0].isEnabled()
     assert not _editor(window)["buttons"].isEnabled()
@@ -380,6 +382,57 @@ def test_ok_applies_to_new_element(qt_app, repo_root):
     assert window.elements[-1].material.refractive_index == pytest.approx(1.9)
     assert window.elements[0].material.refractive_index == pytest.approx(1.5)
     assert "Updated properties for lens3" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_remove_element_button(qt_app, repo_root):
+    canvas = make_display([], [])
+    window = OpticsMainWindow(canvas)
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    meshes_before = _mesh_count(canvas.view)
+
+    editor = _editor(window)
+    assert editor["remove"].isEnabled()
+    editor["selector"].setCurrentText("lens1")
+    editor["remove"].click()
+
+    assert len(window.elements) == 1
+    items = [editor["selector"].itemText(i) for i in range(editor["selector"].count())]
+    assert items == ["lens2"]
+    assert _mesh_count(canvas.view) < meshes_before
+    assert "Removed lens1" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_remove_selected_element_keeps_others(qt_app, repo_root):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    editor = _editor(window)
+    editor["selector"].setCurrentText("lens2")
+    editor["remove"].click()
+
+    assert len(window.elements) == 1
+    items = [editor["selector"].itemText(i) for i in range(editor["selector"].count())]
+    assert items == ["lens1"]
+    assert str(window.elements[0].surface1.z_expr) == "-1 + sqrt(9 - (u**2) - (v**2))"
+    window.close()
+
+
+def test_remove_last_element_disables_editor(qt_app, repo_root):
+    window = OpticsMainWindow(make_display([], []))
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    editor = _editor(window)
+    editor["selector"].setCurrentText("lens1")
+    editor["remove"].click()
+    editor["selector"].setCurrentText("lens2")
+    editor["remove"].click()
+
+    assert len(window.elements) == 0
+    assert editor["selector"].count() == 0
+    assert not editor["remove"].isEnabled()
+    assert "Removed lens2" in window.statusBar().currentMessage()
     window.close()
 
 

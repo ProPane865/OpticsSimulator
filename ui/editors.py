@@ -70,6 +70,7 @@ class ElementEditor:
             find_child(window, QtWidgets.QDoubleSpinBox, f"elementNormal{axis}Spin") for axis in "XYZ"
         )
         self._button_box = find_child(window, QtWidgets.QDialogButtonBox, "lensButtonBox")
+        self._remove_button = find_child(window, QtWidgets.QPushButton, "removeElementButton")
 
         configure_spin(self._index_spin, 1.0, 3.0, 0.01)
         configure_spin(self._radius_spin, 0.01, 10.0, 0.05)
@@ -79,6 +80,7 @@ class ElementEditor:
             configure_spin(spin, -1.0, 1.0, 0.1, decimals=3)
 
         self._selector.currentIndexChanged.connect(self.populate_fields)
+        self._remove_button.clicked.connect(self.remove_current)
         self._button_box.accepted.connect(self.apply)
         self._button_box.rejected.connect(self.populate_fields)
         self.set_enabled(False)
@@ -86,6 +88,7 @@ class ElementEditor:
     def _widgets(self) -> tuple[QtWidgets.QWidget, ...]:
         return (
             self._selector,
+            self._remove_button,
             self._index_spin,
             self._radius_spin,
             self._surface1_edit,
@@ -169,6 +172,20 @@ class ElementEditor:
             self._scene.replace_element_nodes(index, element)
         self._refresh_trace()
         self._set_status(f"Updated properties for {name}")
+
+    def remove_current(self) -> None:
+        schema = self._state.schema
+        if not schema:
+            return
+        name = self._selector.currentText()
+        if name not in schema:
+            return
+        index = list(schema.keys()).index(name)
+        self._scene.remove_element_nodes(index)
+        self._state.remove_element(name)
+        self._refresh_trace()
+        self.populate_selector()
+        self._set_status(f"Removed {name}")
 
     def select(self, name: str) -> None:
         self._selector.setCurrentText(name)

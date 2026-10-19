@@ -80,73 +80,80 @@
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="removeElementButton">
+       <property name="text">
+        <string>Remove Element</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QWidget" name="widget" native="true">
        <layout class="QFormLayout" name="formLayout">
-        <item row="0" column="0">
+        <item row="1" column="0">
          <widget class="QLabel" name="label_6">
           <property name="text">
            <string>Lens</string>
           </property>
          </widget>
         </item>
-        <item row="0" column="1">
+        <item row="1" column="1">
          <widget class="QComboBox" name="lensSelector"/>
         </item>
-        <item row="3" column="0">
+        <item row="4" column="0">
          <widget class="QLabel" name="label_2">
           <property name="text">
            <string>Refractive Index</string>
           </property>
          </widget>
         </item>
-        <item row="3" column="1">
+        <item row="4" column="1">
          <widget class="QDoubleSpinBox" name="refractiveIndexSpin"/>
         </item>
-        <item row="4" column="0">
+        <item row="5" column="0">
          <widget class="QLabel" name="label_3">
           <property name="text">
            <string>Aperture Radius</string>
           </property>
          </widget>
         </item>
-        <item row="4" column="1">
+        <item row="5" column="1">
          <widget class="QDoubleSpinBox" name="apertureRadiusSpin"/>
         </item>
-        <item row="5" column="0">
+        <item row="6" column="0">
          <widget class="QLabel" name="label_4">
           <property name="text">
            <string>Surface 1</string>
           </property>
          </widget>
         </item>
-        <item row="5" column="1">
+        <item row="6" column="1">
          <widget class="QLineEdit" name="surface1Edit"/>
         </item>
-        <item row="6" column="0">
+        <item row="7" column="0">
          <widget class="QLabel" name="label_5">
           <property name="text">
            <string>Surface 2</string>
           </property>
          </widget>
         </item>
-        <item row="6" column="1">
+        <item row="7" column="1">
          <widget class="QLineEdit" name="surface2Edit"/>
         </item>
-        <item row="1" column="0">
+        <item row="2" column="0">
          <widget class="QLabel" name="label_17">
           <property name="text">
            <string>Position</string>
           </property>
          </widget>
         </item>
-        <item row="2" column="0">
+        <item row="3" column="0">
          <widget class="QLabel" name="label_18">
           <property name="text">
            <string>Normal</string>
           </property>
          </widget>
         </item>
-        <item row="1" column="1">
+        <item row="2" column="1">
          <widget class="QWidget" name="widget_7" native="true">
           <layout class="QHBoxLayout" name="horizontalLayout_4">
            <property name="leftMargin">
@@ -173,7 +180,7 @@
           </layout>
          </widget>
         </item>
-        <item row="2" column="1">
+        <item row="3" column="1">
          <widget class="QWidget" name="widget_8" native="true">
           <layout class="QHBoxLayout" name="horizontalLayout_5">
            <property name="leftMargin">

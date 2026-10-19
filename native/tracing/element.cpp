@@ -1,6 +1,8 @@
 // Element-level tracing: nearest-face assembly over both surfaces and the
 // sidewall mesh, containment testing and the internal-bounce loop for one
 // closed refractive element, plus the construction of the persistent element.
+
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <optional>

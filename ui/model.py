@@ -261,6 +261,13 @@ class ProjectState:
         self._system = None
         return index
 
+    def remove_element(self, name: str) -> None:
+        assert self._schema is not None
+        index = list(self._schema.keys()).index(name)
+        del self._schema[name]
+        self._elements.pop(index)
+        self._system = None
+
     # -- source / rays -------------------------------------------------------
     def set_source(self, source: PointSource, rays: list[Ray]) -> None:
         self._source = source

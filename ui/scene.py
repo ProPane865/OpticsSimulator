@@ -107,6 +107,9 @@ class SceneController:
         visualize.remove_nodes(self._element_nodes[index])
         self._element_nodes[index] = visualize.build_element_nodes(self._view, element)
 
+    def remove_element_nodes(self, index: int) -> None:
+        visualize.remove_nodes(self._element_nodes.pop(index))
+
     # -- measurement planes --------------------------------------------------
     def rebuild_planes(
         self,

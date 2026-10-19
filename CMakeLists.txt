@@ -4,6 +4,10 @@ project(optics_native LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# optics_core is an OBJECT library linked into the _native shared module; its
+# objects must be PIC-compiled on ELF platforms or the Linux link fails with
+# "relocation R_X86_64_PC32 ... can not be used when making a shared object".
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()

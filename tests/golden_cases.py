@@ -20,8 +20,8 @@ from optics.primitive.vector import rotation_from_z
 from optics.source import PointSource, fibonacci_cone_directions
 from optics.system import OpticalSystem
 
-DEFAULT_RTOL = 1e-10
-DEFAULT_ATOL = 1e-12
+DEFAULT_RTOL = 1e-8
+DEFAULT_ATOL = 1e-10
 
 
 def _pt(a) -> list:

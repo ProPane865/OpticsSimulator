@@ -29,6 +29,7 @@ from optics.source import PointSource
 
 from .editors import LABEL_BY_SOURCE_TYPE, SOURCE_TYPE_BY_LABEL, ElementEditor, PlaneEditor, SourceEditor
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
+from .plane_view import PlaneView
 from .scene import RAY_LENGTH, SceneController, make_display
 from .widgets import find_child, run_validated
 
@@ -64,13 +65,16 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._scene = SceneController(canvas)
         self._load_ui()
         self._embed_canvas(canvas)
+        self._plane_view = PlaneView(find_child(self, QtWidgets.QWidget, "planeView", UI_PATH.name))
         self._element_editor = ElementEditor(
             self, self._state, self._scene, self._set_status, self._refresh_trace
         )
         self._source_editor = SourceEditor(
             self, self._state, self._scene, self._set_status, self._refresh_trace
         )
-        self._plane_editor = PlaneEditor(self, self._state, self._scene, self._set_status)
+        self._plane_editor = PlaneEditor(
+            self, self._state, self._scene, self._set_status, self._update_plane_view
+        )
         self._connect_actions()
         self._scene.refresh_source(self._state.source)
 
@@ -124,13 +128,22 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             state.set_plane_results(results)
             self._scene.retrace_from_segments(starts, ends, kinds, counts)
             self._scene.rebuild_planes(planes, results)
+            self._update_plane_view()
             return
         state.measure_all()
         self._scene.retrace(system, rays)
         self._scene.rebuild_planes(planes, state.plane_results)
+        self._update_plane_view()
 
     def _set_status(self, message: str) -> None:
         self.statusBar().showMessage(message)
+
+    def _update_plane_view(self) -> None:
+        """Show the 2D colormap of the plane selected in the editor."""
+        index = self._plane_editor.selected_index()
+        results = self._state.plane_results
+        result = results[index] if 0 <= index < len(results) else None
+        self._plane_view.show_result(result)
 
     # -- public read-only accessors -----------------------------------------
     @property
@@ -170,6 +183,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         if replaced_planes:
             self._plane_editor.populate_selector()
         self._element_editor.populate_selector()
+        self._update_plane_view()
 
         self._set_status(f"Loaded {len(elements)} element(s) from {path.name}")
         return elements

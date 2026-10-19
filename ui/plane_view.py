@@ -1,0 +1,140 @@
+"""2D colormap view of a measurement plane's detector image.
+
+:class:`PlaneView` renders a :class:`~optics.measurement_plane.MeasurementResult`
+irradiance grid into the ``planeView`` placeholder of ``main.ui`` as a QImage
+raster, letterboxed to the measurement plane's own aspect ratio, using the same
+viridis normalization as the 3D detector mesh.
+"""
+
+from __future__ import annotations
+
+import math
+
+import numpy as np
+from PySide6 import QtGui, QtWidgets
+from vispy.color import get_colormap
+
+from optics.measurement_plane import MeasurementResult
+
+__all__ = ["PlaneView", "PLANE_VIEW_COLORMAP"]
+
+PLANE_VIEW_COLORMAP = "viridis"
+# Idle detector tint; matches MEASUREMENT_COLOR in rendering.visualize.
+_EMPTY_RGB = (128, 128, 141)
+
+_LUT_SIZE = 256
+_COLORMAP_LUTS: dict[str, np.ndarray] = {}
+
+
+def _colormap_lut(name: str) -> np.ndarray:
+    """Cached 256-entry uint8 RGB LUT for ``name``."""
+    lut = _COLORMAP_LUTS.get(name)
+    if lut is None:
+        lut = np.rint(
+            np.asarray(get_colormap(name).map(np.linspace(0.0, 1.0, _LUT_SIZE)), dtype=float)[..., :3]
+            * 255.0
+        ).astype(np.uint8)
+        _COLORMAP_LUTS[name] = lut
+    return lut
+
+
+def _result_rgba(result: MeasurementResult) -> np.ndarray:
+    """``(rv, ru, 4)`` uint8 RGBA raster of the detector image, v-axis up.
+
+    Normalizes by the image maximum and color-maps like the 3D detector mesh
+    (:func:`rendering.visualize._measurement_vertex_colors`); a zero-power
+    image falls back to the idle measurement color.
+    """
+    irradiance = result.irradiance()
+    vmax = float(np.nanmax(irradiance)) if irradiance.size else 0.0
+    if np.isfinite(vmax) and vmax > 0.0:
+        normalized = np.clip(irradiance / vmax, 0.0, 1.0)
+        lut = _colormap_lut(PLANE_VIEW_COLORMAP)
+        rgb = lut[np.rint(normalized * (len(lut) - 1)).astype(np.intp)]
+    else:
+        rgb = np.tile(np.asarray(_EMPTY_RGB, dtype=np.uint8), irradiance.shape + (1,))
+    alpha = np.full(irradiance.shape, 255, dtype=np.uint8)
+    return np.ascontiguousarray(np.dstack([np.flipud(rgb), alpha]))
+
+
+def _fit_rect(avail_w: int, avail_h: int, aspect: float) -> tuple[int, int, int, int]:
+    """Largest rectangle of ``aspect`` (w/h) that fits ``(avail_w, avail_h)``.
+
+    Returns ``(x, y, w, h)`` centered in the available box; ``(0, 0, 0, 0)``
+    for a degenerate box or non-finite/non-positive aspect.
+    """
+    if avail_w <= 0 or avail_h <= 0 or not (aspect > 0.0) or not math.isfinite(aspect):
+        return (0, 0, 0, 0)
+    if aspect >= avail_w / avail_h:
+        w = avail_w
+        h = int(round(avail_w / aspect))
+    else:
+        h = avail_h
+        w = int(round(avail_h * aspect))
+    w = min(w, avail_w)
+    h = min(h, avail_h)
+    return ((avail_w - w) // 2, (avail_h - h) // 2, w, h)
+
+
+class _AspectLabel(QtWidgets.QLabel):
+    """QLabel that paints its pixmap letterboxed to a fixed width/height aspect.
+
+    The pixmap (kept at the detector grid resolution) is stretched to a
+    rectangle of :attr:`_aspect` and centered in the widget, so the displayed
+    image follows the measurement plane's geometry instead of the arbitrary
+    aspect of whatever rectangle the surrounding layout allocates.
+    """
+
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("planeImageLabel")
+        self.setScaledContents(False)
+        self._aspect = 1.0
+
+    def set_aspect(self, aspect: float) -> None:
+        if aspect > 0.0 and math.isfinite(aspect):
+            self._aspect = float(aspect)
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self.update()
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
+        pixmap = self.pixmap()
+        if pixmap is None or pixmap.isNull():
+            return
+        rect = self.rect()
+        x, y, w, h = _fit_rect(rect.width(), rect.height(), self._aspect)
+        if w <= 0 or h <= 0:
+            return
+        painter = QtGui.QPainter(self)
+        try:
+            painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, True)
+            painter.drawPixmap(x, y, w, h, pixmap)
+        finally:
+            painter.end()
+
+
+class PlaneView:
+    """Shows the colormap of the selected measurement plane's detector image."""
+
+    def __init__(self, container: QtWidgets.QWidget) -> None:
+        self._label = _AspectLabel(container)
+        self._label.setMinimumSize(160, 160)
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._label)
+
+    def show_result(self, result: MeasurementResult | None) -> None:
+        """Display ``result``'s irradiance colormap; ``None`` clears the view."""
+        if result is None:
+            self._label.clear()
+            return
+        rgba = _result_rgba(result)
+        rows, cols = int(rgba.shape[0]), int(rgba.shape[1])
+        image = QtGui.QImage(rgba.data, cols, rows, 4 * cols, QtGui.QImage.Format.Format_RGBA8888)
+        plane = result.plane
+        self._label.set_aspect(
+            plane.interval_u / plane.interval_v if plane.interval_v > 0.0 else 1.0
+        )
+        self._label.setPixmap(QtGui.QPixmap.fromImage(image.copy()))

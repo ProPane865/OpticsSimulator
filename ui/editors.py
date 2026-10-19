@@ -297,11 +297,13 @@ class PlaneEditor:
         state: ProjectState,
         scene: SceneController,
         set_status: Callable[[str], None],
+        update_view: Callable[[], None],
     ) -> None:
         self._window = window
         self._state = state
         self._scene = scene
         self._set_status = set_status
+        self._update_view = update_view
 
         self._selector = find_child(window, QtWidgets.QComboBox, "planeSelectorCombo")
         self._remove_button = find_child(window, QtWidgets.QPushButton, "removePlaneButton")
@@ -352,11 +354,17 @@ class PlaneEditor:
         self.set_enabled(has_planes)
         if has_planes:
             self.populate_fields()
+        else:
+            self._update_view()
+
+    def selected_index(self) -> int:
+        return self._selector.currentIndex()
 
     def populate_fields(self, *_: object) -> None:
         index = self._selector.currentIndex()
         planes = self._state.planes
         if index < 0 or index >= len(planes):
+            self._update_view()
             return
         plane = planes[index]
         for spin, value in zip(self._pos_spins, plane.o):
@@ -365,6 +373,7 @@ class PlaneEditor:
             spin.setValue(float(value))
         for res_spin, value in zip(self._resolution_spins, (plane.ru, plane.rv)):
             res_spin.setValue(int(value))
+        self._update_view()
 
     def apply(self) -> None:
         index = self._selector.currentIndex()
@@ -395,6 +404,7 @@ class PlaneEditor:
         updated, result = applied
         self._state.replace_plane(index, updated, result)
         self._scene.replace_plane_nodes(index, updated, result)
+        self._update_view()
         self._set_status(f"Updated properties for {self._state.plane_names[index]}")
 
     def remove_current(self) -> None:

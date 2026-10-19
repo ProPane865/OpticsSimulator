@@ -8,10 +8,11 @@ import pytest
 
 PySide6 = pytest.importorskip("PySide6")
 
-from PySide6 import QtWidgets
+from PySide6 import QtGui, QtWidgets
 
 from rendering import demo
 from ui.app import OpticsMainWindow, make_display
+from ui.plane_view import _AspectLabel, _fit_rect
 
 
 @pytest.fixture(scope="module")
@@ -1074,3 +1075,154 @@ def test_remove_selected_plane_keeps_others(qt_app):
     assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane2"]
     assert window.planes[0].o[2] == pytest.approx(-4.0)
     window.close()
+
+
+def _plane_image_label(window):
+    label = window.findChild(QtWidgets.QLabel, "planeImageLabel")
+    assert label is not None
+    return label
+
+
+def _plane_view_pixmap(window):
+    return _plane_image_label(window).pixmap()
+
+
+def _plane_view_size(window):
+    pixmap = _plane_view_pixmap(window)
+    assert pixmap is not None and not pixmap.isNull()
+    return pixmap.width(), pixmap.height()
+
+
+def test_plane_view_empty_without_planes(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    pixmap = _plane_view_pixmap(window)
+    assert pixmap is None or pixmap.isNull()
+    window.close()
+
+
+def test_add_plane_populates_plane_view(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+
+    assert _plane_view_size(window) == (64, 64)
+    irradiance = window.plane_results[0].irradiance()
+    assert irradiance.sum() > 0.0
+    image = _plane_view_pixmap(window).toImage()
+    v_bin, u_bin = np.unravel_index(int(np.argmax(irradiance)), irradiance.shape)
+    brightest = image.pixelColor(u_bin, irradiance.shape[0] - 1 - v_bin)
+    assert brightest.red() == pytest.approx(253, abs=2)
+    assert brightest.green() == pytest.approx(231, abs=2)
+    assert brightest.blue() == pytest.approx(37, abs=2)
+    assert image.pixelColor(0, 0) != brightest
+    window.close()
+
+
+def test_plane_view_updates_after_apply(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["resolution"][0].setValue(32)
+    editor["resolution"][1].setValue(16)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert _plane_view_size(window) == (32, 16)
+    window.close()
+
+
+def test_plane_view_follows_selector(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+    _trigger_measurement_plane(window)
+
+    editor = _plane_editor(window)
+    editor["selector"].setCurrentText("plane1")
+    editor["resolution"][0].setValue(8)
+    editor["resolution"][1].setValue(4)
+    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+
+    assert _plane_view_size(window) == (8, 4)
+    editor["selector"].setCurrentText("plane2")
+    assert _plane_view_size(window) == (64, 64)
+    editor["selector"].setCurrentText("plane1")
+    assert _plane_view_size(window) == (8, 4)
+    window.close()
+
+
+def test_plane_view_clears_when_last_plane_removed(qt_app):
+    window = OpticsMainWindow(make_display([], []))
+    _trigger_measurement_plane(window)
+    assert _plane_view_size(window) == (64, 64)
+
+    editor = _plane_editor(window)
+    editor["remove"].click()
+
+    pixmap = _plane_view_pixmap(window)
+    assert pixmap is None or pixmap.isNull()
+    window.close()
+
+
+def test_fit_rect_locks_aspect():
+    # Square image in a wide box: square, centered, touching top & bottom.
+    x, y, w, h = _fit_rect(400, 200, 1.0)
+    assert (w, h) == (200, 200)
+    assert (x, y) == (100, 0)
+    # Aspect matching the box fills it exactly.
+    assert _fit_rect(400, 200, 2.0) == (0, 0, 400, 200)
+    # Wide image in a tall box: full width, letterboxed vertically.
+    x, y, w, h = _fit_rect(200, 400, 2.0)
+    assert (w, h) == (200, 100)
+    assert (x, y) == (0, 150)
+    # Degenerate inputs produce an empty rect.
+    assert _fit_rect(0, 200, 1.0) == (0, 0, 0, 0)
+    assert _fit_rect(200, 200, float("nan")) == (0, 0, 0, 0)
+
+
+def _solid_image(color):
+    image = QtGui.QImage(8, 4, QtGui.QImage.Format.Format_RGBA8888)
+    image.fill(color)
+    return QtGui.QPixmap.fromImage(image)
+
+
+def test_plane_view_locks_display_aspect(qt_app):
+    label = _AspectLabel()
+    label.resize(400, 200)
+    label.show()
+    qt_app.processEvents()
+    label.set_aspect(1.0)
+    label.setPixmap(_solid_image(QtGui.QColor(255, 0, 0, 255)))
+    qt_app.processEvents()
+    image = label.grab().toImage().convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
+
+    def is_red(x, y):
+        c = image.pixelColor(x, y)
+        return c.red() > 128 and c.green() < 128 and c.blue() < 128
+
+    w, h = image.width(), image.height()
+    assert w > h
+    assert is_red(w // 2, h // 2)
+    assert is_red(w // 2, 2) and is_red(w // 2, h - 3)  # full height painted
+    assert not is_red(2, h // 2) and not is_red(w - 3, h // 2)  # side letterbox bars empty
+    label.close()
+
+
+def test_plane_view_aspect_tracks_u_v_extent(qt_app):
+    label = _AspectLabel()
+    label.resize(200, 400)
+    label.show()
+    qt_app.processEvents()
+    label.set_aspect(2.0)
+    label.setPixmap(_solid_image(QtGui.QColor(0, 255, 0, 255)))
+    qt_app.processEvents()
+    image = label.grab().toImage().convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
+
+    def is_green(x, y):
+        c = image.pixelColor(x, y)
+        return c.green() > 128 and c.red() < 128 and c.blue() < 128
+
+    w, h = image.width(), image.height()
+    assert h > w
+    assert is_green(w // 2, h // 2)
+    assert is_green(2, h // 2) and is_green(w - 3, h // 2)  # full width painted
+    assert not is_green(w // 2, 2) and not is_green(w // 2, h - 3)  # top/bottom bars empty
+    label.close()

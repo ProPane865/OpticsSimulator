@@ -49,6 +49,8 @@ class SceneController:
         self._element_nodes: list[list[Any]] = []
         self._ray_nodes: list[Any] = []
         self._plane_nodes: list[list[Any]] = []
+        self._plane_keys: list[tuple] = []
+        self._plane_templates: list[visualize.MeshTemplate] = []
 
     @property
     def canvas(self) -> Any:
@@ -111,21 +113,50 @@ class SceneController:
         planes: Sequence[MeasurementPlane],
         results: Sequence[MeasurementResult],
     ) -> None:
-        for nodes in self._plane_nodes:
-            visualize.remove_nodes(nodes)
-        self._plane_nodes = [
-            visualize.build_measurement_nodes(self._view, plane, result)
-            for plane, result in zip(planes, results)
-        ]
+        """Refresh every plane visual for fresh trace results.
+
+        Planes whose geometry is unchanged are re-tinted in place (only the
+        detector colors change on a trace), so a lens edit no longer rebuilds
+        and re-uploads every detector mesh.
+        """
+        while len(self._plane_nodes) > len(planes):
+            self._drop_plane_node(len(self._plane_nodes) - 1)
+        for index, (plane, result) in enumerate(zip(planes, results)):
+            self._sync_plane_node(index, plane, result)
+
+    def _sync_plane_node(
+        self, index: int, plane: MeasurementPlane, result: MeasurementResult
+    ) -> None:
+        key = visualize.measurement_geometry_key(plane)
+        if index >= len(self._plane_nodes):
+            nodes = visualize.build_measurement_nodes(self._view, plane, result)
+            self._plane_nodes.append(nodes)
+            self._plane_keys.append(key)
+            self._plane_templates.append(visualize.measurement_mesh_template(nodes[0]))
+            return
+        if self._plane_keys[index] == key:
+            visualize.update_measurement_colors(
+                self._plane_nodes[index][0], result, self._plane_templates[index]
+            )
+            return
+        visualize.remove_nodes(self._plane_nodes[index])
+        nodes = visualize.build_measurement_nodes(self._view, plane, result)
+        self._plane_nodes[index] = nodes
+        self._plane_keys[index] = key
+        self._plane_templates[index] = visualize.measurement_mesh_template(nodes[0])
+
+    def _drop_plane_node(self, index: int) -> None:
+        visualize.remove_nodes(self._plane_nodes.pop(index))
+        self._plane_keys.pop(index)
+        self._plane_templates.pop(index)
 
     def add_plane_nodes(self, plane: MeasurementPlane, result: MeasurementResult) -> None:
-        self._plane_nodes.append(visualize.build_measurement_nodes(self._view, plane, result))
+        self._sync_plane_node(len(self._plane_nodes), plane, result)
 
     def replace_plane_nodes(
         self, index: int, plane: MeasurementPlane, result: MeasurementResult
     ) -> None:
-        visualize.remove_nodes(self._plane_nodes[index])
-        self._plane_nodes[index] = visualize.build_measurement_nodes(self._view, plane, result)
+        self._sync_plane_node(index, plane, result)
 
     def remove_plane_nodes(self, index: int) -> None:
-        visualize.remove_nodes(self._plane_nodes.pop(index))
+        self._drop_plane_node(index)

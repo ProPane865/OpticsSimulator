@@ -4,6 +4,7 @@ from typing import Any
 import numpy as np
 from vispy import scene
 from vispy.color import get_colormap
+from vispy.geometry import MeshData
 from vispy.scene import visuals
 
 from optics.element import RefractiveElement
@@ -99,27 +100,48 @@ def _cell_to_vertex_values(grid: np.ndarray) -> np.ndarray:
     return out
 
 
+_COLORMAP_LUT_SIZE = 256
+_COLORMAP_LUTS: "dict[str, np.ndarray]" = {}
+
+
+def _colormap_lut(name: str) -> np.ndarray:
+    """Cached 256-entry RGBA LUT for ``name``, alpha pre-applied.
+
+    Sampling a LUT is orders of magnitude faster than vispy's per-value
+    ``Colormap.map`` on full detector grids, and visually identical at
+    256 quantization levels.
+    """
+    lut = _COLORMAP_LUTS.get(name)
+    if lut is None:
+        lut = np.asarray(
+            get_colormap(name).map(np.linspace(0.0, 1.0, _COLORMAP_LUT_SIZE)),
+            dtype=np.float32,
+        )
+        lut[..., 3] = 0.85
+        _COLORMAP_LUTS[name] = lut
+    return lut
+
+
 def _measurement_vertex_colors(result: MeasurementResult) -> np.ndarray:
     irradiance = result.irradiance()
     values = _cell_to_vertex_values(irradiance.T)
-    flat = np.asarray(MEASUREMENT_COLOR, dtype=float)
     vmax = float(np.nanmax(values)) if values.size else 0.0
     if not np.isfinite(vmax) or vmax <= 0.0:
-        return np.tile(flat, (values.size, 1))
+        return np.tile(
+            np.asarray(MEASUREMENT_COLOR, dtype=np.float32), (values.size, 1)
+        )
     normalized = np.clip(values / vmax, 0.0, 1.0).ravel()
-    colors = np.asarray(
-        get_colormap(MEASUREMENT_COLORMAP).map(normalized), dtype=float
-    )
-    colors[..., 3] = 0.85
-    return colors
+    lut = _colormap_lut(MEASUREMENT_COLORMAP)
+    return lut[np.rint(normalized * (len(lut) - 1)).astype(np.intp)]
 
 
-def make_measurement_plane_visual(plane: MeasurementPlane, result: MeasurementResult) -> Any:
+def _measurement_plane_geometry(plane: MeasurementPlane) -> "tuple[np.ndarray, np.ndarray]":
+    """Vertex grid and quad faces for a plane's detector surface."""
     ru, rv = plane.ru, plane.rv
     us = np.linspace(plane.u_min, plane.u_max, ru + 1)
     vs = np.linspace(plane.v_min, plane.v_max, rv + 1)
     U, V = np.meshgrid(us, vs, indexing="ij")
-    verts = plane.point(U, V).reshape(-1, 3)
+    verts = plane.point(U, V).reshape(-1, 3).astype(np.float32, copy=False)
 
     i = np.repeat(np.arange(ru), rv)
     j = np.tile(np.arange(rv), ru)
@@ -131,7 +153,11 @@ def make_measurement_plane_visual(plane: MeasurementPlane, result: MeasurementRe
         np.column_stack([a, b, d]),
         np.column_stack([b, c, d]),
     ])
+    return verts, faces
 
+
+def make_measurement_plane_visual(plane: MeasurementPlane, result: MeasurementResult) -> Any:
+    verts, faces = _measurement_plane_geometry(plane)
     colors = _measurement_vertex_colors(result)
     mesh = visuals.Mesh(verts, faces, vertex_colors=colors, shading="flat")
     mesh.set_gl_state(
@@ -141,6 +167,72 @@ def make_measurement_plane_visual(plane: MeasurementPlane, result: MeasurementRe
         blend_func=("src_alpha", "one_minus_src_alpha"),
     )
     return mesh
+
+
+def measurement_geometry_key(plane: MeasurementPlane) -> tuple:
+    """Plane geometry that the mesh and outline depend on (result-free)."""
+    return (
+        (float(plane.o[0]), float(plane.o[1]), float(plane.o[2])),
+        (float(plane.n[0]), float(plane.n[1]), float(plane.n[2])),
+        plane.u_min,
+        plane.u_max,
+        plane.v_min,
+        plane.v_max,
+        int(plane.ru),
+        int(plane.rv),
+    )
+
+
+MeshTemplate = tuple[np.ndarray, np.ndarray, "tuple[np.ndarray, ...] | None"]
+
+
+def measurement_mesh_template(mesh: Any) -> "MeshTemplate":
+    """Geometry and precomputed normals behind a measurement mesh.
+
+    The arrays back color-only refreshes (:func:`update_measurement_colors`):
+    the detector grid geometry never changes between refreshes, so computing
+    vispy's vertex/face normals once here (instead of on every data change and
+    draw) keeps per-trace refreshes cheap.
+    """
+    meshdata = mesh.mesh_data
+    verts = meshdata.get_vertices()
+    faces = meshdata.get_faces()
+    try:
+        normals: tuple[np.ndarray, ...] | None = (
+            meshdata.get_vertex_normals(),
+            meshdata.get_vertex_normals(indexed="faces"),
+            meshdata.get_face_normals(),
+            meshdata.get_face_normals(indexed="faces"),
+        )
+    except Exception:
+        normals = None
+    return verts, faces, normals
+
+
+def update_measurement_colors(mesh: Any, result: MeasurementResult, template: "MeshTemplate") -> None:
+    """Re-tint an existing measurement mesh in place with fresh detector data.
+
+    Replaces only the vertex colors on a geometry-identical ``MeshData``; the
+    template's cached normals are seeded onto the new ``MeshData`` because
+    vispy re-derives them on every data change otherwise, which costs more
+    than the rest of a refresh combined.
+    """
+    verts, faces, normals = template
+    meshdata = MeshData(
+        vertices=verts,
+        faces=faces,
+        vertex_colors=_measurement_vertex_colors(result),
+    )
+    if normals is not None and "_vertex_normals" in meshdata.__dict__:
+        # vispy keeps normal caches per MeshData; the geometry is identical,
+        # so carry them across (private fields; skipped if internals change).
+        (
+            meshdata._vertex_normals,
+            meshdata._vertex_normals_indexed_by_faces,
+            meshdata._face_normals,
+            meshdata._face_normals_indexed_by_faces,
+        ) = normals
+    mesh.set_data(meshdata=meshdata)
 
 
 def _measurement_outline(plane: MeasurementPlane) -> list[np.ndarray]:
@@ -276,46 +368,57 @@ def _as_system(
     return OpticalSystem(target)
 
 
-def _collect_ray_segments(
-    system: OpticalSystem,
-    rays: Sequence[Ray],
-    ray_length: float = 3.0,
-) -> "tuple[list[tuple[np.ndarray, np.ndarray, str]], list[tuple[np.ndarray, tuple[float, float, float, float]]]]":
-    """Return ``(segments, markers)`` for all rays traced through ``system``.
+def _ray_line_data(
+    starts: np.ndarray,
+    ends: np.ndarray,
+    kinds: np.ndarray,
+    counts: np.ndarray,
+) -> "tuple[np.ndarray | None, np.ndarray | None]":
+    """Vectorized ``(pos, colors)`` for the batched ray Line visual.
 
-    ``segments`` is a list of ``(start, end, kind)`` tuples and ``markers`` a
-    list of ``(position, color)`` tuples for entry/exit transition points.
-    Rays are traced in parallel through the system's persistent native stack
-    (an empty stack traces straight rays); non-finite rays are skipped.
+    Takes the trace buffers ``(N, C, 3)``/``(N, C)``/``(N,)`` and drops every
+    slot beyond a ray's segment count or holding a non-finite endpoint;
+    returns ``(None, None)`` when nothing is drawable.
     """
-    segments: list[tuple[np.ndarray, np.ndarray, str]] = []
-    markers: list[tuple[np.ndarray, tuple[float, float, float, float]]] = []
-    finite_rays = [
-        ray
-        for ray in rays
-        if np.all(np.isfinite(np.asarray(ray.origin, dtype=float)))
-        and np.all(np.isfinite(np.asarray(ray.direction, dtype=float)))
-    ]
-    if finite_rays:
-        starts, ends, kinds, counts = system.trace_segments(
-            np.asarray([r.origin for r in finite_rays], dtype=float),
-            np.asarray([r.direction for r in finite_rays], dtype=float),
-            ray_length=ray_length,
+    cap = starts.shape[1]
+    valid = np.arange(cap)[None, :] < np.asarray(counts).reshape(-1, 1)
+    valid &= np.isfinite(starts).all(axis=-1)
+    valid &= np.isfinite(ends).all(axis=-1)
+    if not valid.any():
+        return None, None
+    pos = np.empty((int(valid.sum()), 2, 3), dtype=float)
+    pos[:, 0] = starts[valid]
+    pos[:, 1] = ends[valid]
+    kind_colors = np.asarray(
+        [RAY_SEGMENT_COLORS[name] for name in _SEGMENT_KIND_NAMES], dtype=float
+    )
+    colors = np.repeat(kind_colors[np.asarray(kinds)[valid]], 2, axis=0)
+    return pos, colors
+
+
+def _ray_markers(
+    starts: np.ndarray,
+    ends: np.ndarray,
+    kinds: np.ndarray,
+    counts: np.ndarray,
+) -> "list[tuple[np.ndarray, tuple[float, float, float, float]]]":
+    """Entry/exit transition markers per ray (debug view; per-ray Python loop)."""
+    segments: list = []
+    markers: list = []
+    for i in range(counts.shape[0]):
+        _append_ray_path(
+            segments,
+            markers,
+            [
+                (
+                    starts[i, k].copy(),
+                    ends[i, k].copy(),
+                    _SEGMENT_KIND_NAMES[int(kinds[i, k])],
+                )
+                for k in range(int(counts[i]))
+            ],
         )
-        for i in range(len(finite_rays)):
-            _append_ray_path(
-                segments,
-                markers,
-                [
-                    (
-                        starts[i, k].copy(),
-                        ends[i, k].copy(),
-                        _SEGMENT_KIND_NAMES[int(kinds[i, k])],
-                    )
-                    for k in range(int(counts[i]))
-                ],
-            )
-    return segments, markers
+    return markers
 
 
 def _make_markers_mesh(
@@ -354,17 +457,13 @@ def send_to_back(nodes: Sequence[Any], base: int = -2) -> None:
 
 def _build_ray_visual_nodes(
     view: Any,
-    segments: "Sequence[tuple[np.ndarray, np.ndarray, str]]",
+    pos: "np.ndarray | None",
+    colors: "np.ndarray | None",
     markers: "Sequence[tuple[np.ndarray, tuple[float, float, float, float]]]",
     show_markers: bool,
 ) -> list[Any]:
     nodes = []
-    if segments:
-        pos = np.array([[start, end] for start, end, _ in segments], dtype=float)
-        colors = np.empty((2 * len(segments), 4), dtype=float)
-        for i, (_, _, kind) in enumerate(segments):
-            colors[2 * i] = RAY_SEGMENT_COLORS[kind]
-            colors[2 * i + 1] = RAY_SEGMENT_COLORS[kind]
+    if pos is not None:
         line = visuals.Line(pos=pos, connect="segments", color=colors, width=1)
         line.update_gl_state(depth_test=True, depth_mask=True)
         nodes.append(_attach(view, line))
@@ -392,8 +491,19 @@ def build_ray_nodes(
     """
     if show_markers is None:
         show_markers = SHOW_RAY_INTERSECTION_MARKERS
-    segments, markers = _collect_ray_segments(_as_system(system), rays, ray_length=ray_length)
-    return _build_ray_visual_nodes(view, segments, markers, show_markers)
+    if not rays:
+        return []
+    origins = np.asarray([r.origin for r in rays], dtype=float)
+    dirs = np.asarray([r.direction for r in rays], dtype=float)
+    finite = np.isfinite(origins).all(axis=1) & np.isfinite(dirs).all(axis=1)
+    if not finite.any():
+        return []
+    starts, ends, kinds, counts = _as_system(system).trace_segments(
+        origins[finite], dirs[finite], ray_length=ray_length
+    )
+    pos, colors = _ray_line_data(starts, ends, kinds, counts)
+    markers = _ray_markers(starts, ends, kinds, counts) if show_markers else []
+    return _build_ray_visual_nodes(view, pos, colors, markers, show_markers)
 
 
 def build_ray_nodes_from_segments(
@@ -409,23 +519,9 @@ def build_ray_nodes_from_segments(
     one walk."""
     if show_markers is None:
         show_markers = SHOW_RAY_INTERSECTION_MARKERS
-    segments: list[tuple[np.ndarray, np.ndarray, str]] = []
-    markers: list[tuple[np.ndarray, tuple[float, float, float, float]]] = []
-    for i in range(counts.shape[0]):
-        c = int(counts[i])
-        _append_ray_path(
-            segments,
-            markers,
-            [
-                (
-                    starts[i, k].copy(),
-                    ends[i, k].copy(),
-                    _SEGMENT_KIND_NAMES[int(kinds[i, k])],
-                )
-                for k in range(c)
-            ],
-        )
-    return _build_ray_visual_nodes(view, segments, markers, show_markers)
+    pos, colors = _ray_line_data(starts, ends, kinds, counts)
+    markers = _ray_markers(starts, ends, kinds, counts) if show_markers else []
+    return _build_ray_visual_nodes(view, pos, colors, markers, show_markers)
 
 
 def create_canvas(width: int = 900, height: int = 700) -> Any:

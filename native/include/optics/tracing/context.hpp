@@ -40,6 +40,21 @@ class Element {
     std::vector<double> tri;      // (K, 3, 3) flattened row-major
     std::vector<double> normals;  // (K, 3) flattened row-major
 
+    // Conservative world AABB over every traceable surface/wall point (seed
+    // grid samples + wall vertices + a margin covering inter-sample
+    // excursions). ``box_valid`` false disables the reject test entirely.
+    bool box_valid = false;
+    Vec3 box_lo{};
+    Vec3 box_hi{};
+    // Sidewall band in the surface1-local frame: the wall lives at radial
+    // distance >= wall_r_min with local z inside [wall_z_lo, wall_z_hi].
+    // ``wall_valid`` false (no wall or degenerate band) keeps the mesh test
+    // unconditional.
+    bool wall_valid = false;
+    double wall_r_min = 0.0;
+    double wall_z_lo = 0.0;
+    double wall_z_hi = 0.0;
+
     std::size_t n_tris() const { return tri.size() / 9; }
 
     Element() = default;

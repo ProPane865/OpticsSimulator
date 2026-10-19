@@ -364,7 +364,7 @@ class PlaneEditor:
                 v_range=(old.v_min, old.v_max),
                 resolution=[spin.value() for spin in self._resolution_spins],
             )
-            result = updated.measure(self._state.rays, self._state.system)
+            result = self._state.measure_plane(updated)
             return updated, result
 
         applied = run_validated(

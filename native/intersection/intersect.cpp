@@ -61,32 +61,33 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
     const std::vector<double>& p = grid.p_world;
     std::vector<double> ts(m);
     std::vector<double> residual(m);
+    // Fused scan: the per-tolerance seed counts ride along on the single
+    // point walk instead of costing one extra pass over the grid each.
+    std::size_t near_count = 0;
+    std::size_t fallback_count = 0;
     for (std::size_t i = 0; i < m; ++i) {
         const Vec3 pv = as_vec3(&p[3 * i]);
         const double t = dot3(pv - o, d);
         ts[i] = t;
         if (t > 0.0) {
-            residual[i] = norm(o + t * d - pv);
+            const double res = norm(o + t * d - pv);
+            residual[i] = res;
+            if (res <= SEED_TOL) {
+                ++near_count;
+            }
+            if (res <= SEED_TOL_FALLBACK) {
+                ++fallback_count;
+            }
         } else {
             residual[i] = kInf;
         }
     }
 
-    auto count_seeds = [&](double tol) {
-        std::size_t count = 0;
-        for (std::size_t i = 0; i < m; ++i) {
-            if (ts[i] > 0.0 && std::isfinite(residual[i]) && residual[i] <= tol) {
-                ++count;
-            }
-        }
-        return count;
-    };
-
     double tol = SEED_TOL;
-    std::size_t count = count_seeds(tol);
+    std::size_t count = near_count;
     if (count == 0) {
         tol = SEED_TOL_FALLBACK;
-        count = count_seeds(tol);
+        count = fallback_count;
         if (count == 0) {
             return std::nullopt;
         }
@@ -99,12 +100,21 @@ std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& 
             idx.push_back(i);
         }
     }
-    // Mirrors ``argsort(residual[idx])``; the stable sort fixes the order of
-    // exact ties to ascending sample index.
-    std::stable_sort(idx.begin(), idx.end(),
-                     [&](std::size_t a, std::size_t b) { return residual[a] < residual[b]; });
-
+    // Mirrors ``argsort(residual[idx])``; the index tie-break reproduces the
+    // stable order of exact ties. Only the first ``max_seeds`` entries are
+    // ever consumed, so a partial sort yields the identical seed order.
     const std::size_t max_seeds = std::min<std::size_t>(idx.size(), MAX_SEEDS);
+    const auto by_residual = [&](std::size_t a, std::size_t b) {
+        if (residual[a] == residual[b]) {
+            return a < b;
+        }
+        return residual[a] < residual[b];
+    };
+    if (idx.size() > max_seeds) {
+        std::partial_sort(idx.begin(), idx.begin() + max_seeds, idx.end(), by_residual);
+    } else {
+        std::sort(idx.begin(), idx.end(), by_residual);
+    }
     std::vector<double> hit_t(max_seeds), hit_u(max_seeds), hit_v(max_seeds);
     std::size_t n_hits = 0;
     for (std::size_t k = 0; k < max_seeds; ++k) {

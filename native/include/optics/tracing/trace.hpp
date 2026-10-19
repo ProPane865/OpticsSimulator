@@ -44,6 +44,12 @@ struct ElementTrace {
 // Trace one closed element: entry, internal bounces, exit ray.
 ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d);
 
+// As above with the entry hit precomputed (the result of
+// ``element_first_hit(elem, o, d, 0.0)``, e.g. from the stack routing scan),
+// so the walk never intersects the same entry twice.
+ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
+                           const ElementHit& entry);
+
 struct StackSegments {
     int count = 0;
     bool exited = false;

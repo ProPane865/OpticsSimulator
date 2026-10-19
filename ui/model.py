@@ -130,6 +130,19 @@ def classify_element_edit(
     return "geometry"
 
 
+def _rays_to_arrays(rays: Sequence[Ray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers for ``rays``."""
+    n = len(rays)
+    origins = np.empty((n, 3), dtype=float)
+    dirs = np.empty((n, 3), dtype=float)
+    powers = np.empty(n, dtype=float)
+    for i, ray in enumerate(rays):
+        origins[i] = ray.origin
+        dirs[i] = ray.direction
+        powers[i] = ray.power
+    return origins, dirs, powers
+
+
 class ProjectState:
     """Mutable project state plus the operations the UI performs on it."""
 
@@ -201,6 +214,17 @@ class ProjectState:
             self._rays_arrays = arrays
         return arrays
 
+    def measure_plane(self, plane: MeasurementPlane) -> MeasurementResult:
+        """A fresh detector image for ``plane`` over the cached ray arrays.
+
+        Array-based single-plane measurement (no per-``Ray`` marshalling);
+        identical results to ``plane.measure(self.rays, self.system)``.
+        """
+        origins, dirs, powers = self.rays_arrays()
+        return MeasurementPlane.measure_batch_arrays(
+            [plane], origins, dirs, powers, self.system
+        )[0]
+
     @property
     def planes(self) -> list[MeasurementPlane]:
         return self._planes
@@ -245,7 +269,7 @@ class ProjectState:
 
     # -- measurement plane operations ---------------------------------------
     def add_plane(self, name: str, plane: MeasurementPlane) -> MeasurementResult:
-        result = plane.measure(self._rays, self.system)
+        result = self.measure_plane(plane)
         self._planes.append(plane)
         self._plane_names.append(name)
         self._plane_results.append(result)
@@ -255,9 +279,7 @@ class ProjectState:
         self, index: int, plane: MeasurementPlane, result: MeasurementResult | None = None
     ) -> None:
         self._planes[index] = plane
-        self._plane_results[index] = (
-            plane.measure(self._rays, self.system) if result is None else result
-        )
+        self._plane_results[index] = self.measure_plane(plane) if result is None else result
 
     def remove_plane(self, index: int) -> None:
         self._planes.pop(index)
@@ -291,6 +313,7 @@ class ProjectState:
         # Build the system up front: plane measurement needs the stack, and
         # this keeps construction-time validation inside the load.
         new_system = OpticalSystem(elements)
+        ray_arrays = _rays_to_arrays(new_rays)
 
         if planes is not None:
             new_planes: list[MeasurementPlane] = []
@@ -300,12 +323,18 @@ class ProjectState:
             for base_name, plane in planes:
                 name = unique_name(base_name, used, prefix="plane")
                 used.add(name)
-                new_results.append(plane.measure(new_rays, new_system))
+                new_results.append(
+                    MeasurementPlane.measure_batch_arrays(
+                        [plane], *ray_arrays, new_system
+                    )[0]
+                )
                 new_planes.append(plane)
                 new_names.append(name)
             replaced = True
         else:
-            new_results = [plane.measure(new_rays, new_system) for plane in self._planes]
+            new_results = MeasurementPlane.measure_batch_arrays(
+                self._planes, *ray_arrays, new_system
+            )
             new_planes = self._planes
             new_names = self._plane_names
             replaced = False

@@ -65,6 +65,107 @@ void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi) {
 
 namespace {
 
+// Conservative forward test: false only when the cached world AABB holds no
+// point of the ray at ``t > min_t``, so every face/wall candidate would be
+// rejected downstream anyway. Slacks keep boundary cases on the accept side.
+bool box_forward(const Element& elem, const Vec3& o, const Vec3& d, double min_t) {
+    double t_enter = -kInf;
+    double t_exit = kInf;
+    for (int i = 0; i < 3; ++i) {
+        if (d[i] == 0.0) {
+            if (o[i] < elem.box_lo[i] || o[i] > elem.box_hi[i]) {
+                return false;
+            }
+            continue;
+        }
+        double t0 = (elem.box_lo[i] - o[i]) / d[i];
+        double t1 = (elem.box_hi[i] - o[i]) / d[i];
+        if (t0 > t1) {
+            std::swap(t0, t1);
+        }
+        if (t0 > t_enter) {
+            t_enter = t0;
+        }
+        if (t1 < t_exit) {
+            t_exit = t1;
+        }
+    }
+    return t_exit > min_t && t_enter <= t_exit;
+}
+
+// Conservative test for the sidewall band: the wall is only reachable where
+// the (surface1-local) radial distance is at least ``wall_r_min`` AND the
+// local z lies inside ``[wall_z_lo, wall_z_hi]``. When the ray's z-window
+// crossing never leaves the cylinder of radius ``wall_r_min`` the 256-face
+// Möller-Trumbore loop can find no facet, so the mesh test is skippable.
+bool wall_reachable(const Element& elem, const Vec3& o, const Vec3& d, double min_t) {
+    if (!elem.wall_valid) {
+        return true;
+    }
+    const Transform& tr = elem.surface1->desc().transform;
+    const Vec3 lo = tr.to_local(o);
+    const Vec3 dl = tr.vector_to_local(d);
+    const double zscale = std::max({std::abs(elem.wall_z_lo), std::abs(elem.wall_z_hi), 1.0});
+    const double zslack = 1e-6 * zscale;
+    double tz_lo = -kInf;
+    double tz_hi = kInf;
+    if (dl[2] == 0.0) {
+        if (lo[2] < elem.wall_z_lo - zslack || lo[2] > elem.wall_z_hi + zslack) {
+            return false;
+        }
+    } else {
+        double a = (elem.wall_z_lo - zslack - lo[2]) / dl[2];
+        double b = (elem.wall_z_hi + zslack - lo[2]) / dl[2];
+        if (a > b) {
+            std::swap(a, b);
+        }
+        tz_lo = a;
+        tz_hi = b;
+    }
+    // Radial exclusion interval: r(t)^2 < wall_r_min^2 (inside the cylinder).
+    const double rscale = std::max(elem.wall_r_min, 1.0);
+    const double rmin = std::max(0.0, elem.wall_r_min - 1e-6 * rscale);
+    const double A = dl[0] * dl[0] + dl[1] * dl[1];
+    const double hb = dl[0] * lo[0] + dl[1] * lo[1];
+    const double c = lo[0] * lo[0] + lo[1] * lo[1] - rmin * rmin;
+    bool have_excl = false;
+    double ex_lo = 0.0;
+    double ex_hi = 0.0;
+    if (A == 0.0) {
+        if (hb == 0.0) {
+            if (c < 0.0) {
+                return false;  // constant radial distance strictly inside
+            }
+        } else {
+            have_excl = true;
+            const double tq = -c / (2.0 * hb);
+            if (hb < 0.0) {
+                ex_lo = -kInf;
+                ex_hi = tq;
+            } else {
+                ex_lo = tq;
+                ex_hi = kInf;
+            }
+        }
+    } else {
+        const double disc = hb * hb - A * c;
+        if (disc > 0.0) {
+            const double sq = std::sqrt(disc);
+            ex_lo = (-hb - sq) / A;
+            ex_hi = (-hb + sq) / A;
+            have_excl = true;
+        }
+    }
+    const double lo_t = std::max(tz_lo, min_t);
+    if (!(lo_t < tz_hi)) {
+        return false;
+    }
+    if (have_excl && lo_t >= ex_lo && tz_hi <= ex_hi) {
+        return false;  // z-window crossing lies strictly inside the cylinder
+    }
+    return true;
+}
+
 // Nearest surface hit with normal, or ``(False, inf, 0, 0)``.
 ElementHit surface_hit(const SurfaceDesc& desc, const SeedGrid& grid, const Vec3& o,
                        const Vec3& d, double min_t) {
@@ -128,6 +229,96 @@ std::shared_ptr<const Element> Element::create(std::shared_ptr<const Surface> su
     }
     sample_surface_bounds(elem->surface1->desc(), elem->lo, elem->hi);
     sample_surface_bounds(elem->surface2->desc(), elem->lo, elem->hi);
+
+    // Conservative world bounds: every traceable point (aperture-filtered
+    // seed-grid samples plus wall vertices) lies inside, widened by a margin
+    // covering inter-sample excursions of the true surface.
+    {
+        double bmin[3] = {kInf, kInf, kInf};
+        double bmax[3] = {-kInf, -kInf, -kInf};
+        bool any = false;
+        std::size_t grid_n = 1;
+        for (const std::shared_ptr<const Surface>& s : {elem->surface1, elem->surface2}) {
+            const SeedGrid& g = s->grid();
+            grid_n = std::max<std::size_t>(
+                grid_n, static_cast<std::size_t>(std::llround(std::sqrt(
+                            static_cast<double>(std::max<std::size_t>(g.n(), 1))))));
+            const std::vector<double>& pw = g.p_world;
+            for (std::size_t k = 0; k + 2 < pw.size(); k += 3) {
+                any = true;
+                for (int j = 0; j < 3; ++j) {
+                    bmin[j] = std::min(bmin[j], pw[k + j]);
+                    bmax[j] = std::max(bmax[j], pw[k + j]);
+                }
+            }
+        }
+        for (std::size_t k = 0; k + 8 < tri.size(); k += 9) {
+            for (int v = 0; v < 3; ++v) {
+                any = true;
+                for (int j = 0; j < 3; ++j) {
+                    const double x = tri[k + 3 * v + j];
+                    bmin[j] = std::min(bmin[j], x);
+                    bmax[j] = std::max(bmax[j], x);
+                }
+            }
+        }
+        if (any) {
+            elem->box_valid = true;
+            for (int j = 0; j < 3; ++j) {
+                const double span = std::max(bmax[j] - bmin[j], 0.0);
+                const double margin = 2.0 * span / static_cast<double>(grid_n - 1) +
+                                      1e-3 * std::max(span, 1.0);
+                elem->box_lo[j] = bmin[j] - margin;
+                elem->box_hi[j] = bmax[j] + margin;
+            }
+        }
+    }
+
+    // Sidewall band (surface1-local): smallest radial distance over every
+    // wall facet (vertices and edge midpoints; triangles whose projection
+    // wraps the axis clamp it to zero) and the vertex z window. Facet points
+    // are convex combinations of vertices, and each facet edge's closest
+    // point to the axis is no closer than its midpoint unless the projection
+    // wraps the axis, so these bounds contain every mesh hit.
+    if (!tri.empty()) {
+        const Transform& tr = elem->surface1->desc().transform;
+        double rmin = kInf;
+        double zlo = kInf;
+        double zhi = -kInf;
+        bool ok = true;
+        for (std::size_t k = 0; k + 8 < tri.size(); k += 9) {
+            Vec3 lp[3];
+            for (int v = 0; v < 3; ++v) {
+                lp[v] = tr.to_local(as_vec3(&tri[k + 3 * v]));
+                if (!finite3(lp[v])) {
+                    ok = false;
+                }
+                zlo = std::min(zlo, lp[v][2]);
+                zhi = std::max(zhi, lp[v][2]);
+                rmin = std::min(rmin, std::hypot(lp[v][0], lp[v][1]));
+            }
+            double c0 = lp[0][0] * lp[1][1] - lp[0][1] * lp[1][0];
+            double c1 = lp[1][0] * lp[2][1] - lp[1][1] * lp[2][0];
+            double c2 = lp[2][0] * lp[0][1] - lp[2][1] * lp[0][0];
+            const bool wraps = (c0 > 0.0 || c1 > 0.0 || c2 > 0.0) &&
+                               (c0 < 0.0 || c1 < 0.0 || c2 < 0.0);
+            if (wraps) {
+                rmin = 0.0;
+            }
+            for (int v = 0; v < 3; ++v) {
+                const Vec3& a = lp[v];
+                const Vec3& b = lp[(v + 1) % 3];
+                rmin = std::min(rmin, std::hypot(0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])));
+            }
+        }
+        if (ok && std::isfinite(rmin) && std::isfinite(zlo) && zlo <= zhi) {
+            elem->wall_valid = true;
+            elem->wall_r_min = std::max(0.0, rmin);
+            elem->wall_z_lo = zlo;
+            elem->wall_z_hi = zhi;
+        }
+    }
+
     elem->tri = std::move(tri);
     elem->normals = std::move(normals);
     return elem;
@@ -135,6 +326,9 @@ std::shared_ptr<const Element> Element::create(std::shared_ptr<const Surface> su
 
 ElementHit element_first_hit(const Element& elem, const Vec3& o, const Vec3& d,
                              double min_t) {
+    if (elem.box_valid && !box_forward(elem, o, d, min_t)) {
+        return ElementHit{false, kInf, Vec3{}, Vec3{}};
+    }
     double best_t = kInf;
     bool found = false;
     Vec3 bp{};
@@ -153,7 +347,7 @@ ElementHit element_first_hit(const Element& elem, const Vec3& o, const Vec3& d,
         bp = h1.p;
         bn = h1.n;
     }
-    if (elem.n_tris() > 0) {
+    if (elem.n_tris() > 0 && wall_reachable(elem, o, d, min_t)) {
         std::optional<MeshHit> wall = mesh_intersect(o, d, elem.tri, DET_SINGULAR_EPS, BARY_TOL,
                                                      MIN_FACE_T);
         if (wall.has_value() && wall->t > min_t && wall->t < best_t) {
@@ -188,8 +382,12 @@ bool element_contains_point(const Element& elem, const Vec3& p) {
 }
 
 ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d) {
+    return trace_element(elem, o, d, element_first_hit(elem, o, d, 0.0));
+}
+
+ElementTrace trace_element(const Element& elem, const Vec3& o, const Vec3& d,
+                           const ElementHit& entry) {
     const bool inside = element_contains_point(elem, o);
-    ElementHit entry = element_first_hit(elem, o, d, 0.0);
     ElementTrace out;
     out.pts.assign(static_cast<std::size_t>(kMaxPathPts), Vec3{});
     if (!entry.found) {

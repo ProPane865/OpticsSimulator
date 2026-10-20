@@ -27,7 +27,6 @@ SOURCE_COLOR = (1.0, 0.85, 0.25, 1.0)
 
 RAY_COLOR = (1.0, 1.0, 0.0, 0.2)
 
-MEASUREMENT_COLOR = MEASUREMENT_IDLE_COLOR
 MEASUREMENT_OUTLINE_COLOR = (0.75, 0.35, 0.85, 1.0)
 MEASUREMENT_COLORMAP = "viridis"
 MEASUREMENT_MESH_ORDER = -10
@@ -95,7 +94,7 @@ def _measurement_vertex_colors(result: MeasurementResult) -> np.ndarray:
     normalized = normalize_irradiance(values)
     if normalized is None:
         return np.tile(
-            np.asarray(MEASUREMENT_COLOR, dtype=np.float32), (values.size, 1)
+            np.asarray(MEASUREMENT_IDLE_COLOR, dtype=np.float32), (values.size, 1)
         )
     lut = colormap_lut(MEASUREMENT_COLORMAP, alpha=0.85)
     return sample_lut(lut, normalized)
@@ -282,7 +281,7 @@ def _add_axes(view: Any, width: int, length: float) -> None:
 
 
 def _as_system(
-    target: "OpticalSystem | RefractiveElement | Sequence[RefractiveElement]",
+    target: "OpticalSystem | Sequence[RefractiveElement]",
 ) -> OpticalSystem:
     """Normalize a ray-tracing target to an :class:`OpticalSystem`.
 
@@ -292,8 +291,6 @@ def _as_system(
     """
     if isinstance(target, OpticalSystem):
         return target
-    if isinstance(target, RefractiveElement):
-        return OpticalSystem([target])
     return OpticalSystem(target)
 
 
@@ -340,7 +337,7 @@ def _build_ray_visual_nodes(view: Any, pos: "np.ndarray | None", colors: "np.nda
 
 def build_ray_nodes(
     view: Any,
-    system: "OpticalSystem | RefractiveElement | Sequence[RefractiveElement]",
+    system: "OpticalSystem | Sequence[RefractiveElement]",
     rays: Sequence[Ray],
     ray_length: float = 3.0,
 ) -> list[Any]:
@@ -389,7 +386,7 @@ def build_element_nodes(view: Any, element: RefractiveElement) -> list[Any]:
     nodes.append(_attach(view, make_surface_visual(element.surface1, SURFACE1_COLOR)))
     nodes.append(_attach(view, make_surface_visual(element.surface2, SURFACE2_COLOR)))
 
-    sidewall = getattr(element, "sidewall", None)
+    sidewall = element.sidewall
     if sidewall is not None:
         nodes.append(_attach(view, make_wall_visual(sidewall, SIDEWALL_COLOR)))
     return nodes
@@ -408,16 +405,13 @@ def remove_nodes(nodes: Sequence[Any]) -> None:
 
 def build_scene(
     view: Any,
-    elements: "RefractiveElement | Sequence[RefractiveElement]",
-    rays: "Ray | Sequence[Ray]",
+    elements: Sequence[RefractiveElement],
+    rays: Sequence[Ray],
     x_range: "tuple[float, float]" = (-2.0, 2.0),
     y_range: "tuple[float, float]" = (-2.0, 2.0),
     ray_length: float = 3.0,
 ) -> "tuple[list[RefractiveElement], list[Any], list[Any]]":
-    if isinstance(elements, RefractiveElement):
-        element_list = [elements]
-    else:
-        element_list = list(elements)
+    element_list = list(elements)
 
     axis_len = max(abs(x_range[0]), abs(x_range[1]), abs(y_range[0]), abs(y_range[1]))
     _add_axes(view, width=2, length=axis_len)
@@ -425,10 +419,7 @@ def build_scene(
     for element in element_list:
         element_nodes.append(build_element_nodes(view, element))
 
-    if isinstance(rays, (list, tuple)):
-        ray_list = list(rays)
-    else:
-        ray_list = [rays]
+    ray_list = list(rays)
     ray_nodes = build_ray_nodes(view, element_list, ray_list, ray_length=ray_length)
     return element_list, element_nodes, ray_nodes
 

@@ -1,6 +1,5 @@
-// Chunked parallel dispatch for native kernels (mirror of
-// ``optics/numerical/parallel.py``): split ``[0, n)`` across threads and
-// re-raise the first chunk failure on the caller.
+// Chunked parallel dispatch for native kernels: split ``[0, n)`` across
+// threads and re-raise the first chunk failure on the caller.
 #pragma once
 
 #include <algorithm>

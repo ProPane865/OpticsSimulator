@@ -1,6 +1,6 @@
-// Small dense 2x2/3x3 systems shared by the Newton paths (mirror of
-// ``optics/numerical/linalg.py``): nonsingularity tests, Gaussian elimination
-// with partial pivoting and the Newton-step least-squares fallback.
+// Small dense 2x2/3x3 systems shared by the Newton paths: nonsingularity
+// tests, Gaussian elimination with partial pivoting and the Newton-step
+// least-squares fallback.
 #pragma once
 
 #include <cmath>

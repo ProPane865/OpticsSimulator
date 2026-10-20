@@ -18,9 +18,8 @@ double fd_step(double lo, double hi) {
     return std::max(FD_STEP_REL * std::abs(hi - lo), FD_MIN_STEP);
 }
 
-// Interior-sample probe for the graph-over-xy flag (mirror of
-// ``Surface._check_graph_over_xy``): five-point linspaces trimmed to their
-// three interior nodes.
+// Interior-sample probe for the graph-over-xy flag: five-point linspaces
+// trimmed to their three interior nodes.
 bool check_graph_over_xy(const SurfaceModel& model, double u_min, double u_max, double v_min,
                          double v_max) {
     const std::vector<double> us = linspace(u_min, u_max, 5);
@@ -219,14 +218,13 @@ std::optional<Vec3> surface_normal(const SurfaceDesc& desc, double u, double v) 
 // --- Persistent surface object ------------------------------------------------
 
 Surface::Surface(std::shared_ptr<const SurfaceModel> model, Options&& options)
-    : model_(model
-                 ? std::move(model)
-                 : SurfaceModel::compile(options.x_src, options.y_src, options.z_src,
-                                         options.u_min, options.u_max, options.v_min,
-                                         options.v_max)),
-      desc_(std::make_shared<SurfaceDesc>()),
+    : desc_(std::make_shared<SurfaceDesc>()),
       grid_(std::make_shared<SeedGrid>()) {
-    desc_->model = model_;
+    desc_->model = model
+                       ? std::move(model)
+                       : SurfaceModel::compile(options.x_src, options.y_src, options.z_src,
+                                               options.u_min, options.u_max, options.v_min,
+                                               options.v_max);
     desc_->u_min = options.u_min;
     desc_->u_max = options.u_max;
     desc_->v_min = options.v_min;
@@ -240,7 +238,7 @@ Surface::Surface(std::shared_ptr<const SurfaceModel> model, Options&& options)
     desc_->transform.rot = options.rot;
     desc_->transform.trans = options.trans;
     *grid_ = build_seed_grid(*desc_, options.grid_n < 1 ? 1 : options.grid_n);
-    graph_xy_ = check_graph_over_xy(*model_, options.u_min, options.u_max, options.v_min,
+    graph_xy_ = check_graph_over_xy(*desc_->model, options.u_min, options.u_max, options.v_min,
                                     options.v_max);
 }
 
@@ -251,10 +249,6 @@ std::shared_ptr<const Surface> Surface::create(Options options) {
 std::shared_ptr<const Surface> Surface::create_with_model(std::shared_ptr<const SurfaceModel> model,
                                                           Options options) {
     return std::shared_ptr<const Surface>(new Surface(std::move(model), std::move(options)));
-}
-
-std::pair<Vec3, Vec3> Surface::derivatives_local(double u, double v) const {
-    return model_->derivatives(u, v);
 }
 
 std::pair<Vec3, Vec3> Surface::derivatives(double u, double v) const {

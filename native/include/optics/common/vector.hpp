@@ -1,5 +1,4 @@
-// Fixed-size 3D vector type and helpers shared by every native module
-// (mirror of the ``Vec3`` paths in ``optics/numerical/linalg.py``).
+// Fixed-size 3D vector type and helpers shared by every native module.
 #pragma once
 
 #include <cmath>
@@ -71,7 +70,7 @@ inline Vec3 cross3(const Vec3& a, const Vec3& b) {
                      a[0] * b[1] - a[1] * b[0]);
 }
 
-// Euclidean norm (mirrors ``optics.numerical.linalg.norm``).
+// Euclidean norm.
 inline double norm(const Vec3& a) { return std::sqrt(dot3(a, a)); }
 
 inline Vec3 normalize_vector(const Vec3& a) {

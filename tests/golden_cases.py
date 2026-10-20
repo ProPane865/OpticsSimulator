@@ -14,7 +14,7 @@ import re
 import numpy as np
 
 from optics.config import refractive_element_from_config
-from optics.measurement_plane import MeasurementPlane
+from optics.measurement_plane import MeasurementPlane, rays_to_arrays
 from optics.primitive import CircularAperture, Ray, Surface, Transform
 from optics.primitive.vector import rotation_from_z
 from optics.source import PointSource, fibonacci_cone_directions
@@ -340,7 +340,9 @@ def case_measurement() -> dict:
     plane_b = MeasurementPlane(
         [0.0, 0.0, -2.0], [0.0, 0.0, 1.0], [-4.0, 4.0], [-4.0, 4.0], [8, 8]
     )
-    results = MeasurementPlane.measure_batch([plane, plane_b], rays, system)
+    results = MeasurementPlane.measure_batch_arrays(
+        [plane, plane_b], *rays_to_arrays(rays), system
+    )
 
     # Distance of every measured hit to the nearest detector bin boundary:
     # keeps the golden immune to 1-ulp platform wobble flipping a bin.

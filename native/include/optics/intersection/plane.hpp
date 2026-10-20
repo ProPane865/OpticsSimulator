@@ -1,4 +1,4 @@
-// Ray/plane intersection kernel (mirror of ``optics/numerical/plane.py``).
+// Ray/plane intersection kernel.
 #pragma once
 
 #include <array>

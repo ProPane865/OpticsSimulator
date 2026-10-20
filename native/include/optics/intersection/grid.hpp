@@ -1,7 +1,6 @@
-// Kernel data layouts (mirror of ``optics/numerical/_kernels.py``): the
-// sampled seed grid used to seed Newton for intersections and parameter
-// inversion. The Python builders fill these from numpy arrays; the kernels
-// read them read-only. The element/stack layouts live in
+// Kernel data layouts: the sampled seed grid used to seed Newton for
+// intersections and parameter inversion; built once per persistent surface
+// and read-only for the kernels. The element/stack layouts live in
 // ``optics/tracing/context.hpp``.
 #pragma once
 

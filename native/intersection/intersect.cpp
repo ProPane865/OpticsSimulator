@@ -11,6 +11,7 @@
 #include "newton_detail.hpp"
 
 namespace optics::native {
+namespace {
 
 std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
                                          double u, double v, double t) {
@@ -30,6 +31,8 @@ std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const Vec3& o,
     }
     return std::nullopt;
 }
+
+}  // namespace
 
 std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& grid,
                                        const Vec3& o, const Vec3& d) {

@@ -21,22 +21,15 @@ struct NewtonResult {
     int status = SOLVER_EXH;
 };
 
-// Full ray/surface Newton solve from one seed (``_newton_intersection_kernel``).
-// (The ``HitUV`` result layout lives in ``intersection/grid.hpp``.)
-std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
-                                         double u, double v, double t);
-
-// Seed selection + Newton + dedup: the nearest forward hit
-// (``surface_intersect_kernel``).
+// Seed selection + Newton + dedup: the nearest forward hit.
 std::optional<HitUV> surface_intersect(const SurfaceDesc& desc, const SeedGrid& grid,
                                        const Vec3& o, const Vec3& d);
 
-// Newton inversion of local ``(x, y)`` to parameters from one seed
-// (``_solve_xy_kernel``).
+// Newton inversion of local ``(x, y)`` to parameters from one seed.
 std::optional<std::pair<double, double>> solve_xy(const SurfaceDesc& desc, double x_target,
                                                   double y_target, double u, double v);
 
-// Grid-seeded local ``(x, y)`` inversion (``parameters_at_xy_kernel``).
+// Grid-seeded local ``(x, y)`` inversion.
 std::optional<std::pair<double, double>> parameters_at_xy(const SurfaceDesc& desc,
                                                           const SeedGrid& grid, double x, double y);
 

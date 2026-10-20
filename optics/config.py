@@ -5,11 +5,11 @@ from typing import Any
 import numpy as np
 
 from .element import RefractiveElement
-from .primitive import Aperture, CircularAperture, Material, Surface, Transform
+from .primitive import CircularAperture, Material, Surface, Transform
 from .primitive.vector import rotation_from_z
 
 
-def aperture_from_config(config: dict[str, Any]) -> Aperture:
+def aperture_from_config(config: dict[str, Any]) -> CircularAperture:
     if not isinstance(config, dict):
         raise ValueError("Aperture config must be an object")
     kind = str(config.get("type", "circular")).lower()

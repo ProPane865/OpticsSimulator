@@ -159,19 +159,16 @@ class SurfaceMesher:
         """
         n = int(n)
         key = _geometry_key(self.surface, n)
-        local: tuple[np.ndarray, np.ndarray] | None = None
-        if key is not None:
-            cached = _MESH_CACHE.get(key)
-            if cached is not None:
-                _MESH_CACHE.move_to_end(key)
-                local = cached
-        if local is None:
+        cached = _MESH_CACHE.get(key)
+        if cached is not None:
+            _MESH_CACHE.move_to_end(key)
+            local = cached
+        else:
             local = self._compute_mesh(n)
-            if key is not None:
-                _MESH_CACHE[key] = local
-                _MESH_CACHE.move_to_end(key)
-                while len(_MESH_CACHE) > _MAX_CACHED_MESHES:
-                    _MESH_CACHE.popitem(last=False)
+            _MESH_CACHE[key] = local
+            _MESH_CACHE.move_to_end(key)
+            while len(_MESH_CACHE) > _MAX_CACHED_MESHES:
+                _MESH_CACHE.popitem(last=False)
         local_verts, faces = local
         return self.surface.transform.points_to_world(local_verts), faces
 

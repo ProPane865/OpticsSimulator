@@ -19,8 +19,6 @@ from rendering.colormaps import MEASUREMENT_IDLE_RGB, colormap_lut, normalize_ir
 __all__ = ["PlaneView", "PLANE_VIEW_COLORMAP"]
 
 PLANE_VIEW_COLORMAP = "viridis"
-# Idle detector tint; derived from MEASUREMENT_COLOR in rendering.visualize.
-_EMPTY_RGB = MEASUREMENT_IDLE_RGB
 
 
 def _result_rgba(result: MeasurementResult) -> np.ndarray:
@@ -33,7 +31,7 @@ def _result_rgba(result: MeasurementResult) -> np.ndarray:
     irradiance = result.irradiance()
     normalized = normalize_irradiance(irradiance)
     if normalized is None:
-        rgb = np.tile(np.asarray(_EMPTY_RGB, dtype=np.uint8), irradiance.shape + (1,))
+        rgb = np.tile(np.asarray(MEASUREMENT_IDLE_RGB, dtype=np.uint8), irradiance.shape + (1,))
     else:
         lut = colormap_lut(PLANE_VIEW_COLORMAP, uint8_rgb=True)
         rgb = sample_lut(lut, normalized).reshape(irradiance.shape + (3,))

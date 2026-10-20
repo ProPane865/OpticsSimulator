@@ -2,9 +2,9 @@
 
 These guard the equivalence of the combined native kernels against the
 established per-plane / batch paths: :meth:`OpticalSystem.measure_planes` vs
-repeated per-plane ``measure``, :meth:`MeasurementPlane.measure_batch` vs
-repeated ``measure``, and :meth:`OpticalSystem.trace_segments_and_planes` vs
-``trace_segments`` + per-plane measure. The rendering buffers are compared
+repeated per-plane ``measure``, :meth:`MeasurementPlane.measure_batch_arrays`
+vs repeated ``measure``, and :meth:`OpticalSystem.trace_segments_and_planes`
+vs ``trace_segments`` + per-plane measure. The rendering buffers are compared
 byte-for-byte and the plane hits exactly.
 """
 
@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from optics.config import stack_from_config
-from optics.measurement_plane import MeasurementPlane
+from optics.measurement_plane import MeasurementPlane, rays_to_arrays
 from optics.system import OpticalSystem
 
 RAY_LENGTH = 3.0
@@ -86,7 +86,9 @@ def test_measure_batch_matches_per_plane_measure(name):
     planes = _planes([-1.5, -3.0, -5.5])
     system = OpticalSystem(elements)
 
-    batch_results = MeasurementPlane.measure_batch(planes, rays, system)
+    batch_results = MeasurementPlane.measure_batch_arrays(
+        planes, *rays_to_arrays(rays), system
+    )
     batch_grids = [r.grid.copy() for r in batch_results]
 
     per_totals = []
@@ -141,9 +143,13 @@ def test_trace_segments_and_planes_matches_batch_and_measure(name):
         np.testing.assert_array_equal(check.grid, ref_grids[q])
 
 
-def test_measure_batch_empty_and_no_planes():
-    assert MeasurementPlane.measure_batch([], [], []) == []
+def test_measure_batch_arrays_empty_and_no_planes():
+    empty3 = np.empty((0, 3), dtype=float)
+    empty1 = np.empty((0,), dtype=float)
+    assert MeasurementPlane.measure_batch_arrays([], empty3, empty3, empty1) == []
     planes = _planes([-3.0])
-    results = MeasurementPlane.measure_batch(planes, [], OpticalSystem())
+    results = MeasurementPlane.measure_batch_arrays(
+        planes, empty3, empty3, empty1, OpticalSystem()
+    )
     assert [r.total for r in results] == [0.0]
     assert all(r.grid.sum() == 0.0 for r in results)

@@ -128,7 +128,9 @@ def phase_breakdown(
     # New single-trace paths (what the UI now does): measure every plane off one
     # trace, and the combined render+measure walk used by ``_refresh_trace``.
     mark = time.perf_counter()
-    MeasurementPlane.measure_batch(planes, edit.rays, system)
+    MeasurementPlane.measure_batch_arrays(
+        planes, edit.origins, edit.dirs, edit.powers, system
+    )
     t["measure_batch"] = time.perf_counter() - mark
 
     mark = time.perf_counter()

@@ -1,5 +1,5 @@
 // Fixed-size 3x3 matrix helpers and the Rodrigues placement rotation
-// (mirror of ``optics/vector.py``).
+// (the native home of the ``rotation_from_z`` exposed via ``optics._native``).
 #pragma once
 
 #include "optics/common/constants.hpp"

@@ -14,11 +14,11 @@ if TYPE_CHECKING:
 _EPS = _c.PLANE_EPS
 
 
-def _rays_to_arrays(
+def rays_to_arrays(
     rays: Sequence[Ray],
 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """Contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers for ``rays``."""
-    if rays:
+    if len(rays) > 0:
         origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
         dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
         powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
@@ -27,6 +27,43 @@ def _rays_to_arrays(
         dirs = np.empty((0, 3), dtype=float)
         powers = np.empty((0,), dtype=float)
     return origins, dirs, powers
+
+
+def _direct_hits(
+    plane: "MeasurementPlane",
+    origins: np.ndarray,
+    dirs: np.ndarray,
+    powers: np.ndarray,
+) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+    """Hit parameters ``(u, v)`` and powers for every straight ray.
+
+    Direct (untraced) measurement against ``plane``; rays travelling through
+    an optical system are measured via
+    :meth:`~optics.system.OpticalSystem.measure_planes` instead.
+    """
+    n = origins.shape[0]
+    us = np.full(n, np.nan)
+    vs = np.full(n, np.nan)
+    pws = np.zeros(n)
+    _native.measure_direct(
+        origins, dirs, powers, plane.o, plane.n, _EPS, us, vs, pws
+    )
+    return us, vs, pws
+
+
+def results_from_hits(
+    planes: Sequence["MeasurementPlane"],
+    us: np.ndarray,
+    vs: np.ndarray,
+    pws: np.ndarray,
+) -> "list[MeasurementResult]":
+    """One fresh detector image per plane from ``(P, N)`` hit buffers."""
+    results = []
+    for q, plane in enumerate(planes):
+        result = plane.new_result()
+        result.accumulate(us[q], vs[q], pws[q])
+        results.append(result)
+    return results
 
 
 class MeasurementPlane:
@@ -142,75 +179,13 @@ class MeasurementPlane:
 
         return i, j
 
-    def _project_direct(
-        self,
-        origins: np.ndarray,
-        dirs: np.ndarray,
-        powers: np.ndarray,
-    ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
-        """Hit parameters ``(u, v)`` and powers for every straight ray.
-
-        Direct (untraced) measurement against this plane; rays travelling
-        through an optical system are measured via
-        :meth:`~optics.system.OpticalSystem.measure_planes` instead.
-        """
-        n = origins.shape[0]
-        us = np.full(n, np.nan)
-        vs = np.full(n, np.nan)
-        pws = np.zeros(n)
-        _native.measure_direct(
-            origins, dirs, powers, self.o, self.n, _EPS, us, vs, pws
-        )
-        return us, vs, pws
-
-    def _accumulate(
-        self,
-        result: "MeasurementResult",
-        origins: np.ndarray,
-        dirs: np.ndarray,
-        powers: np.ndarray,
-        system: "OpticalSystem | None" = None,
-    ) -> None:
-        """Trace the ray arrays through ``system`` once and bin into ``result``."""
-        if system is None:
-            result.accumulate(*self._project_direct(origins, dirs, powers))
-            return
-        us, vs, pws = system.measure_planes(origins, dirs, powers, [self])
-        result.accumulate(us[0], vs[0], pws[0])
-
-    def _into(
-        self, result: "MeasurementResult", rays: Sequence[Ray],
-        system: "OpticalSystem | None" = None,
-    ) -> "MeasurementResult":
-        """Trace rays through ``system`` and accumulate power into ``result``."""
-        if not rays:
-            return result
-        self._accumulate(result, *_rays_to_arrays(rays), system)
-        return result
-
     def measure(
         self, rays: Sequence[Ray], system: "OpticalSystem | None" = None
     ) -> "MeasurementResult":
         """Trace rays through ``system`` into a fresh detector image."""
-        return self._into(self.new_result(), rays, system)
-
-    @staticmethod
-    def measure_batch(
-        planes: Sequence["MeasurementPlane"],
-        rays: Sequence[Ray],
-        system: "OpticalSystem | None" = None,
-    ) -> "list[MeasurementResult]":
-        """Measure every plane, tracing the ray fan through ``system`` once.
-
-        Returns a fresh result per plane in the order of ``planes``. Without a
-        system the rays are measured directly against each plane.
-        """
-        plane_list = list(planes)
-        if not plane_list:
-            return []
         return MeasurementPlane.measure_batch_arrays(
-            plane_list, *_rays_to_arrays(rays), system
-        )
+            [self], *rays_to_arrays(rays), system
+        )[0]
 
     @staticmethod
     def measure_batch_arrays(
@@ -220,30 +195,29 @@ class MeasurementPlane:
         powers: np.ndarray,
         system: "OpticalSystem | None" = None,
     ) -> "list[MeasurementResult]":
-        """Array-based :meth:`measure_batch` (no per-ray marshalling).
+        """Measure every plane, tracing the ray fan through ``system`` once.
 
         ``origins``/``dirs`` are ``(N, 3)`` and ``powers`` is ``(N,)``; the fan
-        is traced through ``system`` once (or measured directly without one).
+        is traced through ``system`` once (or measured directly without one),
+        and a fresh result is returned per plane in the order of ``planes``.
         """
         plane_list = list(planes)
         if not plane_list:
             return []
+        origins = np.ascontiguousarray(origins, dtype=float)
+        dirs = np.ascontiguousarray(dirs, dtype=float)
+        powers = np.ascontiguousarray(powers, dtype=float)
         if origins.shape[0] == 0:
             return [plane.new_result() for plane in plane_list]
         if system is None:
             results = []
             for plane in plane_list:
                 result = plane.new_result()
-                result.accumulate(*plane._project_direct(origins, dirs, powers))
+                result.accumulate(*_direct_hits(plane, origins, dirs, powers))
                 results.append(result)
             return results
         us, vs, pws = system.measure_planes(origins, dirs, powers, plane_list)
-        results = []
-        for q in range(len(plane_list)):
-            result = plane_list[q].new_result()
-            result.accumulate(us[q], vs[q], pws[q])
-            results.append(result)
-        return results
+        return results_from_hits(plane_list, us, vs, pws)
 
 
 class MeasurementResult:

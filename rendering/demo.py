@@ -27,8 +27,8 @@ def default_rays() -> list[Ray]:
 
 
 def visualize(
-    elements: "RefractiveElement | list[RefractiveElement]",
-    rays: "Ray | list[Ray]",
+    elements: list[RefractiveElement],
+    rays: list[Ray],
     x_range: "tuple[float, float]" = (-2.0, 2.0),
     y_range: "tuple[float, float]" = (-2.0, 2.0),
     ray_length: float = 3.0,

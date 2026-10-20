@@ -28,10 +28,6 @@ def fibonacci_cone_directions(count: int, cone_angle_deg: float = 360.0) -> np.n
     return np.column_stack([r * np.cos(phi), r * np.sin(phi), -c])
 
 
-def fibonacci_sphere_directions(count: int) -> np.ndarray:
-    return fibonacci_cone_directions(count, 360.0)
-
-
 class PointSource:
     position: np.ndarray
     power: float

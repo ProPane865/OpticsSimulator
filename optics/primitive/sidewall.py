@@ -65,17 +65,15 @@ class LensSidewall:
         return self._face_normals[int(face)]
 
     def intersect(self, ray: Ray) -> MeshHit | None:
-        o = np.asarray(ray.origin, dtype=float)
-        d = np.asarray(ray.direction, dtype=float)
+        o = np.ascontiguousarray(ray.origin, dtype=float)
+        d = np.ascontiguousarray(ray.direction, dtype=float)
 
         if not (np.all(np.isfinite(o)) and np.all(np.isfinite(d))):
             return None
 
-        ray = Ray(o, d, ray.power)
-
         t, face, u_k, v_k, found = _native.mesh_intersect(
-            np.ascontiguousarray(o, dtype=float),
-            np.ascontiguousarray(d, dtype=float),
+            o,
+            d,
             np.ascontiguousarray(self._tri, dtype=float),
             _c.DET_SINGULAR_EPS,
             _c.BARY_TOL,
@@ -85,7 +83,7 @@ class LensSidewall:
             return None
 
         return MeshHit(
-            ray.at(t),
+            o + t * d,
             t,
             int(face),
             np.array([1.0 - u_k - v_k, u_k, v_k], dtype=float),

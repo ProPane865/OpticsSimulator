@@ -25,6 +25,8 @@ constexpr int kMaxPathPts = MAX_INTERNAL_BOUNCES + 2;
 
 }  // namespace
 
+namespace {
+
 // Accumulate one surface's local-frame sample bounds into ``lo``/``hi``.
 void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi) {
     const std::vector<double> us = linspace(d.u_min, d.u_max, CONTAINMENT_BOUNDS_N);
@@ -44,8 +46,6 @@ void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi) {
         }
     }
 }
-
-namespace {
 
 // Conservative forward test: false only when the cached world AABB holds no
 // point of the ray at ``t > min_t``, so every face/wall candidate would be

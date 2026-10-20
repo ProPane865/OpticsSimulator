@@ -193,7 +193,7 @@ def test_visualize_attaches_sidewall_when_aperture(sphere_pair, monkeypatch):
     monkeypatch.setattr(visualize, "make_surface_visual", lambda surface, color: ("surface", surface))
     monkeypatch.setattr(visualize, "make_wall_visual", lambda wall, color: ("wall", wall))
 
-    canvas = demo.visualize(sphere_pair, [], show=False)
+    canvas = demo.visualize([sphere_pair], [], show=False)
 
     kinds = [payload[0] for _, payload in attached if isinstance(payload, tuple)]
     assert kinds.count("surface") == 2

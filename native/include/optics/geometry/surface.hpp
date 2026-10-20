@@ -20,8 +20,8 @@
 namespace optics::native {
 
 // A parametric surface ``(x(u,v), y(u,v), z(u,v))`` with its finite-difference
-// step and parameter domain; the compiled replacement for the generated
-// expression module of the Python implementation.
+// step and parameter domain; the parsed expressions are held as an
+// evaluatable tree the kernels interpret directly.
 class SurfaceModel {
   public:
     SurfaceModel(ExprPtr x, ExprPtr y, ExprPtr z, double u_min, double u_max, double v_min,
@@ -39,13 +39,6 @@ class SurfaceModel {
     // Tangents ``(r_u, r_v)`` via the central/oriented-one-sided policy
     // (``derivatives_rt``).
     std::pair<Vec3, Vec3> derivatives(double u, double v) const;
-
-    double hu() const { return hu_; }
-    double hv() const { return hv_; }
-    double u_min() const { return u_min_; }
-    double u_max() const { return u_max_; }
-    double v_min() const { return v_min_; }
-    double v_max() const { return v_max_; }
 
   private:
     Vec3 partial_rt(double u, double v, double h, double lo, double hi, bool along_u) const;
@@ -123,9 +116,8 @@ class Surface {
     const SurfaceDesc& desc() const { return *desc_; }
     const SeedGrid& grid() const { return *grid_; }
 
-    // Model-level tangents and descriptor-level tangents (interior pull-back
-    // policy) / world-space unit normal (``nullopt`` outside the surface).
-    std::pair<Vec3, Vec3> derivatives_local(double u, double v) const;
+    // Descriptor-level tangents (interior pull-back policy) / world-space unit
+    // normal (``nullopt`` outside the surface).
     std::pair<Vec3, Vec3> derivatives(double u, double v) const;
     std::optional<Vec3> normal(double u, double v) const;
 
@@ -147,7 +139,6 @@ class Surface {
   private:
     explicit Surface(std::shared_ptr<const SurfaceModel> model, Options&& options);
 
-    std::shared_ptr<const SurfaceModel> model_;
     std::shared_ptr<SurfaceDesc> desc_;
     std::shared_ptr<SeedGrid> grid_;
     bool graph_xy_ = false;

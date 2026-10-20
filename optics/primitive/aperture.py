@@ -106,7 +106,3 @@ class CircularAperture:
     def native_params(self) -> "tuple[float, float, float]":
         """Circular slots ``(radius, cx, cy)`` for the native kernels."""
         return self.radius, float(self.center[0]), float(self.center[1])
-
-
-# Backwards-compatible name for annotations of the (single) aperture type.
-Aperture = CircularAperture

@@ -1,5 +1,5 @@
-// Restricted, safe surface-expression language (C++ mirror of
-// ``optics/numerical/expression.py``): tokenize, parse to an AST, evaluate.
+// Restricted, safe surface-expression language: tokenize, parse to an AST,
+// evaluate.
 // Grammar: variables ``u``, ``v``; numeric literals; ``+ - * / % **``, unary
 // ``+``/``-``; and the unary calls ``sqrt``, ``sin``, ``cos``, ``tan``,
 // ``exp``, ``log``, ``abs``. Division and modulo use NumPy scalar semantics
@@ -50,9 +50,5 @@ ExprPtr parse_expression(const std::string& source);
 
 // Evaluate a parsed expression at ``(u, v)``.
 double eval_expression(const Expr& node, double u, double v);
-
-// NumPy-scalar division/modulo helpers (``_sdiv`` / ``_smod``).
-double sdiv(double a, double b);
-double smod(double a, double b);
 
 }  // namespace optics::native

@@ -83,9 +83,8 @@ def _child_stages(scenario: str) -> None:
     def _first_evals() -> None:
         model.eval_local(0.7, 0.35)
         model.eval_grid(np.array([0.1, 0.2]), np.array([0.3, 0.4]))
-        model.derivatives_local(0.7, 0.35)
 
-    record("first eval_local / eval_grid / derivatives (tree walk)", _first_evals)
+    record("first eval_local / eval_grid (tree walk)", _first_evals)
 
     record(
         "make_surface (native surface: seed grid + probe)",

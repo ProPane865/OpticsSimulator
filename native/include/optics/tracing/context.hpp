@@ -12,11 +12,6 @@
 
 namespace optics::native {
 
-// Accumulate one surface's local-frame sample bounds into ``lo``/``hi``
-// (mirror of ``RefractiveElement.local_bounds`` sampling; coordinates stay
-// ``+inf``/``-inf`` when no finite sample exists).
-void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi);
-
 // One closed refractive element: two persistent surfaces (each owning its
 // descriptor, seed grid and graph-over-xy flag, which the kernels read
 // through the surfaces), the world-space sidewall mesh and the element-local

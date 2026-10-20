@@ -35,7 +35,6 @@ class SurfaceFunctions(NamedTuple):
     z_src: str
     eval_local: "Callable[[float, float], np.ndarray]"
     eval_grid: "Callable[[np.ndarray, np.ndarray], np.ndarray]"
-    derivatives_local: "Callable[[float, float], tuple[np.ndarray, np.ndarray]]"
     model: _native.SurfaceModel
 
 
@@ -57,16 +56,11 @@ def compile_parametric_surface(
     except ValueError as exc:
         raise ExpressionError(str(exc)) from exc
 
-    def derivatives_local(u: float, v: float) -> "tuple[np.ndarray, np.ndarray]":
-        ru, rv = model.derivatives_local(float(u), float(v))
-        return ru, rv
-
     return SurfaceFunctions(
         x_src=x_src,
         y_src=y_src,
         z_src=z_src,
         eval_local=model.eval_local,
         eval_grid=model.eval_grid,
-        derivatives_local=derivatives_local,
         model=model,
     )

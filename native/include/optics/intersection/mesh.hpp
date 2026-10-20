@@ -1,5 +1,5 @@
 // Ray/mesh intersection kernel: Moller-Trumbore over flattened ``(K, 3, 3)``
-// triangles (mirror of ``optics/numerical/mesh.py``).
+// triangles.
 #pragma once
 
 #include <cstddef>

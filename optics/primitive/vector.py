@@ -7,12 +7,8 @@ import numpy as np
 from .. import _native
 
 
-def normalize_vector(v: np.ndarray) -> np.ndarray:
-    return np.asarray(_native.normalize(np.ascontiguousarray(v, dtype=float)))
-
-
 def normalize(vector: np.ndarray | Sequence[float]) -> np.ndarray:
-    return normalize_vector(np.asarray(vector, dtype=float))
+    return np.asarray(_native.normalize(np.ascontiguousarray(vector, dtype=float)))
 
 
 def rotation_from_z(direction: np.ndarray | Sequence[float]) -> np.ndarray:

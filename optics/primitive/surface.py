@@ -6,7 +6,7 @@ import numpy as np
 from .. import _native
 from .. import constants as _c
 from ..expression import compile_parametric_surface
-from .aperture import Aperture
+from .aperture import CircularAperture
 from .hit import Hit
 from .ray import Ray
 from .transform import Transform
@@ -21,7 +21,7 @@ class Surface:
         transform: "Transform | np.ndarray | None" = None,
         u_range: "Sequence[float]" = (-2.0, 2.0),
         v_range: "Sequence[float]" = (-2.0, 2.0),
-        aperture: "Aperture | None" = None,
+        aperture: "CircularAperture | None" = None,
     ) -> None:
         u_range = (float(u_range[0]), float(u_range[1]))
         v_range = (float(v_range[0]), float(v_range[1]))
@@ -121,21 +121,9 @@ class Surface:
             return None
         return float(u), float(v)
 
-    def parameters_at_xy(
-        self,
-        x: float,
-        y: float,
-        seed: "tuple[float, float] | None" = None,
-    ) -> "tuple[float, float] | None":
+    def parameters_at_xy(self, x: float, y: float) -> "tuple[float, float] | None":
         """Local parameters whose point projects to local ``(x, y)``."""
-        x = float(x)
-        y = float(y)
-
-        if seed is not None:
-            su, sv, ok = self.native_surface.solve_xy(x, y, float(seed[0]), float(seed[1]))
-            if ok:
-                return su, sv
-        u, v, ok = self.native_surface.parameters_at_xy(x, y)
+        u, v, ok = self.native_surface.parameters_at_xy(float(x), float(y))
         return (u, v) if ok else None
 
     def normal_at(self, pos: np.ndarray | Sequence[float]) -> np.ndarray | None:

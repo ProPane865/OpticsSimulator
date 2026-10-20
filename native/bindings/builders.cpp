@@ -14,7 +14,6 @@
 
 #include "optics/common/constants.hpp"
 #include "optics/geometry/surface.hpp"
-#include "optics/intersection/solver.hpp"
 #include "optics/tracing/context.hpp"
 
 #include "register.hpp"
@@ -140,20 +139,7 @@ void register_builders(py::module_& m) {
                 self.eval_grid(u.data, v.data, u.size, static_cast<double*>(res.ptr));
                 return out;
             },
-            py::arg("us"), py::arg("vs"))
-        .def(
-            "derivatives_local",
-            [](const SurfaceModel& self, double u, double v) {
-                const auto rv = self.derivatives(u, v);
-                return py::make_tuple(np3(rv.first), np3(rv.second));
-            },
-            py::arg("u"), py::arg("v"))
-        .def_property_readonly("hu", &SurfaceModel::hu)
-        .def_property_readonly("hv", &SurfaceModel::hv)
-        .def_property_readonly("u_min", &SurfaceModel::u_min)
-        .def_property_readonly("u_max", &SurfaceModel::u_max)
-        .def_property_readonly("v_min", &SurfaceModel::v_min)
-        .def_property_readonly("v_max", &SurfaceModel::v_max);
+            py::arg("us"), py::arg("vs"));
 
     py::class_<Surface, std::shared_ptr<Surface>>(m, "NativeSurface")
         .def("is_graph_over_xy", &Surface::is_graph_over_xy)
@@ -171,13 +157,6 @@ void register_builders(py::module_& m) {
             "derivatives",
             [](const Surface& self, double u, double v) {
                 const auto rv = self.derivatives(u, v);
-                return py::make_tuple(np3(rv.first), np3(rv.second));
-            },
-            py::arg("u"), py::arg("v"))
-        .def(
-            "derivatives_local",
-            [](const Surface& self, double u, double v) {
-                const auto rv = self.derivatives_local(u, v);
                 return py::make_tuple(np3(rv.first), np3(rv.second));
             },
             py::arg("u"), py::arg("v"))
@@ -223,19 +202,6 @@ void register_builders(py::module_& m) {
                 return std::tuple<double, double, bool>{uv->first, uv->second, true};
             },
             py::arg("x"), py::arg("y"))
-        .def(
-            "solve_xy",
-            [](const Surface& self, double x_target, double y_target, double u, double v) {
-                const auto uv = [&] {
-                    const py::gil_scoped_release release;
-                    return optics::native::solve_xy(self.desc(), x_target, y_target, u, v);
-                }();
-                if (!uv.has_value()) {
-                    return std::tuple<double, double, bool>{0.0, 0.0, false};
-                }
-                return std::tuple<double, double, bool>{uv->first, uv->second, true};
-            },
-            py::arg("x_target"), py::arg("y_target"), py::arg("u"), py::arg("v"))
         .def(
             "rim",
             [](const Surface& self, double radius, double cx, double cy, int n) {

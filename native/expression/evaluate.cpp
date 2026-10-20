@@ -7,21 +7,7 @@
 namespace optics::native {
 namespace {
 
-double eval_call(FuncKind fn, double x) {
-    switch (fn) {
-        case FuncKind::Sqrt: return std::sqrt(x);
-        case FuncKind::Sin: return std::sin(x);
-        case FuncKind::Cos: return std::cos(x);
-        case FuncKind::Tan: return std::tan(x);
-        case FuncKind::Exp: return std::exp(x);
-        case FuncKind::Log: return std::log(x);
-        case FuncKind::Abs: return std::fabs(x);
-    }
-    return NAN;
-}
-
-}  // namespace
-
+// NumPy-scalar division/modulo helpers.
 double sdiv(double a, double b) {
     if (b == 0.0) {
         if (a == 0.0) {
@@ -44,6 +30,21 @@ double smod(double a, double b) {
     }
     return r;
 }
+
+double eval_call(FuncKind fn, double x) {
+    switch (fn) {
+        case FuncKind::Sqrt: return std::sqrt(x);
+        case FuncKind::Sin: return std::sin(x);
+        case FuncKind::Cos: return std::cos(x);
+        case FuncKind::Tan: return std::tan(x);
+        case FuncKind::Exp: return std::exp(x);
+        case FuncKind::Log: return std::log(x);
+        case FuncKind::Abs: return std::fabs(x);
+    }
+    return NAN;
+}
+
+}  // namespace
 
 double eval_expression(const Expr& node, double u, double v) {
     switch (node.kind) {

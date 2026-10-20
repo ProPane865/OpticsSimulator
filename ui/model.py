@@ -15,7 +15,7 @@ import numpy as np
 
 from optics.config import stack_from_config
 from optics.element import RefractiveElement
-from optics.measurement_plane import MeasurementPlane, MeasurementResult
+from optics.measurement_plane import MeasurementPlane, MeasurementResult, rays_to_arrays
 from optics.primitive import Ray
 from optics.project import (
     DEFAULT_SOURCE_CONFIG,
@@ -130,19 +130,6 @@ def classify_element_edit(
     return "geometry"
 
 
-def _rays_to_arrays(rays: Sequence[Ray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers for ``rays``."""
-    n = len(rays)
-    origins = np.empty((n, 3), dtype=float)
-    dirs = np.empty((n, 3), dtype=float)
-    powers = np.empty(n, dtype=float)
-    for i, ray in enumerate(rays):
-        origins[i] = ray.origin
-        dirs[i] = ray.direction
-        powers[i] = ray.power
-    return origins, dirs, powers
-
-
 class ProjectState:
     """Mutable project state plus the operations the UI performs on it."""
 
@@ -201,7 +188,7 @@ class ProjectState:
         """
         arrays = self._rays_arrays
         if arrays is None:
-            arrays = _rays_to_arrays(self._rays)
+            arrays = rays_to_arrays(self._rays)
             self._rays_arrays = arrays
         return arrays
 
@@ -311,7 +298,7 @@ class ProjectState:
         # Build the system up front: plane measurement needs the stack, and
         # this keeps construction-time validation inside the load.
         new_system = OpticalSystem(elements)
-        ray_arrays = _rays_to_arrays(new_rays)
+        ray_arrays = rays_to_arrays(new_rays)
 
         if planes is not None:
             new_planes = [plane for _, plane in planes]

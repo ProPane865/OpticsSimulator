@@ -87,7 +87,6 @@ double accumulate_power(double* grid, const double* u, const double* v, const do
                         std::size_t n, double u_min, double u_max, double v_min, double v_max,
                         int ru, int rv, double interval_u, double interval_v) {
     double total = 0.0;
-    (void)rv;
     for (std::size_t idx = 0; idx < n; ++idx) {
         const double uu = u[idx];
         const double vv = v[idx];

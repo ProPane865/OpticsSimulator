@@ -7,7 +7,6 @@ from optics.source import (
     SINGLE_POINT,
     PointSource,
     fibonacci_cone_directions,
-    fibonacci_sphere_directions,
 )
 
 
@@ -70,9 +69,9 @@ def test_emit_rays_deterministic():
         assert np.allclose(a, b)
 
 
-def test_fibonacci_sphere_directions_count():
-    assert fibonacci_sphere_directions(0).shape == (0, 3)
-    dirs = fibonacci_sphere_directions(10)
+def test_fibonacci_full_cone_is_sphere():
+    assert fibonacci_cone_directions(0, 360.0).shape == (0, 3)
+    dirs = fibonacci_cone_directions(10, 360.0)
     assert dirs.shape == (10, 3)
     assert np.allclose(np.linalg.norm(dirs, axis=1), 1.0)
 
@@ -107,12 +106,6 @@ def test_cone_angle_preserves_ray_count():
     for angle in (0.0, 30.0, 90.0, 180.0, 360.0):
         source = PointSource([0.0, 0.0, 0.0], num_rays=48, cone_angle=angle)
         assert len(source.emit_rays()) == 48
-
-
-def test_cone_360_matches_sphere_directions():
-    cone = fibonacci_cone_directions(64, 360.0)
-    sphere = fibonacci_sphere_directions(64)
-    assert np.allclose(cone, sphere)
 
 
 def test_cone_directions_within_cone_and_unit():

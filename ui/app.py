@@ -17,34 +17,21 @@ from PySide6.QtUiTools import QUiLoader
 from vispy import app as vispy_app
 
 from optics.element import RefractiveElement
-from optics.measurement_plane import MeasurementPlane, MeasurementResult
+from optics.measurement_plane import MeasurementPlane, MeasurementResult, results_from_hits
 from optics.primitive import Ray
-from optics.project import (
-    DEFAULT_MEASUREMENT_CONFIG,
-    DEFAULT_SOURCE_CONFIG,
-    build_project_document,
-    parse_project,
-)
+from optics.project import DEFAULT_MEASUREMENT_CONFIG, DEFAULT_SOURCE_CONFIG
 from optics.source import PointSource
 
-from .editors import LABEL_BY_SOURCE_TYPE, SOURCE_TYPE_BY_LABEL, ElementEditor, PlaneEditor, SourceEditor
+from .editors import ElementEditor, PlaneEditor, SourceEditor
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
 from .plane_view import PlaneView
 from .scene import RAY_LENGTH, SceneController, make_display
 from .widgets import find_child, run_validated
 
 __all__ = [
-    "DEFAULT_ELEMENT_CONFIG",
-    "DEFAULT_MEASUREMENT_CONFIG",
-    "DEFAULT_SOURCE_CONFIG",
-    "LABEL_BY_SOURCE_TYPE",
     "OpticsMainWindow",
-    "SOURCE_TYPE_BY_LABEL",
-    "UI_PATH",
-    "build_project_document",
     "main",
     "make_display",
-    "parse_project",
 ]
 
 UI_PATH = Path(__file__).resolve().parent / "main.ui"
@@ -120,11 +107,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             starts, ends, _kinds, counts, us, vs, pws = system.trace_segments_and_planes(
                 origins, dirs, powers, RAY_LENGTH, planes
             )
-            results = []
-            for q in range(len(planes)):
-                result = planes[q].new_result()
-                result.accumulate(us[q], vs[q], pws[q])
-                results.append(result)
+            results = results_from_hits(planes, us, vs, pws)
             state.set_plane_results(results)
             self._scene.retrace_from_segments(starts, ends, counts)
         else:

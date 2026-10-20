@@ -57,27 +57,14 @@ struct StackSegments {
     Vec3 final_d{};
 };
 
-// Mirrors ``trace_stack_path``; segment kinds 0/1/2 = incident/internal/exit.
-// Writes up to ``cap`` segments into ``starts``/``ends``/``kinds``.
-StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
-                                   const TraceOptions& options, double* starts, double* ends,
-                                   signed char* kinds, std::size_t cap);
-
-// Traces until the plane region is reached; writes the reaching ray.
-bool trace_stack_to_plane(const TraceStack& stack, const Vec3& o, const Vec3& d, const Vec3& po,
-                          const Vec3& pn, const PlaneRegion& region, const TraceOptions& options,
-                          Vec3& out_o, Vec3& out_d);
-
 // --- Single geometric-order walk (shared by rendering + all planes) ----------
 //
-// A full geometric-order walk of the stack (the same nearest-unvisited loop
-// used by ``trace_stack_segments``) is a superset of every per-plane walk
-// ``trace_stack_to_plane`` performs: the refractions up to any plane are a
-// prefix of this walk, so one trace serves rendering and every plane. Each hop
-// records the free-travel gap (origin/direction + entry distance to the next
-// element) and the entered element's internal polyline, letting both the
-// rendering segment buffers and the per-plane first-crossing be derived
-// without re-walking.
+// A full geometric-order walk of the stack is a superset of every per-plane
+// walk: the refractions up to any plane are a prefix of this walk, so one
+// trace serves rendering and every plane. Each hop records the free-travel
+// gap (origin/direction + entry distance to the next element) and the entered
+// element's internal polyline, letting both the rendering segment buffers and
+// the per-plane first-crossing be derived without re-walking.
 struct RayHop {
     Vec3 o{};
     Vec3 d{};
@@ -94,10 +81,18 @@ using RayHops = std::vector<RayHop>;
 // Walks the stack in geometric order, recording one hop per gap/element.
 RayHops build_hops(const TraceStack& stack, const Vec3& o, const Vec3& d);
 
-// Rendering segment buffers, byte-identical to ``trace_stack_segments``:
-// incident + internal segments per element, then the trailing gap capped at
-// ``ray_length`` (omitted when the ray is absorbed).
+// Rendering segment buffers: incident + internal segments per element, then
+// the trailing gap capped at ``ray_length`` (omitted when the ray is
+// absorbed). Segment kinds 0/1/2 = incident/internal/exit; writes up to
+// ``cap`` segments.
 int format_segments(const RayHops& hops, double ray_length, double* starts, double* ends,
                     signed char* kinds, std::size_t cap);
+
+// One-ray rendering pass: ``format_segments(build_hops(...))`` plus the final
+// free-travel state (the gap exiting the last element, or entering the
+// element that absorbed the ray).
+StackSegments trace_stack_segments(const TraceStack& stack, const Vec3& o, const Vec3& d,
+                                   const TraceOptions& options, double* starts, double* ends,
+                                   signed char* kinds, std::size_t cap);
 
 }  // namespace optics::native

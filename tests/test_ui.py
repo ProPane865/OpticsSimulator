@@ -14,6 +14,9 @@ from rendering import demo
 from ui.app import OpticsMainWindow, make_display
 from ui.plane_view import _AspectLabel, _fit_rect
 
+OK = QtWidgets.QDialogButtonBox.StandardButton.Ok
+CANCEL = QtWidgets.QDialogButtonBox.StandardButton.Cancel
+
 
 @pytest.fixture(scope="module")
 def qt_app():
@@ -24,76 +27,107 @@ def qt_app():
     yield app
 
 
-def test_window_title(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+@pytest.fixture
+def make_window(qt_app):
+    """Factory for main windows, all closed at teardown."""
+    created: list[OpticsMainWindow] = []
+
+    def _make(canvas=None):
+        window = OpticsMainWindow(make_display([], []) if canvas is None else canvas)
+        created.append(window)
+        return window
+
+    yield _make
+    for window in created:
+        window.close()
+
+
+@pytest.fixture
+def window(make_window):
+    return make_window()
+
+
+@pytest.fixture
+def captured_warnings(monkeypatch):
+    """Records (and suppresses) QMessageBox.warning calls for a test."""
+    calls = []
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        staticmethod(lambda *args, **kwargs: calls.append(args)),
+    )
+    return calls
+
+
+def test_window_title(window):
     assert window.windowTitle() == "OpticsSimulator"
-    window.close()
 
 
-def test_canvas_embedded_in_opengl_widget(qt_app, make_element):
+def test_canvas_embedded_in_opengl_widget(make_window, make_element):
     elem = make_element("sqrt(1 - (x**2) - (y**2))", "0")
     canvas = make_display([elem], demo.default_rays())
-    window = OpticsMainWindow(canvas)
+    window = make_window(canvas)
 
     container = window.findChild(QtWidgets.QWidget, "openGLWidget")
     assert container is not None
     assert container.findChild(type(canvas.native)) is canvas.native
     assert window.canvas is canvas
-    window.close()
 
 
-def test_file_menu_is_populated(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_file_menu_is_populated(window):
     menu_bar = window.findChild(QtWidgets.QMenuBar, "menubar")
     assert menu_bar is not None
     file_menu = menu_bar.findChild(QtWidgets.QMenu, "menuFile")
     assert file_menu is not None
     assert not file_menu.isEmpty()
     assert any(a.objectName() == "actionOpen" for a in file_menu.actions())
-    window.close()
 
 
-def test_window_shows_with_scene(qt_app, make_element):
+def test_window_shows_with_scene(qt_app, make_window, make_element):
     elem = make_element("sqrt(1 - (x**2) - (y**2))", "0")
     canvas = make_display([elem], demo.default_rays())
-    window = OpticsMainWindow(canvas)
+    window = make_window(canvas)
     window.show()
     qt_app.processEvents()
     assert window.isVisible()
-    window.close()
 
 
 def _mesh_count(view):
     return sum(1 for node in view.scene.children if type(node).__name__ == "Mesh")
 
 
-def test_load_stack_rebuilds_scene(qt_app, repo_root):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
-    assert _mesh_count(canvas.view) == 1
+def _action(window, menu_name, action_name):
+    menu = window.findChild(QtWidgets.QMenu, menu_name)
+    assert menu is not None
+    matches = [a for a in menu.actions() if a.objectName() == action_name]
+    assert matches, f"{action_name} missing from {menu_name}"
+    return matches[0]
+
+
+def _trigger(window, menu_name, action_name):
+    _action(window, menu_name, action_name).trigger()
+
+
+def test_load_stack_rebuilds_scene(window, repo_root):
+    view = window.canvas.view
+    assert _mesh_count(view) == 1
 
     elements = window.load_stack(repo_root / "tests" / "test_stack.json")
     assert len(elements) == 2
-    assert _mesh_count(canvas.view) >= 7
+    assert _mesh_count(view) >= 7
     assert "test_stack.json" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_load_stack_invalid_json_raises(qt_app, tmp_path):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
+def test_load_stack_invalid_json_raises(window, tmp_path):
     bad = tmp_path / "bad_stack.json"
     bad.write_text("{not valid json", encoding="utf-8")
 
     with pytest.raises(json.JSONDecodeError):
         window.load_stack(bad)
-    window.close()
 
 
-def test_open_action_triggers_load(qt_app, repo_root, monkeypatch):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
-
+def test_open_action_triggers_load(window, repo_root, monkeypatch):
+    view = window.canvas.view
     schema_path = repo_root / "tests" / "test_stack.json"
     monkeypatch.setattr(
         QtWidgets.QFileDialog,
@@ -101,15 +135,10 @@ def test_open_action_triggers_load(qt_app, repo_root, monkeypatch):
         staticmethod(lambda *args, **kwargs: (str(schema_path), "")),
     )
 
-    file_menu = window.findChild(QtWidgets.QMenu, "menuFile")
-    assert file_menu is not None
-    matches = [a for a in file_menu.actions() if a.objectName() == "actionOpen"]
-    assert matches, "actionOpen missing from File menu"
-    matches[0].trigger()
+    _trigger(window, "menuFile", "actionOpen")
 
-    assert _mesh_count(canvas.view) >= 6
+    assert _mesh_count(view) >= 6
     assert "test_stack.json" in window.statusBar().currentMessage()
-    window.close()
 
 
 def _editor(window):
@@ -135,22 +164,19 @@ def _editor(window):
 
 
 def _click(window, role):
-    buttons = _editor(window)["buttons"]
-    buttons.button(role).click()
+    _editor(window)["buttons"].button(role).click()
 
 
-def test_property_editor_disabled_without_stack(qt_app):
-    window = OpticsMainWindow(make_display([], []))
-    assert not _editor(window)["selector"].isEnabled()
-    assert not _editor(window)["remove"].isEnabled()
-    assert not _editor(window)["pos"][0].isEnabled()
-    assert not _editor(window)["normal"][0].isEnabled()
-    assert not _editor(window)["buttons"].isEnabled()
-    window.close()
+def test_property_editor_disabled_without_stack(window):
+    editor = _editor(window)
+    assert not editor["selector"].isEnabled()
+    assert not editor["remove"].isEnabled()
+    assert not editor["pos"][0].isEnabled()
+    assert not editor["normal"][0].isEnabled()
+    assert not editor["buttons"].isEnabled()
 
 
-def test_load_stack_populates_lens_selector(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_load_stack_populates_lens_selector(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
@@ -161,28 +187,24 @@ def test_load_stack_populates_lens_selector(qt_app, repo_root):
     assert editor["radius"].value() == pytest.approx(0.75)
     assert editor["s1"].text() == "-1 + sqrt(9 - (u**2) - (v**2))"
     assert editor["s2"].text() == "4.6 - sqrt(9 - (u**2) - (v**2))"
-    window.close()
 
 
-def test_switching_lens_repopulates_fields(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_switching_lens_repopulates_fields(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
     editor["selector"].setCurrentText("lens2")
     assert editor["s1"].text() == "2.8 - sqrt(4 - (u**2) - (v**2))"
     assert editor["s2"].text() == "-1.3 + sqrt(4 - (u**2) - (v**2))"
-    window.close()
 
 
-def test_ok_applies_changes(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_ok_applies_changes(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
     editor["index"].setValue(1.8)
     editor["radius"].setValue(0.5)
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click(window, OK)
 
     element = window.elements[0]
     assert element.material.refractive_index == pytest.approx(1.8)
@@ -190,24 +212,20 @@ def test_ok_applies_changes(qt_app, repo_root):
     assert element.surface2.aperture.radius == pytest.approx(0.5)
     assert _mesh_count(window.canvas.view) >= 6
     assert "Updated properties for lens1" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_ok_applies_surface_expressions(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_ok_applies_surface_expressions(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
     editor["s1"].setText("0")
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click(window, OK)
 
     assert str(window.elements[0].surface1.z_expr) == "0"
     assert window.elements[0].surface2.z_expr == "4.6 - sqrt(9 - (u**2) - (v**2))"
-    window.close()
 
 
-def test_ok_applies_position_and_normal(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_ok_applies_position_and_normal(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
@@ -218,7 +236,7 @@ def test_ok_applies_position_and_normal(qt_app, repo_root):
     editor["pos"][2].setValue(-2.0)
     editor["normal"][0].setValue(1.0)
     editor["normal"][2].setValue(0.0)
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click(window, OK)
 
     transform = window.elements[0].transform
     np.testing.assert_allclose(transform.translation, [1.0, 0.0, -2.0], atol=1e-9)
@@ -226,94 +244,65 @@ def test_ok_applies_position_and_normal(qt_app, repo_root):
         transform.rotation @ np.array([0.0, 0.0, 1.0]), [1.0, 0.0, 0.0], atol=1e-9
     )
     assert "Updated properties for lens1" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_lens_position_repopulates_on_switch(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_lens_position_repopulates_on_switch(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
     editor["pos"][1].setValue(2.5)
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click(window, OK)
 
     editor["selector"].setCurrentText("lens2")
     assert editor["pos"][1].value() == pytest.approx(0.0)
     editor["selector"].setCurrentText("lens1")
     assert editor["pos"][1].value() == pytest.approx(2.5)
-    window.close()
 
 
-def test_zero_element_normal_warns_and_keeps(qt_app, repo_root, monkeypatch):
-    window = OpticsMainWindow(make_display([], []))
+def test_zero_element_normal_warns_and_keeps(window, repo_root, captured_warnings):
     window.load_stack(repo_root / "tests" / "test_stack.json")
-
-    warnings = []
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox,
-        "warning",
-        staticmethod(lambda *args, **kwargs: warnings.append(args)),
-    )
 
     editor = _editor(window)
     editor["normal"][2].setValue(0.0)
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click(window, OK)
 
-    assert warnings, "expected a warning for a zero element normal"
+    assert captured_warnings, "expected a warning for a zero element normal"
     np.testing.assert_allclose(window.elements[0].transform.translation, [0.0, 0.0, 0.0], atol=1e-9)
     np.testing.assert_allclose(window.elements[0].transform.rotation, np.eye(3), atol=1e-9)
     assert "Updated properties" not in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_cancel_reverts_edits(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_cancel_reverts_edits(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
     original = editor["s1"].text()
     editor["s1"].setText("not a valid expression")
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+    _click(window, CANCEL)
 
     assert editor["s1"].text() == original
     assert str(window.elements[0].surface1.z_expr) != "not a valid expression"
-    window.close()
 
 
-def test_invalid_expression_warns_and_keeps_scene(qt_app, repo_root, monkeypatch):
-    window = OpticsMainWindow(make_display([], []))
+def test_invalid_expression_warns_and_keeps_scene(window, repo_root, captured_warnings):
     window.load_stack(repo_root / "tests" / "test_stack.json")
-
-    warnings = []
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox,
-        "warning",
-        staticmethod(lambda *args, **kwargs: warnings.append(args)),
-    )
 
     editor = _editor(window)
     editor["s1"].setText("1 +")
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click(window, OK)
 
-    assert warnings, "expected a warning dialog for an invalid expression"
+    assert captured_warnings, "expected a warning dialog for an invalid expression"
     assert window.elements[0].surface1.z_expr == "-1 + sqrt(9 - (u**2) - (v**2))"
     assert "Updated properties" not in window.statusBar().currentMessage()
-    window.close()
 
 
 def _trigger_new_element(window):
-    menu = window.findChild(QtWidgets.QMenu, "menuNew")
-    assert menu is not None
-    matches = [a for a in menu.actions() if a.objectName() == "actionOptical_Element"]
-    assert matches, "actionOptical_Element missing from New menu"
-    matches[0].trigger()
+    _trigger(window, "menuNew", "actionOptical_Element")
 
 
-def test_new_element_action_adds_to_stack(qt_app, repo_root):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
+def test_new_element_action_adds_to_stack(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
-    meshes_before = _mesh_count(canvas.view)
+    meshes_before = _mesh_count(window.canvas.view)
 
     _trigger_new_element(window)
 
@@ -323,13 +312,11 @@ def test_new_element_action_adds_to_stack(qt_app, repo_root):
     assert items == ["lens1", "lens2", "lens3"]
     assert editor["selector"].currentText() == "lens3"
     assert editor["selector"].isEnabled()
-    assert _mesh_count(canvas.view) > meshes_before
+    assert _mesh_count(window.canvas.view) > meshes_before
     assert "Added lens3" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_new_element_on_empty_stack(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_new_element_on_empty_stack(window):
     _trigger_new_element(window)
 
     assert len(window.elements) == 1
@@ -337,22 +324,18 @@ def test_new_element_on_empty_stack(qt_app):
     assert editor["selector"].currentText() == "lens1"
     assert editor["selector"].isEnabled()
     assert "Added lens1" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_new_element_names_increment(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_new_element_names_increment(window):
     _trigger_new_element(window)
     _trigger_new_element(window)
 
     assert len(window.elements) == 2
     items = [_editor(window)["selector"].itemText(i) for i in range(_editor(window)["selector"].count())]
     assert items == ["lens1", "lens2"]
-    window.close()
 
 
-def test_new_element_default_geometry(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_new_element_default_geometry(window):
     _trigger_new_element(window)
 
     element = window.elements[-1]
@@ -368,29 +351,24 @@ def test_new_element_default_geometry(qt_app):
     assert editor["radius"].value() == pytest.approx(0.75)
     assert editor["s1"].text() == "-0.25"
     assert editor["s2"].text() == "0.25"
-    window.close()
 
 
-def test_ok_applies_to_new_element(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_ok_applies_to_new_element(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
     _trigger_new_element(window)
 
     editor = _editor(window)
     editor["index"].setValue(1.9)
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click(window, OK)
 
     assert window.elements[-1].material.refractive_index == pytest.approx(1.9)
     assert window.elements[0].material.refractive_index == pytest.approx(1.5)
     assert "Updated properties for lens3" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_remove_element_button(qt_app, repo_root):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
+def test_remove_element_button(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
-    meshes_before = _mesh_count(canvas.view)
+    meshes_before = _mesh_count(window.canvas.view)
 
     editor = _editor(window)
     assert editor["remove"].isEnabled()
@@ -400,13 +378,11 @@ def test_remove_element_button(qt_app, repo_root):
     assert len(window.elements) == 1
     items = [editor["selector"].itemText(i) for i in range(editor["selector"].count())]
     assert items == ["lens2"]
-    assert _mesh_count(canvas.view) < meshes_before
+    assert _mesh_count(window.canvas.view) < meshes_before
     assert "Removed lens1" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_remove_selected_element_keeps_others(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_remove_selected_element_keeps_others(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
@@ -417,11 +393,9 @@ def test_remove_selected_element_keeps_others(qt_app, repo_root):
     items = [editor["selector"].itemText(i) for i in range(editor["selector"].count())]
     assert items == ["lens1"]
     assert str(window.elements[0].surface1.z_expr) == "-1 + sqrt(9 - (u**2) - (v**2))"
-    window.close()
 
 
-def test_remove_last_element_disables_editor(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_remove_last_element_disables_editor(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
@@ -434,27 +408,25 @@ def test_remove_last_element_disables_editor(qt_app, repo_root):
     assert editor["selector"].count() == 0
     assert not editor["remove"].isEnabled()
     assert "Removed lens2" in window.statusBar().currentMessage()
-    window.close()
 
 
 def _trigger_save_as(window):
-    menu = window.findChild(QtWidgets.QMenu, "menuFile")
-    assert menu is not None
-    matches = [a for a in menu.actions() if a.objectName() == "actionSave_As"]
-    assert matches, "actionSave_As missing from File menu"
-    matches[0].trigger()
+    _trigger(window, "menuFile", "actionSave_As")
 
 
-def test_save_as_action_writes_file(qt_app, repo_root, tmp_path, monkeypatch):
-    window = OpticsMainWindow(make_display([], []))
-    window.load_stack(repo_root / "tests" / "test_stack.json")
-
-    out_path = tmp_path / "saved_stack.json"
+def _patch_save_dialog(monkeypatch, out_path):
     monkeypatch.setattr(
         QtWidgets.QFileDialog,
         "getSaveFileName",
         staticmethod(lambda *args, **kwargs: (str(out_path), "")),
     )
+
+
+def test_save_as_action_writes_file(window, repo_root, tmp_path, monkeypatch):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+
+    out_path = tmp_path / "saved_stack.json"
+    _patch_save_dialog(monkeypatch, out_path)
 
     _trigger_save_as(window)
 
@@ -466,74 +438,57 @@ def test_save_as_action_writes_file(qt_app, repo_root, tmp_path, monkeypatch):
     assert saved["source"]["num_rays"] == 16
     assert saved["measurement_planes"] == []
     assert "Saved" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_save_as_appends_json_extension(qt_app, repo_root, tmp_path, monkeypatch):
-    window = OpticsMainWindow(make_display([], []))
+def test_save_as_appends_json_extension(window, repo_root, tmp_path, monkeypatch):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     out_path = tmp_path / "stack_no_ext"
-    monkeypatch.setattr(
-        QtWidgets.QFileDialog,
-        "getSaveFileName",
-        staticmethod(lambda *args, **kwargs: (str(out_path), "")),
-    )
+    _patch_save_dialog(monkeypatch, out_path)
 
     _trigger_save_as(window)
 
     assert out_path.with_suffix(".json").exists()
-    window.close()
 
 
-def test_save_as_round_trip_preserves_edits(qt_app, repo_root, tmp_path, monkeypatch):
-    window = OpticsMainWindow(make_display([], []))
+def test_save_as_round_trip_preserves_edits(window, make_window, repo_root, tmp_path, monkeypatch):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
     editor["index"].setValue(1.8)
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click(window, OK)
 
     out_path = tmp_path / "modified_stack.json"
-    monkeypatch.setattr(
-        QtWidgets.QFileDialog,
-        "getSaveFileName",
-        staticmethod(lambda *args, **kwargs: (str(out_path), "")),
-    )
+    _patch_save_dialog(monkeypatch, out_path)
     _trigger_save_as(window)
 
     saved = json.loads(out_path.read_text(encoding="utf-8"))
     assert saved["elements"]["lens1"]["material"]["refractive_index"] == pytest.approx(1.8)
 
-    window2 = OpticsMainWindow(make_display([], []))
+    window2 = make_window()
     elements = window2.load_stack(out_path)
     assert elements[0].material.refractive_index == pytest.approx(1.8)
-    window.close()
-    window2.close()
 
 
-def test_save_load_round_trip_preserves_source_and_planes(qt_app, repo_root, tmp_path, monkeypatch):
-    window = OpticsMainWindow(make_display([], []))
+def test_save_load_round_trip_preserves_source_and_planes(
+    window, make_window, repo_root, tmp_path, monkeypatch
+):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     source_editor = _source_editor(window)
     source_editor["rays"].setValue(8)
     source_editor["cone"].setValue(30.0)
-    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_source(window, OK)
     _trigger_measurement_plane(window)
     plane_editor = _plane_editor(window)
     plane_editor["pos"][2].setValue(-5.0)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_plane(window, OK)
 
     out_path = tmp_path / "project.json"
-    monkeypatch.setattr(
-        QtWidgets.QFileDialog,
-        "getSaveFileName",
-        staticmethod(lambda *args, **kwargs: (str(out_path), "")),
-    )
+    _patch_save_dialog(monkeypatch, out_path)
     _trigger_save_as(window)
 
-    window2 = OpticsMainWindow(make_display([], []))
+    window2 = make_window()
     window2.load_stack(out_path)
 
     assert window2.source.num_rays == 8
@@ -543,31 +498,24 @@ def test_save_load_round_trip_preserves_source_and_planes(qt_app, repo_root, tmp
     assert window2.planes[0].o[2] == pytest.approx(-5.0)
     selector = window2.findChild(QtWidgets.QComboBox, "planeSelectorCombo")
     assert [selector.itemText(i) for i in range(selector.count())] == ["plane1"]
-    window.close()
-    window2.close()
 
 
 def test_save_load_round_trip_preserves_position_and_resolution(
-    qt_app, repo_root, tmp_path, monkeypatch
+    window, make_window, repo_root, tmp_path, monkeypatch
 ):
-    window = OpticsMainWindow(make_display([], []))
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _editor(window)
     editor["pos"][2].setValue(1.5)
-    _click(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click(window, OK)
     _trigger_measurement_plane(window)
     plane_editor = _plane_editor(window)
     plane_editor["resolution"][0].setValue(8)
     plane_editor["resolution"][1].setValue(4)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_plane(window, OK)
 
     out_path = tmp_path / "project.json"
-    monkeypatch.setattr(
-        QtWidgets.QFileDialog,
-        "getSaveFileName",
-        staticmethod(lambda *args, **kwargs: (str(out_path), "")),
-    )
+    _patch_save_dialog(monkeypatch, out_path)
     _trigger_save_as(window)
 
     saved = json.loads(out_path.read_text(encoding="utf-8"))
@@ -575,29 +523,25 @@ def test_save_load_round_trip_preserves_position_and_resolution(
     assert saved["elements"]["lens1"]["orientation"] == [0.0, 0.0, 1.0]
     assert saved["measurement_planes"][0]["resolution"] == [8, 4]
 
-    window2 = OpticsMainWindow(make_display([], []))
+    window2 = make_window()
     elements = window2.load_stack(out_path)
     assert elements[0].transform.translation[2] == pytest.approx(1.5)
     assert window2.plane_results[0].grid.shape == (4, 8)
-    window.close()
-    window2.close()
 
 
-def test_legacy_stack_keeps_current_source_and_planes(qt_app, repo_root):
-    window = OpticsMainWindow(make_display([], []))
+def test_legacy_stack_keeps_current_source_and_planes(window, repo_root):
     editor = _source_editor(window)
     editor["rays"].setValue(6)
-    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_source(window, OK)
     _trigger_measurement_plane(window)
 
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     assert window.source.num_rays == 6
     assert len(window.planes) == 1
-    window.close()
 
 
-def test_unsupported_source_type_is_rejected(qt_app, repo_root, tmp_path):
+def test_unsupported_source_type_is_rejected(window, repo_root, tmp_path):
     elements = json.loads((repo_root / "tests" / "test_stack.json").read_text())
     path = tmp_path / "point_array.json"
     path.write_text(json.dumps({
@@ -612,7 +556,6 @@ def test_unsupported_source_type_is_rejected(qt_app, repo_root, tmp_path):
         },
     }))
 
-    window = OpticsMainWindow(make_display([], []))
     window.load_stack(repo_root / "tests" / "test_stack.json")
     rays_before = len(window.rays)
 
@@ -620,30 +563,26 @@ def test_unsupported_source_type_is_rejected(qt_app, repo_root, tmp_path):
         window.load_stack(path)
 
     assert len(window.rays) == rays_before
-    window.close()
 
 
-def test_load_project_planes_replace_existing(qt_app, repo_root, tmp_path):
-    window = OpticsMainWindow(make_display([], []))
+def test_load_project_planes_replace_existing(make_window, repo_root, tmp_path):
+    window = make_window()
     window.load_stack(repo_root / "tests" / "test_stack.json")
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
     out_path = tmp_path / "project.json"
     window.save_stack(out_path)
-    window.close()
 
-    window2 = OpticsMainWindow(make_display([], []))
+    window2 = make_window()
     _trigger_measurement_plane(window2)
     window2.load_stack(out_path)
 
     assert len(window2.planes) == 2
     assert window2.planes[0].o[2] == pytest.approx(-3.0)
     assert window2.planes[1].o[2] == pytest.approx(-4.0)
-    window2.close()
 
 
-def test_load_project_invalid_source_keeps_state(qt_app, repo_root, tmp_path):
-    window = OpticsMainWindow(make_display([], []))
+def test_load_project_invalid_source_keeps_state(window, repo_root, tmp_path):
     window.load_stack(repo_root / "tests" / "test_stack.json")
     elements_before = window.elements
 
@@ -660,18 +599,9 @@ def test_load_project_invalid_source_keeps_state(qt_app, repo_root, tmp_path):
 
     assert window.elements == elements_before
     assert len(window.elements) == 2
-    window.close()
 
 
-def test_save_as_empty_stack_warns(qt_app, tmp_path, monkeypatch):
-    window = OpticsMainWindow(make_display([], []))
-
-    warnings = []
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox,
-        "warning",
-        staticmethod(lambda *args, **kwargs: warnings.append(args)),
-    )
+def test_save_as_empty_stack_warns(window, tmp_path, monkeypatch, captured_warnings):
     dialog_calls = []
     monkeypatch.setattr(
         QtWidgets.QFileDialog,
@@ -681,10 +611,9 @@ def test_save_as_empty_stack_warns(qt_app, tmp_path, monkeypatch):
 
     _trigger_save_as(window)
 
-    assert warnings, "expected a warning dialog when no stack is loaded"
+    assert captured_warnings, "expected a warning dialog when no stack is loaded"
     assert not dialog_calls, "save dialog should not open when no stack is loaded"
     assert not list(tmp_path.iterdir())
-    window.close()
 
 
 def _source_editor(window):
@@ -704,47 +633,37 @@ def _click_source(window, role):
     _source_editor(window)["buttons"].button(role).click()
 
 
-def test_source_editor_enabled_without_stack(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_source_editor_enabled_without_stack(window):
     editor = _source_editor(window)
     assert editor["type"].isEnabled()
     assert editor["buttons"].isEnabled()
-    window.close()
 
 
-def test_source_panel_populated_with_defaults(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_source_panel_populated_with_defaults(window):
     editor = _source_editor(window)
     assert editor["type"].currentText() == "Single Point"
     assert editor["power"].value() == pytest.approx(1.0)
     assert editor["cone"].value() == pytest.approx(60.0)
     assert editor["rays"].value() == 16
     assert editor["z"].value() == pytest.approx(3.0)
-    window.close()
 
 
-def test_point_array_option_disabled(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_point_array_option_disabled(window):
     combo = _source_editor(window)["type"]
     item = combo.model().item(combo.findText("Point Array"))
     assert not item.isEnabled()
-    window.close()
 
 
-def test_source_sphere_drawn_at_startup(qt_app):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
-    assert _mesh_count(canvas.view) == 1
-    window.close()
+def test_source_sphere_drawn_at_startup(window):
+    assert _mesh_count(window.canvas.view) == 1
 
 
-def test_source_ok_applies_changes(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_source_ok_applies_changes(window):
     editor = _source_editor(window)
     editor["rays"].setValue(8)
     editor["z"].setValue(5.0)
     editor["power"].setValue(2.5)
-    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_source(window, OK)
 
     assert window.source.num_rays == 8
     assert window.source.power == pytest.approx(2.5)
@@ -752,143 +671,113 @@ def test_source_ok_applies_changes(qt_app):
     assert len(window.rays) == 8
     assert all(ray.origin[2] == pytest.approx(5.0) for ray in window.rays)
     assert "Updated light source (8 rays)" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_source_cancel_reverts_edits(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_source_cancel_reverts_edits(window):
     editor = _source_editor(window)
     original = editor["rays"].value()
     editor["rays"].setValue(original + 10)
-    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+    _click_source(window, CANCEL)
 
     assert editor["rays"].value() == original
     assert window.source.num_rays == original
-    window.close()
 
 
-def test_source_ok_retraces_rays(qt_app, repo_root):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
+def test_source_ok_retraces_rays(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     editor = _source_editor(window)
     editor["rays"].setValue(4)
-    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_source(window, OK)
 
     assert len(window.rays) == 4
-    assert _mesh_count(canvas.view) >= 7
-    window.close()
+    assert _mesh_count(window.canvas.view) >= 7
 
 
-def test_source_survives_stack_reload(qt_app, repo_root):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
+def test_source_survives_stack_reload(window, repo_root):
     editor = _source_editor(window)
     editor["rays"].setValue(6)
-    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_source(window, OK)
 
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     assert window.source.num_rays == 6
     assert len(window.rays) == 6
-    assert _mesh_count(canvas.view) >= 7
-    window.close()
+    assert _mesh_count(window.canvas.view) >= 7
 
 
-def test_source_cone_angle_applies(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_source_cone_angle_applies(window):
     editor = _source_editor(window)
     editor["cone"].setValue(90.0)
-    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_source(window, OK)
 
     assert window.source.cone_angle == pytest.approx(90.0)
     assert len(window.rays) == 16
     cos_half = np.cos(np.deg2rad(45.0))
     assert all(ray.direction[2] <= -cos_half + 1e-12 for ray in window.rays)
-    window.close()
 
 
-def test_source_cone_angle_cancel_reverts(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_source_cone_angle_cancel_reverts(window):
     editor = _source_editor(window)
     editor["cone"].setValue(45.0)
-    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+    _click_source(window, CANCEL)
 
     assert editor["cone"].value() == pytest.approx(60.0)
     assert window.source.cone_angle == pytest.approx(60.0)
-    window.close()
 
 
 def _trigger_measurement_plane(window):
-    menu = window.findChild(QtWidgets.QMenu, "menuMeasure")
-    assert menu is not None
-    matches = [a for a in menu.actions() if a.objectName() == "actionMeasurement_Plane"]
-    assert matches, "actionMeasurement_Plane missing from Measure menu"
-    matches[0].trigger()
+    _trigger(window, "menuMeasure", "actionMeasurement_Plane")
 
 
-def test_measure_menu_has_action(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_measure_menu_has_action(window):
     menu_bar = window.findChild(QtWidgets.QMenuBar, "menubar")
     measure_menu = menu_bar.findChild(QtWidgets.QMenu, "menuMeasure")
     assert measure_menu is not None
     assert not measure_menu.isEmpty()
     assert any(a.objectName() == "actionMeasurement_Plane" for a in measure_menu.actions())
-    window.close()
 
 
-def test_measurement_plane_action_adds_plane(qt_app, repo_root):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
+def test_measurement_plane_action_adds_plane(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
-    meshes_before = _mesh_count(canvas.view)
+    meshes_before = _mesh_count(window.canvas.view)
 
     _trigger_measurement_plane(window)
 
     assert len(window.planes) == 1
-    assert _mesh_count(canvas.view) == meshes_before + 1
+    assert _mesh_count(window.canvas.view) == meshes_before + 1
     assert "Added plane1" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_multiple_measurement_planes_offset(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_multiple_measurement_planes_offset(window):
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
 
     assert len(window.planes) == 2
     assert window.planes[0].o[2] != window.planes[1].o[2]
-    window.close()
 
 
-def test_measurement_plane_persists_across_reload(qt_app, repo_root):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
+def test_measurement_plane_persists_across_reload(window, repo_root):
     _trigger_measurement_plane(window)
 
     window.load_stack(repo_root / "tests" / "test_stack.json")
 
     assert len(window.planes) == 1
-    assert _mesh_count(canvas.view) >= 7
-    window.close()
+    assert _mesh_count(window.canvas.view) >= 7
 
 
-def test_measurement_plane_remeasures_on_source_change(qt_app, repo_root):
-    canvas = make_display([], [])
-    window = OpticsMainWindow(canvas)
+def test_measurement_plane_remeasures_on_source_change(window, repo_root):
     window.load_stack(repo_root / "tests" / "test_stack.json")
     _trigger_measurement_plane(window)
 
     editor = _source_editor(window)
     editor["rays"].setValue(8)
     editor["cone"].setValue(30.0)
-    _click_source(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_source(window, OK)
 
     assert len(window.planes) == 1
     assert window.plane_results[0].grid.shape == (64, 64)
     assert window.plane_results[0].grid.sum() >= 0.0
-    window.close()
 
 
 def _plane_editor(window):
@@ -917,18 +806,15 @@ def _click_plane(window, role):
     _plane_editor(window)["buttons"].button(role).click()
 
 
-def test_plane_editor_disabled_without_planes(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_editor_disabled_without_planes(window):
     editor = _plane_editor(window)
     assert not editor["selector"].isEnabled()
     assert not editor["remove"].isEnabled()
     assert not editor["resolution"][0].isEnabled()
     assert not editor["buttons"].isEnabled()
-    window.close()
 
 
-def test_add_plane_populates_selector_and_fields(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_add_plane_populates_selector_and_fields(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
@@ -937,105 +823,84 @@ def test_add_plane_populates_selector_and_fields(qt_app):
     assert editor["pos"][2].value() == pytest.approx(-3.0)
     assert editor["normal"][2].value() == pytest.approx(1.0)
     assert [spin.value() for spin in editor["resolution"]] == [64, 64]
-    window.close()
 
 
-def test_plane_ok_applies_position(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_ok_applies_position(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
     editor["pos"][2].setValue(-5.0)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_plane(window, OK)
 
     assert window.planes[0].o[2] == pytest.approx(-5.0)
     assert "Updated properties for plane1" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_plane_ok_applies_normal(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_ok_applies_normal(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
     editor["normal"][2].setValue(0.5)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_plane(window, OK)
 
     assert window.planes[0].n[2] == pytest.approx(1.0)
-    window.close()
 
 
-def test_plane_ok_applies_resolution(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_ok_applies_resolution(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
     editor["resolution"][0].setValue(32)
     editor["resolution"][1].setValue(16)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_plane(window, OK)
 
     assert window.planes[0].ru == 32
     assert window.planes[0].rv == 16
     assert window.plane_results[0].grid.shape == (16, 32)
     assert "Updated properties for plane1" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_plane_resolution_repopulates_on_switch(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_resolution_repopulates_on_switch(window):
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
     editor["selector"].setCurrentText("plane1")
     editor["resolution"][0].setValue(8)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_plane(window, OK)
 
     editor["selector"].setCurrentText("plane2")
     assert editor["resolution"][0].value() == 64
     editor["selector"].setCurrentText("plane1")
     assert editor["resolution"][0].value() == 8
-    window.close()
 
 
-def test_plane_invalid_normal_warns_and_keeps(qt_app, monkeypatch):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_invalid_normal_warns_and_keeps(window, captured_warnings):
     _trigger_measurement_plane(window)
-
-    warnings = []
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox,
-        "warning",
-        staticmethod(lambda *args, **kwargs: warnings.append(args)),
-    )
 
     editor = _plane_editor(window)
     editor["normal"][0].setValue(1.0)
     editor["normal"][2].setValue(0.0)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_plane(window, OK)
 
-    assert warnings, "expected a warning for an invalid plane normal"
+    assert captured_warnings, "expected a warning for an invalid plane normal"
     np.testing.assert_allclose(window.planes[0].n, [0.0, 0.0, 1.0], atol=1e-9)
     assert "Updated properties" not in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_plane_cancel_reverts_edits(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_cancel_reverts_edits(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
     original = editor["pos"][2].value()
     editor["pos"][2].setValue(original - 2.0)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+    _click_plane(window, CANCEL)
 
     assert editor["pos"][2].value() == pytest.approx(original)
     assert window.planes[0].o[2] == pytest.approx(original)
-    window.close()
 
 
-def test_plane_selector_switches_fields(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_selector_switches_fields(window):
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
 
@@ -1045,11 +910,9 @@ def test_plane_selector_switches_fields(qt_app):
     assert editor["pos"][2].value() == pytest.approx(-3.0)
     editor["selector"].setCurrentText("plane2")
     assert editor["pos"][2].value() == pytest.approx(-4.0)
-    window.close()
 
 
-def test_remove_plane_button(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_remove_plane_button(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
@@ -1059,11 +922,9 @@ def test_remove_plane_button(qt_app):
     assert editor["selector"].count() == 0
     assert not editor["selector"].isEnabled()
     assert "Removed plane1" in window.statusBar().currentMessage()
-    window.close()
 
 
-def test_remove_selected_plane_keeps_others(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_remove_selected_plane_keeps_others(window):
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
 
@@ -1074,7 +935,6 @@ def test_remove_selected_plane_keeps_others(qt_app):
     assert len(window.planes) == 1
     assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane2"]
     assert window.planes[0].o[2] == pytest.approx(-4.0)
-    window.close()
 
 
 def _plane_image_label(window):
@@ -1093,15 +953,12 @@ def _plane_view_size(window):
     return pixmap.width(), pixmap.height()
 
 
-def test_plane_view_empty_without_planes(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_view_empty_without_planes(window):
     pixmap = _plane_view_pixmap(window)
     assert pixmap is None or pixmap.isNull()
-    window.close()
 
 
-def test_add_plane_populates_plane_view(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_add_plane_populates_plane_view(window):
     _trigger_measurement_plane(window)
 
     assert _plane_view_size(window) == (64, 64)
@@ -1114,24 +971,20 @@ def test_add_plane_populates_plane_view(qt_app):
     assert brightest.green() == pytest.approx(231, abs=2)
     assert brightest.blue() == pytest.approx(37, abs=2)
     assert image.pixelColor(0, 0) != brightest
-    window.close()
 
 
-def test_plane_view_updates_after_apply(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_view_updates_after_apply(window):
     _trigger_measurement_plane(window)
 
     editor = _plane_editor(window)
     editor["resolution"][0].setValue(32)
     editor["resolution"][1].setValue(16)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_plane(window, OK)
 
     assert _plane_view_size(window) == (32, 16)
-    window.close()
 
 
-def test_plane_view_follows_selector(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_view_follows_selector(window):
     _trigger_measurement_plane(window)
     _trigger_measurement_plane(window)
 
@@ -1139,18 +992,16 @@ def test_plane_view_follows_selector(qt_app):
     editor["selector"].setCurrentText("plane1")
     editor["resolution"][0].setValue(8)
     editor["resolution"][1].setValue(4)
-    _click_plane(window, QtWidgets.QDialogButtonBox.StandardButton.Ok)
+    _click_plane(window, OK)
 
     assert _plane_view_size(window) == (8, 4)
     editor["selector"].setCurrentText("plane2")
     assert _plane_view_size(window) == (64, 64)
     editor["selector"].setCurrentText("plane1")
     assert _plane_view_size(window) == (8, 4)
-    window.close()
 
 
-def test_plane_view_clears_when_last_plane_removed(qt_app):
-    window = OpticsMainWindow(make_display([], []))
+def test_plane_view_clears_when_last_plane_removed(window):
     _trigger_measurement_plane(window)
     assert _plane_view_size(window) == (64, 64)
 
@@ -1159,23 +1010,24 @@ def test_plane_view_clears_when_last_plane_removed(qt_app):
 
     pixmap = _plane_view_pixmap(window)
     assert pixmap is None or pixmap.isNull()
-    window.close()
 
 
-def test_fit_rect_locks_aspect():
-    # Square image in a wide box: square, centered, touching top & bottom.
-    x, y, w, h = _fit_rect(400, 200, 1.0)
-    assert (w, h) == (200, 200)
-    assert (x, y) == (100, 0)
-    # Aspect matching the box fills it exactly.
-    assert _fit_rect(400, 200, 2.0) == (0, 0, 400, 200)
-    # Wide image in a tall box: full width, letterboxed vertically.
-    x, y, w, h = _fit_rect(200, 400, 2.0)
-    assert (w, h) == (200, 100)
-    assert (x, y) == (0, 150)
-    # Degenerate inputs produce an empty rect.
-    assert _fit_rect(0, 200, 1.0) == (0, 0, 0, 0)
-    assert _fit_rect(200, 200, float("nan")) == (0, 0, 0, 0)
+@pytest.mark.parametrize(
+    ("box", "aspect", "expected"),
+    [
+        # Square image in a wide box: square, centered, touching top & bottom.
+        ((400, 200), 1.0, (100, 0, 200, 200)),
+        # Aspect matching the box fills it exactly.
+        ((400, 200), 2.0, (0, 0, 400, 200)),
+        # Wide image in a tall box: full width, letterboxed vertically.
+        ((200, 400), 2.0, (0, 150, 200, 100)),
+        # Degenerate inputs produce an empty rect.
+        ((0, 200), 1.0, (0, 0, 0, 0)),
+        ((200, 200), float("nan"), (0, 0, 0, 0)),
+    ],
+)
+def test_fit_rect_locks_aspect(box, aspect, expected):
+    assert _fit_rect(box[0], box[1], aspect) == expected
 
 
 def _solid_image(color):
@@ -1184,45 +1036,48 @@ def _solid_image(color):
     return QtGui.QPixmap.fromImage(image)
 
 
-def test_plane_view_locks_display_aspect(qt_app):
-    label = _AspectLabel()
-    label.resize(400, 200)
+def _grab_painted(label, color):
     label.show()
-    qt_app.processEvents()
-    label.set_aspect(1.0)
-    label.setPixmap(_solid_image(QtGui.QColor(255, 0, 0, 255)))
-    qt_app.processEvents()
+    qt_process = QtWidgets.QApplication.instance()
+    qt_process.processEvents()
+    label.setPixmap(_solid_image(QtGui.QColor(*color)))
+    qt_process.processEvents()
     image = label.grab().toImage().convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
 
-    def is_red(x, y):
+    def is_painted(x, y):
         c = image.pixelColor(x, y)
-        return c.red() > 128 and c.green() < 128 and c.blue() < 128
+        channels = (c.red(), c.green(), c.blue())
+        dominant = max(range(3), key=lambda i: channels[i])
+        return channels[dominant] > 128 and all(
+            channels[i] < 128 for i in range(3) if i != dominant
+        )
 
-    w, h = image.width(), image.height()
-    assert w > h
-    assert is_red(w // 2, h // 2)
-    assert is_red(w // 2, 2) and is_red(w // 2, h - 3)  # full height painted
-    assert not is_red(2, h // 2) and not is_red(w - 3, h // 2)  # side letterbox bars empty
-    label.close()
+    return image, is_painted
 
 
-def test_plane_view_aspect_tracks_u_v_extent(qt_app):
+@pytest.mark.parametrize(
+    ("size", "aspect", "color", "fills"),
+    [
+        # Square image in a wide box: full height painted, side bars empty.
+        ((400, 200), 1.0, (255, 0, 0, 255), "height"),
+        # Wide image in a tall box: full width painted, top/bottom bars empty.
+        ((200, 400), 2.0, (0, 255, 0, 255), "width"),
+    ],
+)
+def test_plane_view_letterboxes_to_aspect(qt_app, size, aspect, color, fills):
     label = _AspectLabel()
-    label.resize(200, 400)
-    label.show()
-    qt_app.processEvents()
-    label.set_aspect(2.0)
-    label.setPixmap(_solid_image(QtGui.QColor(0, 255, 0, 255)))
-    qt_app.processEvents()
-    image = label.grab().toImage().convertToFormat(QtGui.QImage.Format.Format_RGBA8888)
-
-    def is_green(x, y):
-        c = image.pixelColor(x, y)
-        return c.green() > 128 and c.red() < 128 and c.blue() < 128
+    label.resize(*size)
+    label.set_aspect(aspect)
+    image, is_painted = _grab_painted(label, color)
 
     w, h = image.width(), image.height()
-    assert h > w
-    assert is_green(w // 2, h // 2)
-    assert is_green(2, h // 2) and is_green(w - 3, h // 2)  # full width painted
-    assert not is_green(w // 2, 2) and not is_green(w // 2, h - 3)  # top/bottom bars empty
+    assert is_painted(w // 2, h // 2)
+    if fills == "height":
+        assert w > h
+        assert is_painted(w // 2, 2) and is_painted(w // 2, h - 3)
+        assert not is_painted(2, h // 2) and not is_painted(w - 3, h // 2)
+    else:
+        assert h > w
+        assert is_painted(2, h // 2) and is_painted(w - 3, h // 2)
+        assert not is_painted(w // 2, 2) and not is_painted(w // 2, h - 3)
     label.close()

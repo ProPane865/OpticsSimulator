@@ -1,5 +1,8 @@
-// Damped Newton iteration: residual/jacobian assembly and the line-search
-// driver shared by the intersection and inversion kernels.
+// Damped Newton iteration: the problem-specific residual/jacobian assembly
+// and the line-search driver shared by the intersection and inversion
+// kernels (explicitly instantiated for the two problem strategies).
+#include "newton_detail.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -36,70 +39,66 @@ double max_abs(const double* x, int n) {
     return m;
 }
 
-SmallVec residual_vec(int kind, const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
-                      double x_target, double y_target, const double* x) {
+}  // namespace
+
+SmallVec IntersectProblem::residual(const double* x) const {
     SmallVec f;
-    if (kind == kNewtonIntersect) {
-        f.n = 3;
-        const Vec3 w = desc_point(desc, x[1], x[2]);
-        const double t = x[0];
-        f.v[0] = w[0] - (o[0] + t * d[0]);
-        f.v[1] = w[1] - (o[1] + t * d[1]);
-        f.v[2] = w[2] - (o[2] + t * d[2]);
-    } else {
-        f.n = 2;
-        const Vec3 p = desc_eval(desc, x[0], x[1]);
-        f.v[0] = p[0] - x_target;
-        f.v[1] = p[1] - y_target;
-    }
+    f.n = n;
+    const Vec3 w = desc_point(desc, x[1], x[2]);
+    const double t = x[0];
+    f.v[0] = w[0] - (o[0] + t * d[0]);
+    f.v[1] = w[1] - (o[1] + t * d[1]);
+    f.v[2] = w[2] - (o[2] + t * d[2]);
     return f;
 }
 
-SmallMat jacobian_mat(int kind, const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
-                      double x_target, double y_target, const double* x) {
+SmallMat IntersectProblem::jacobian(const double* x) const {
     SmallMat j;
-    if (kind == kNewtonIntersect) {
-        const auto rv = desc_derivatives(desc, x[1], x[2]);
-        const Vec3 ru = rv.first;
-        const Vec3 rrv = rv.second;
-        const Vec3 cu = desc.transform.vector_to_world(ru);
-        const Vec3 cv = desc.transform.vector_to_world(rrv);
-        j.rows = j.cols = 3;
-        j.at(0, 0) = -d[0];
-        j.at(1, 0) = -d[1];
-        j.at(2, 0) = -d[2];
-        j.at(0, 1) = cu[0];
-        j.at(1, 1) = cu[1];
-        j.at(2, 1) = cu[2];
-        j.at(0, 2) = cv[0];
-        j.at(1, 2) = cv[1];
-        j.at(2, 2) = cv[2];
-    } else {
-        const auto rv = desc_derivatives(desc, x[0], x[1]);
-        const Vec3 ru = rv.first;
-        const Vec3 rrv = rv.second;
-        j.rows = j.cols = 2;
-        j.at(0, 0) = ru[0];
-        j.at(0, 1) = rrv[0];
-        j.at(1, 0) = ru[1];
-        j.at(1, 1) = rrv[1];
-    }
-    (void)o;
-    (void)d;
-    (void)x_target;
-    (void)y_target;
+    const auto rv = desc_derivatives(desc, x[1], x[2]);
+    const Vec3 cu = desc.transform.vector_to_world(rv.first);
+    const Vec3 cv = desc.transform.vector_to_world(rv.second);
+    j.rows = j.cols = n;
+    j.at(0, 0) = -d[0];
+    j.at(1, 0) = -d[1];
+    j.at(2, 0) = -d[2];
+    j.at(0, 1) = cu[0];
+    j.at(1, 1) = cu[1];
+    j.at(2, 1) = cu[2];
+    j.at(0, 2) = cv[0];
+    j.at(1, 2) = cv[1];
+    j.at(2, 2) = cv[2];
     return j;
 }
 
-}  // namespace
+SmallVec XYProblem::residual(const double* x) const {
+    SmallVec f;
+    f.n = n;
+    const Vec3 p = desc_eval(desc, x[0], x[1]);
+    f.v[0] = p[0] - x_target;
+    f.v[1] = p[1] - y_target;
+    return f;
+}
 
-std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, const Vec3& o,
-                                         const Vec3& d, double x_target, double y_target,
-                                         const double* x0, int n0, bool clamp) {
+SmallMat XYProblem::jacobian(const double* x) const {
+    SmallMat j;
+    const auto rv = desc_derivatives(desc, x[0], x[1]);
+    const Vec3 ru = rv.first;
+    const Vec3 rvv = rv.second;
+    j.rows = j.cols = n;
+    j.at(0, 0) = ru[0];
+    j.at(0, 1) = rvv[0];
+    j.at(1, 0) = ru[1];
+    j.at(1, 1) = rvv[1];
+    return j;
+}
+
+template <typename Problem>
+std::optional<NewtonResult> newton_run(const Problem& problem, const double* x0, bool clamp) {
+    constexpr int n0 = Problem::n;
     std::vector<double> x(x0, x0 + n0);
     int status = SOLVER_EXH;
     int damped = 0;
-    SmallVec f = residual_vec(kind, desc, o, d, x_target, y_target, x.data());
+    SmallVec f = problem.residual(x.data());
     for (int iter = 0; iter < MAX_NEWTON_ITER; ++iter) {
         if (!all_finite(f)) {
             return std::nullopt;
@@ -108,7 +107,7 @@ std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, cons
         if (f_norm < CONVERGED_F_NORM) {
             return NewtonResult{x, f_norm, SOLVER_CONV};
         }
-        SmallMat j = jacobian_mat(kind, desc, o, d, x_target, y_target, x.data());
+        SmallMat j = problem.jacobian(x.data());
         for (int r = 0; r < j.rows; ++r) {
             for (int c = 0; c < j.cols; ++c) {
                 if (!std::isfinite(j.at(r, c))) {
@@ -135,7 +134,7 @@ std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, cons
         for (int i = 0; i < n0; ++i) {
             trial[static_cast<std::size_t>(i)] = x[static_cast<std::size_t>(i)] + delta->v[i];
         }
-        SmallVec ft = residual_vec(kind, desc, o, d, x_target, y_target, trial.data());
+        SmallVec ft = problem.residual(trial.data());
         while (!all_finite(ft)) {
             step *= 0.5;
             if (step < NEWTON_MIN_STEP) {
@@ -145,7 +144,7 @@ std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, cons
                 trial[static_cast<std::size_t>(i)] =
                     x[static_cast<std::size_t>(i)] + step * delta->v[i];
             }
-            ft = residual_vec(kind, desc, o, d, x_target, y_target, trial.data());
+            ft = problem.residual(trial.data());
         }
         if (step < 1.0) {
             damped += 1;
@@ -173,5 +172,9 @@ std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, cons
     }
     return NewtonResult{std::move(x), vec_norm(f), status};
 }
+
+template std::optional<NewtonResult> newton_run<IntersectProblem>(const IntersectProblem&,
+                                                                   const double*, bool);
+template std::optional<NewtonResult> newton_run<XYProblem>(const XYProblem&, const double*, bool);
 
 }  // namespace optics::native

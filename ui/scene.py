@@ -56,10 +56,6 @@ class SceneController:
     def canvas(self) -> Any:
         return self._canvas
 
-    @property
-    def view(self) -> Any:
-        return self._view
-
     # -- full / partial rebuilds --------------------------------------------
     def full_rebuild(
         self,
@@ -90,14 +86,11 @@ class SceneController:
         self,
         starts: Any,
         ends: Any,
-        kinds: Any,
         counts: Any,
     ) -> None:
         """Redraw rays from a precomputed trace (shared with plane measurement)."""
         visualize.remove_nodes(self._ray_nodes)
-        self._ray_nodes = visualize.build_ray_nodes_from_segments(
-            self._view, starts, ends, kinds, counts
-        )
+        self._ray_nodes = visualize.build_ray_nodes_from_segments(self._view, starts, ends, counts)
 
     # -- elements ------------------------------------------------------------
     def add_element_nodes(self, element: RefractiveElement) -> None:

@@ -12,47 +12,31 @@ import math
 
 import numpy as np
 from PySide6 import QtGui, QtWidgets
-from vispy.color import get_colormap
 
 from optics.measurement_plane import MeasurementResult
+from rendering.colormaps import MEASUREMENT_IDLE_RGB, colormap_lut, normalize_irradiance, sample_lut
 
 __all__ = ["PlaneView", "PLANE_VIEW_COLORMAP"]
 
 PLANE_VIEW_COLORMAP = "viridis"
-# Idle detector tint; matches MEASUREMENT_COLOR in rendering.visualize.
-_EMPTY_RGB = (128, 128, 141)
-
-_LUT_SIZE = 256
-_COLORMAP_LUTS: dict[str, np.ndarray] = {}
-
-
-def _colormap_lut(name: str) -> np.ndarray:
-    """Cached 256-entry uint8 RGB LUT for ``name``."""
-    lut = _COLORMAP_LUTS.get(name)
-    if lut is None:
-        lut = np.rint(
-            np.asarray(get_colormap(name).map(np.linspace(0.0, 1.0, _LUT_SIZE)), dtype=float)[..., :3]
-            * 255.0
-        ).astype(np.uint8)
-        _COLORMAP_LUTS[name] = lut
-    return lut
+# Idle detector tint; derived from MEASUREMENT_COLOR in rendering.visualize.
+_EMPTY_RGB = MEASUREMENT_IDLE_RGB
 
 
 def _result_rgba(result: MeasurementResult) -> np.ndarray:
     """``(rv, ru, 4)`` uint8 RGBA raster of the detector image, v-axis up.
 
     Normalizes by the image maximum and color-maps like the 3D detector mesh
-    (:func:`rendering.visualize._measurement_vertex_colors`); a zero-power
-    image falls back to the idle measurement color.
+    (both via :mod:`rendering.colormaps`); a zero-power image falls back to
+    the idle measurement color.
     """
     irradiance = result.irradiance()
-    vmax = float(np.nanmax(irradiance)) if irradiance.size else 0.0
-    if np.isfinite(vmax) and vmax > 0.0:
-        normalized = np.clip(irradiance / vmax, 0.0, 1.0)
-        lut = _colormap_lut(PLANE_VIEW_COLORMAP)
-        rgb = lut[np.rint(normalized * (len(lut) - 1)).astype(np.intp)]
-    else:
+    normalized = normalize_irradiance(irradiance)
+    if normalized is None:
         rgb = np.tile(np.asarray(_EMPTY_RGB, dtype=np.uint8), irradiance.shape + (1,))
+    else:
+        lut = colormap_lut(PLANE_VIEW_COLORMAP, uint8_rgb=True)
+        rgb = sample_lut(lut, normalized).reshape(irradiance.shape + (3,))
     alpha = np.full(irradiance.shape, 255, dtype=np.uint8)
     return np.ascontiguousarray(np.dstack([np.flipud(rgb), alpha]))
 
@@ -88,7 +72,6 @@ class _AspectLabel(QtWidgets.QLabel):
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("planeImageLabel")
-        self.setScaledContents(False)
         self._aspect = 1.0
 
     def set_aspect(self, aspect: float) -> None:

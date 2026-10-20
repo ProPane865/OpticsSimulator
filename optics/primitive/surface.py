@@ -49,19 +49,11 @@ class Surface:
     def _aperture_params(self) -> "tuple[float, float, float]":
         """Circular aperture slots ``(radius, cx, cy)`` for the native kernels.
 
-        ``(-1, 0, 0)`` encodes "no aperture". Raises :class:`ValueError` when
-        the surface carries an aperture the kernels cannot encode, so such a
-        surface cannot take part in a native trace.
+        ``(-1, 0, 0)`` encodes "no aperture".
         """
         if self.aperture is None:
             return -1.0, 0.0, 0.0
-        params = self.aperture.native_params()
-        if params is None:
-            raise ValueError(
-                "Aperture type is not supported by the native surface kernels"
-            )
-        ap_r, ap_cx, ap_cy = params
-        return float(ap_r), float(ap_cx), float(ap_cy)
+        return self.aperture.native_params()
 
     @property
     def native_surface(self) -> "_native.NativeSurface":

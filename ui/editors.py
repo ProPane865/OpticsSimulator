@@ -6,6 +6,10 @@ remain descendants of the main window (they are looked up by object name via
 :class:`~ui.model.ProjectState`, requests redraws from the
 :class:`~ui.scene.SceneController`, and posts status text, so the window itself
 stays a thin composition root.
+
+The element and plane editors share a selector-driven lifecycle (enable from
+selection, apply/remove/add round-trips) captured once in
+:class:`_SelectorEditor`; the source editor is a singleton form.
 """
 
 from __future__ import annotations
@@ -41,8 +45,20 @@ SOURCE_TYPE_BY_LABEL = {
 LABEL_BY_SOURCE_TYPE = {value: key for key, value in SOURCE_TYPE_BY_LABEL.items()}
 
 
-class ElementEditor:
-    """Editor for a single refractive element's lens properties."""
+class _SelectorEditor:
+    """Controller skeleton for editors driven by a selection combo box.
+
+    Subclasses provide the widget object names, the selector item names and
+    field population, and implement ``_build_current`` / ``_commit_current`` /
+    ``_remove_selected`` / ``_build_new`` / ``_register_new`` used by the
+    shared apply/remove/add templates. Subclasses should call
+    :meth:`set_enabled` once their own widgets exist (forms start disabled).
+    """
+
+    ADD_TITLE: str
+    ADD_MESSAGE: str
+    APPLY_TITLE: str
+    APPLY_MESSAGE: str
 
     def __init__(
         self,
@@ -50,30 +66,25 @@ class ElementEditor:
         state: ProjectState,
         scene: SceneController,
         set_status: Callable[[str], None],
-        refresh_trace: Callable[[], None],
+        selector_name: str,
+        remove_name: str,
+        button_box_name: str,
+        pos_prefix: str,
+        normal_prefix: str,
     ) -> None:
         self._window = window
         self._state = state
         self._scene = scene
         self._set_status = set_status
-        self._refresh_trace = refresh_trace
-
-        self._selector = find_child(window, QtWidgets.QComboBox, "lensSelector")
-        self._index_spin = find_child(window, QtWidgets.QDoubleSpinBox, "refractiveIndexSpin")
-        self._radius_spin = find_child(window, QtWidgets.QDoubleSpinBox, "apertureRadiusSpin")
-        self._surface1_edit = find_child(window, QtWidgets.QLineEdit, "surface1Edit")
-        self._surface2_edit = find_child(window, QtWidgets.QLineEdit, "surface2Edit")
+        self._selector = find_child(window, QtWidgets.QComboBox, selector_name)
+        self._remove_button = find_child(window, QtWidgets.QPushButton, remove_name)
+        self._button_box = find_child(window, QtWidgets.QDialogButtonBox, button_box_name)
         self._pos_spins: tuple[QtWidgets.QDoubleSpinBox, ...] = tuple(
-            find_child(window, QtWidgets.QDoubleSpinBox, f"elementPos{axis}Spin") for axis in "XYZ"
+            find_child(window, QtWidgets.QDoubleSpinBox, f"{pos_prefix}{axis}Spin") for axis in "XYZ"
         )
         self._normal_spins: tuple[QtWidgets.QDoubleSpinBox, ...] = tuple(
-            find_child(window, QtWidgets.QDoubleSpinBox, f"elementNormal{axis}Spin") for axis in "XYZ"
+            find_child(window, QtWidgets.QDoubleSpinBox, f"{normal_prefix}{axis}Spin") for axis in "XYZ"
         )
-        self._button_box = find_child(window, QtWidgets.QDialogButtonBox, "lensButtonBox")
-        self._remove_button = find_child(window, QtWidgets.QPushButton, "removeElementButton")
-
-        configure_spin(self._index_spin, 1.0, 3.0, 0.01)
-        configure_spin(self._radius_spin, 0.01, 10.0, 0.05)
         for spin in self._pos_spins:
             configure_spin(spin, -100.0, 100.0, 0.1)
         for spin in self._normal_spins:
@@ -83,34 +94,139 @@ class ElementEditor:
         self._remove_button.clicked.connect(self.remove_current)
         self._button_box.accepted.connect(self.apply)
         self._button_box.rejected.connect(self.populate_fields)
-        self.set_enabled(False)
 
-    def _widgets(self) -> tuple[QtWidgets.QWidget, ...]:
-        return (
-            self._selector,
-            self._remove_button,
-            self._index_spin,
-            self._radius_spin,
-            self._surface1_edit,
-            self._surface2_edit,
-            *self._pos_spins,
-            *self._normal_spins,
-            self._button_box,
-        )
-
+    # -- shared controller plumbing -------------------------------------------
     def set_enabled(self, enabled: bool) -> None:
         enable_widgets(self._widgets(), enabled)
 
     def populate_selector(self) -> None:
-        schema = self._state.schema or {}
         self._selector.blockSignals(True)
         self._selector.clear()
-        self._selector.addItems(list(schema.keys()))
+        self._selector.addItems(list(self._selector_names()))
         self._selector.blockSignals(False)
-        has_lenses = self._selector.count() > 0
-        self.set_enabled(has_lenses)
-        if has_lenses:
+        has_items = self._selector.count() > 0
+        self.set_enabled(has_items)
+        if has_items:
             self.populate_fields()
+        else:
+            self._on_no_selection()
+
+    def select(self, name: str) -> None:
+        self._selector.setCurrentText(name)
+        self.populate_fields()
+
+    def apply(self) -> None:
+        built = run_validated(
+            self._window,
+            self._build_current,
+            title=self.APPLY_TITLE,
+            message=self.APPLY_MESSAGE,
+        )
+        if built is None:
+            return
+        self._commit_current(built)
+
+    def remove_current(self) -> None:
+        name = self._remove_selected()
+        if name is None:
+            return
+        self._after_removal()
+        self.populate_selector()
+        self._set_status(f"Removed {name}")
+
+    def add(self) -> None:
+        built = run_validated(
+            self._window,
+            self._build_new,
+            title=self.ADD_TITLE,
+            message=self.ADD_MESSAGE,
+        )
+        if built is None:
+            return
+        name = self._register_new(built)
+        self.populate_selector()
+        self.select(name)
+        self._set_status(f"Added {name}")
+
+    # -- hooks ------------------------------------------------------------------
+    def _widgets(self) -> tuple[QtWidgets.QWidget, ...]:
+        return (
+            self._selector,
+            self._remove_button,
+            *self._pos_spins,
+            *self._normal_spins,
+            self._button_box,
+            *self._extra_widgets(),
+        )
+
+    def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
+        return ()
+
+    def _selector_names(self) -> list[str]:
+        raise NotImplementedError
+
+    def populate_fields(self, *_: object) -> None:
+        raise NotImplementedError
+
+    def _on_no_selection(self) -> None:
+        pass
+
+    def _build_current(self) -> Any:
+        raise NotImplementedError
+
+    def _commit_current(self, built: Any) -> None:
+        raise NotImplementedError
+
+    def _remove_selected(self) -> str | None:
+        """Remove the selected object (scene + state); return its name, if any."""
+        raise NotImplementedError
+
+    def _after_removal(self) -> None:
+        pass
+
+    def _build_new(self) -> Any:
+        raise NotImplementedError
+
+    def _register_new(self, built: Any) -> str:
+        raise NotImplementedError
+
+
+class ElementEditor(_SelectorEditor):
+    """Editor for a single refractive element's lens properties."""
+
+    ADD_TITLE = "Invalid Element Properties"
+    ADD_MESSAGE = "Could not add optical element"
+    APPLY_TITLE = "Invalid Lens Properties"
+    APPLY_MESSAGE = "Could not apply lens properties"
+
+    def __init__(
+        self,
+        window: QtWidgets.QMainWindow,
+        state: ProjectState,
+        scene: SceneController,
+        set_status: Callable[[str], None],
+        refresh_trace: Callable[[], None],
+    ) -> None:
+        super().__init__(
+            window, state, scene, set_status, "lensSelector", "removeElementButton", "lensButtonBox",
+            "elementPos", "elementNormal",
+        )
+        self._refresh_trace = refresh_trace
+
+        self._index_spin = find_child(window, QtWidgets.QDoubleSpinBox, "refractiveIndexSpin")
+        self._radius_spin = find_child(window, QtWidgets.QDoubleSpinBox, "apertureRadiusSpin")
+        self._surface1_edit = find_child(window, QtWidgets.QLineEdit, "surface1Edit")
+        self._surface2_edit = find_child(window, QtWidgets.QLineEdit, "surface2Edit")
+
+        configure_spin(self._index_spin, 1.0, 3.0, 0.01)
+        configure_spin(self._radius_spin, 0.01, 10.0, 0.05)
+        self.set_enabled(False)
+
+    def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
+        return (self._index_spin, self._radius_spin, self._surface1_edit, self._surface2_edit)
+
+    def _selector_names(self) -> list[str]:
+        return list((self._state.schema or {}).keys())
 
     def populate_fields(self, *_: object) -> None:
         schema = self._state.schema
@@ -132,38 +248,31 @@ class ElementEditor:
         for spin, value in zip(self._normal_spins, orientation):
             spin.setValue(float(value))
 
-    def apply(self) -> None:
+    def _build_current(self) -> tuple[str, dict[str, Any], Any] | None:
         schema = self._state.schema
         if not schema:
-            return
+            return None
         name = self._selector.currentText()
         if name not in schema:
-            return
+            return None
+        config = copy.deepcopy(schema[name])
+        config["material"]["refractive_index"] = float(self._index_spin.value())
+        config["surface1"]["z"] = self._surface1_edit.text()
+        config["surface2"]["z"] = self._surface2_edit.text()
+        config["position"] = [float(spin.value()) for spin in self._pos_spins]
+        config["orientation"] = [float(spin.value()) for spin in self._normal_spins]
+        radius = float(self._radius_spin.value())
+        for key in ("surface1", "surface2"):
+            aperture = config[key].get("aperture")
+            if aperture is None:
+                aperture = {"type": "circular"}
+                config[key]["aperture"] = aperture
+            aperture["radius"] = radius
+        return name, config, refractive_element_from_config(config)
 
-        def build() -> tuple[Any, Any]:
-            config = copy.deepcopy(schema[name])
-            config["material"]["refractive_index"] = float(self._index_spin.value())
-            config["surface1"]["z"] = self._surface1_edit.text()
-            config["surface2"]["z"] = self._surface2_edit.text()
-            config["position"] = [float(spin.value()) for spin in self._pos_spins]
-            config["orientation"] = [float(spin.value()) for spin in self._normal_spins]
-            radius = float(self._radius_spin.value())
-            for key in ("surface1", "surface2"):
-                aperture = config[key].get("aperture")
-                if aperture is None:
-                    aperture = {"type": "circular"}
-                    config[key]["aperture"] = aperture
-                aperture["radius"] = radius
-            return config, refractive_element_from_config(config)
-
-        result = run_validated(
-            self._window, build, title="Invalid Lens Properties", message="Could not apply lens properties"
-        )
-        if result is None:
-            return
-        config, element = result
-        old_config = (self._state.schema or {}).get(name)
-        kind = classify_element_edit(old_config, config)
+    def _commit_current(self, built: tuple[str, dict[str, Any], Any]) -> None:
+        name, config, element = built
+        kind = classify_element_edit((self._state.schema or {}).get(name), config)
         index = self._state.replace_element(name, config, element)
         if kind == "none":
             self._set_status(f"No changes to {name}")
@@ -173,41 +282,31 @@ class ElementEditor:
         self._refresh_trace()
         self._set_status(f"Updated properties for {name}")
 
-    def remove_current(self) -> None:
+    def _remove_selected(self) -> str | None:
         schema = self._state.schema
         if not schema:
-            return
+            return None
         name = self._selector.currentText()
         if name not in schema:
-            return
-        index = list(schema.keys()).index(name)
-        self._scene.remove_element_nodes(index)
+            return None
+        self._scene.remove_element_nodes(list(schema.keys()).index(name))
         self._state.remove_element(name)
+        return name
+
+    def _after_removal(self) -> None:
         self._refresh_trace()
-        self.populate_selector()
-        self._set_status(f"Removed {name}")
 
-    def select(self, name: str) -> None:
-        self._selector.setCurrentText(name)
-        self.populate_fields()
-
-    def add(self) -> None:
+    def _build_new(self) -> tuple[str, dict[str, Any], Any]:
         name = self._state.new_element_name()
         config = copy.deepcopy(DEFAULT_ELEMENT_CONFIG)
-        element = run_validated(
-            self._window,
-            lambda: refractive_element_from_config(config),
-            title="Invalid Element Properties",
-            message="Could not add optical element",
-        )
-        if element is None:
-            return
+        return name, config, refractive_element_from_config(config)
+
+    def _register_new(self, built: tuple[str, dict[str, Any], Any]) -> str:
+        name, config, element = built
         self._state.add_element(name, config, element)
         self._scene.add_element_nodes(element)
         self._refresh_trace()
-        self.populate_selector()
-        self.select(name)
-        self._set_status(f"Added {name}")
+        return name
 
 
 class SourceEditor:
@@ -288,8 +387,13 @@ class SourceEditor:
         self._set_status(f"Updated light source ({len(rays)} rays)")
 
 
-class PlaneEditor:
+class PlaneEditor(_SelectorEditor):
     """Editor for adding, editing and removing measurement planes."""
+
+    ADD_TITLE = "Invalid Measurement Plane"
+    ADD_MESSAGE = "Could not add measurement plane"
+    APPLY_TITLE = "Invalid Measurement Plane Properties"
+    APPLY_MESSAGE = "Could not apply measurement plane properties"
 
     def __init__(
         self,
@@ -299,63 +403,28 @@ class PlaneEditor:
         set_status: Callable[[str], None],
         update_view: Callable[[], None],
     ) -> None:
-        self._window = window
-        self._state = state
-        self._scene = scene
-        self._set_status = set_status
+        super().__init__(
+            window, state, scene, set_status, "planeSelectorCombo", "removePlaneButton", "planeButtonBox",
+            "planePos", "planeNormal",
+        )
         self._update_view = update_view
 
-        self._selector = find_child(window, QtWidgets.QComboBox, "planeSelectorCombo")
-        self._remove_button = find_child(window, QtWidgets.QPushButton, "removePlaneButton")
-        self._pos_spins: tuple[QtWidgets.QDoubleSpinBox, ...] = tuple(
-            find_child(window, QtWidgets.QDoubleSpinBox, f"planePos{axis}Spin") for axis in "XYZ"
-        )
-        self._normal_spins: tuple[QtWidgets.QDoubleSpinBox, ...] = tuple(
-            find_child(window, QtWidgets.QDoubleSpinBox, f"planeNormal{axis}Spin") for axis in "XYZ"
-        )
         self._resolution_spins: tuple[QtWidgets.QSpinBox, ...] = (
             find_child(window, QtWidgets.QSpinBox, "planeResUSpin"),
             find_child(window, QtWidgets.QSpinBox, "planeResVSpin"),
         )
-        self._button_box = find_child(window, QtWidgets.QDialogButtonBox, "planeButtonBox")
-
-        for spin in self._pos_spins:
-            configure_spin(spin, -100.0, 100.0, 0.1)
-        for spin in self._normal_spins:
-            configure_spin(spin, -1.0, 1.0, 0.1, decimals=3)
         for res_spin in self._resolution_spins:
             configure_spin(res_spin, 1, 512)
-
-        self._selector.currentIndexChanged.connect(self.populate_fields)
-        self._remove_button.clicked.connect(self.remove_current)
-        self._button_box.accepted.connect(self.apply)
-        self._button_box.rejected.connect(self.populate_fields)
         self.set_enabled(False)
 
-    def _widgets(self) -> tuple[QtWidgets.QWidget, ...]:
-        return (
-            self._selector,
-            self._remove_button,
-            *self._pos_spins,
-            *self._normal_spins,
-            *self._resolution_spins,
-            self._button_box,
-        )
+    def _extra_widgets(self) -> tuple[QtWidgets.QWidget, ...]:
+        return self._resolution_spins
 
-    def set_enabled(self, enabled: bool) -> None:
-        enable_widgets(self._widgets(), enabled)
+    def _selector_names(self) -> list[str]:
+        return list(self._state.plane_names)
 
-    def populate_selector(self) -> None:
-        self._selector.blockSignals(True)
-        self._selector.clear()
-        self._selector.addItems(self._state.plane_names)
-        self._selector.blockSignals(False)
-        has_planes = self._selector.count() > 0
-        self.set_enabled(has_planes)
-        if has_planes:
-            self.populate_fields()
-        else:
-            self._update_view()
+    def _on_no_selection(self) -> None:
+        self._update_view()
 
     def selected_index(self) -> int:
         return self._selector.currentIndex()
@@ -375,72 +444,50 @@ class PlaneEditor:
             res_spin.setValue(int(value))
         self._update_view()
 
-    def apply(self) -> None:
+    def _build_current(self) -> tuple[int, MeasurementPlane, MeasurementResult] | None:
         index = self._selector.currentIndex()
         planes = self._state.planes
         if index < 0 or index >= len(planes):
-            return
+            return None
         old = planes[index]
-
-        def build() -> tuple[MeasurementPlane, MeasurementResult]:
-            updated = MeasurementPlane(
-                origin=np.array([spin.value() for spin in self._pos_spins]),
-                normal=np.array([spin.value() for spin in self._normal_spins]),
-                u_range=(old.u_min, old.u_max),
-                v_range=(old.v_min, old.v_max),
-                resolution=[spin.value() for spin in self._resolution_spins],
-            )
-            result = self._state.measure_plane(updated)
-            return updated, result
-
-        applied = run_validated(
-            self._window,
-            build,
-            title="Invalid Measurement Plane Properties",
-            message="Could not apply measurement plane properties",
+        updated = MeasurementPlane(
+            origin=np.array([spin.value() for spin in self._pos_spins]),
+            normal=np.array([spin.value() for spin in self._normal_spins]),
+            u_range=(old.u_min, old.u_max),
+            v_range=(old.v_min, old.v_max),
+            resolution=[spin.value() for spin in self._resolution_spins],
         )
-        if applied is None:
-            return
-        updated, result = applied
+        return index, updated, self._state.measure_plane(updated)
+
+    def _commit_current(self, built: tuple[int, MeasurementPlane, MeasurementResult]) -> None:
+        index, updated, result = built
         self._state.replace_plane(index, updated, result)
         self._scene.replace_plane_nodes(index, updated, result)
         self._update_view()
         self._set_status(f"Updated properties for {self._state.plane_names[index]}")
 
-    def remove_current(self) -> None:
+    def _remove_selected(self) -> str | None:
         index = self._selector.currentIndex()
         if index < 0 or index >= len(self._state.planes):
-            return
+            return None
         name = self._state.plane_names[index]
         self._scene.remove_plane_nodes(index)
         self._state.remove_plane(index)
-        self.populate_selector()
-        self._set_status(f"Removed {name}")
+        return name
 
-    def select(self, name: str) -> None:
-        self._selector.setCurrentText(name)
-        self.populate_fields()
-
-    def add(self) -> None:
+    def _build_new(self) -> MeasurementPlane:
         config = copy.deepcopy(DEFAULT_MEASUREMENT_CONFIG)
         config["origin"][2] -= float(len(self._state.planes))
-        plane = run_validated(
-            self._window,
-            lambda: MeasurementPlane(
-                origin=np.asarray(config["origin"], dtype=float),
-                normal=np.asarray(config["normal"], dtype=float),
-                u_range=config["u_range"],
-                v_range=config["v_range"],
-                resolution=config["resolution"],
-            ),
-            title="Invalid Measurement Plane",
-            message="Could not add measurement plane",
+        return MeasurementPlane(
+            origin=np.asarray(config["origin"], dtype=float),
+            normal=np.asarray(config["normal"], dtype=float),
+            u_range=config["u_range"],
+            v_range=config["v_range"],
+            resolution=config["resolution"],
         )
-        if plane is None:
-            return
+
+    def _register_new(self, built: MeasurementPlane) -> str:
         name = self._state.new_plane_name()
-        result = self._state.add_plane(name, plane)
-        self._scene.add_plane_nodes(plane, result)
-        self.populate_selector()
-        self.select(name)
-        self._set_status(f"Added {name}")
+        result = self._state.add_plane(name, built)
+        self._scene.add_plane_nodes(built, result)
+        return name

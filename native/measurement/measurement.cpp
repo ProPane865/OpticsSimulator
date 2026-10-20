@@ -1,6 +1,6 @@
-// Batch measurement kernels: plane power accumulation, direct and
-// stack-traced plane intersection, and the fused single-trace rendering +
-// all-planes pass.
+// Batch measurement kernels: plane power accumulation, direct plane
+// intersection, and the shared-walk single-trace passes that hit every plane
+// off one stack trace (including the fused rendering + all-planes pass).
 #include "optics/measurement/measurement.hpp"
 
 #include <algorithm>
@@ -16,12 +16,12 @@
 namespace optics::native {
 namespace {
 
-// The ray that reaches the plane, read off the shared walk. Mirrors
-// ``trace_stack_to_plane`` exactly: at each gap, the plane is measured there
-// when no element is entered before the crossing (crossing t <= entry_t, or
-// parallel with no element); otherwise the element's internal segments are
-// checked (in extent and within the segment), continuing to the next gap on
-// exit. Returns ``false`` when the ray never reaches the plane.
+// The ray that reaches the plane, read off the shared walk: at each gap, the
+// plane is measured there when no element is entered before the crossing
+// (crossing t <= entry_t, or parallel with no element); otherwise the
+// element's internal segments are checked (in extent and within the segment),
+// continuing to the next gap on exit. Returns ``false`` when the ray never
+// reaches the plane.
 bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
                         const PlaneRegion& region, double eps, double* u, double* v) {
     for (const RayHop& h : hops) {
@@ -59,6 +59,26 @@ bool measure_hops_plane(const RayHops& hops, const Vec3& po, const Vec3& pn,
         }
     }
     return false;
+}
+
+// Measure one traced ray (``hops``) against every plane, writing plane-major
+// ``(P, N)`` hits into ``out`` (misses keep the caller-provided values).
+void measure_all_planes(const RayHops& hops, const RayBatchView& rays, std::size_t i,
+                        const PlaneBatchView& planes, double eps,
+                        const MeasurementOutputView& out) {
+    for (std::size_t q = 0; q < planes.count; ++q) {
+        double u = 0.0;
+        double v = 0.0;
+        const PlaneRegion region{planes.u_min[q], planes.u_max[q], planes.v_min[q],
+                                 planes.v_max[q]};
+        if (measure_hops_plane(hops, as_vec3(planes.origins + 3 * q),
+                               as_vec3(planes.normals + 3 * q), region, eps, &u, &v)) {
+            const std::size_t idx = q * rays.count + i;
+            out.us[idx] = u;
+            out.vs[idx] = v;
+            out.powers[idx] = rays.powers[i];
+        }
+    }
 }
 
 }  // namespace
@@ -105,51 +125,13 @@ void measure_direct(const RayBatchView& rays, const Vec3& o, const Vec3& nrm, do
     });
 }
 
-void measure_stack(const TraceStack& stack, const RayBatchView& rays, const Vec3& o,
-                   const Vec3& nrm, double eps, const PlaneRegion& region,
-                   MeasurementOutputView out) {
-    run_chunks(rays.count, [&](std::size_t lo, std::size_t hi) {
-        const TraceOptions options{0.0, eps};
-        for (std::size_t i = lo; i < hi; ++i) {
-            Vec3 out_o;
-            Vec3 out_d;
-            const bool found =
-                trace_stack_to_plane(stack, as_vec3(rays.origins + 3 * i),
-                                     as_vec3(rays.directions + 3 * i), o, nrm, region, options,
-                                     out_o, out_d);
-            if (!found) {
-                continue;
-            }
-            const std::optional<std::array<double, 3>> hit =
-                plane_intersect(out_o, out_d, o, nrm, eps);
-            if (hit.has_value()) {
-                out.us[i] = hit->at(0);
-                out.vs[i] = hit->at(1);
-                out.powers[i] = rays.powers[i];
-            }
-        }
-    });
-}
-
 void measure_planes_multi(const TraceStack& stack, const RayBatchView& rays,
                           const PlaneBatchView& planes, double eps, MeasurementOutputView out) {
     run_chunks(rays.count, [&](std::size_t lo, std::size_t hi) {
         for (std::size_t i = lo; i < hi; ++i) {
             const RayHops hops =
                 build_hops(stack, as_vec3(rays.origins + 3 * i), as_vec3(rays.directions + 3 * i));
-            for (std::size_t q = 0; q < planes.count; ++q) {
-                double u = 0.0;
-                double v = 0.0;
-                const PlaneRegion region{planes.u_min[q], planes.u_max[q], planes.v_min[q],
-                                         planes.v_max[q]};
-                if (measure_hops_plane(hops, as_vec3(planes.origins + 3 * q),
-                                       as_vec3(planes.normals + 3 * q), region, eps, &u, &v)) {
-                    const std::size_t idx = q * rays.count + i;
-                    out.us[idx] = u;
-                    out.vs[idx] = v;
-                    out.powers[idx] = rays.powers[i];
-                }
-            }
+            measure_all_planes(hops, rays, i, planes, eps, out);
         }
     });
 }
@@ -165,20 +147,7 @@ void trace_segments_and_planes(const TraceStack& stack, const RayBatchView& rays
                 format_segments(hops, options.ray_length, segments.starts + 3 * segments.capacity * i,
                                 segments.ends + 3 * segments.capacity * i,
                                 segments.kinds + segments.capacity * i, segments.capacity);
-            for (std::size_t q = 0; q < planes.count; ++q) {
-                double u = 0.0;
-                double v = 0.0;
-                const PlaneRegion region{planes.u_min[q], planes.u_max[q], planes.v_min[q],
-                                         planes.v_max[q]};
-                if (measure_hops_plane(hops, as_vec3(planes.origins + 3 * q),
-                                       as_vec3(planes.normals + 3 * q), region,
-                                       options.plane_eps, &u, &v)) {
-                    const std::size_t idx = q * rays.count + i;
-                    measurement.us[idx] = u;
-                    measurement.vs[idx] = v;
-                    measurement.powers[idx] = rays.powers[i];
-                }
-            }
+            measure_all_planes(hops, rays, i, planes, options.plane_eps, measurement);
         }
     });
 }

@@ -117,7 +117,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         # otherwise use the separate measure/retrace paths.
         if rays and planes:
             origins, dirs, powers = state.rays_arrays()
-            starts, ends, kinds, counts, us, vs, pws = system.trace_segments_and_planes(
+            starts, ends, _kinds, counts, us, vs, pws = system.trace_segments_and_planes(
                 origins, dirs, powers, RAY_LENGTH, planes
             )
             results = []
@@ -126,13 +126,12 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
                 result.accumulate(us[q], vs[q], pws[q])
                 results.append(result)
             state.set_plane_results(results)
-            self._scene.retrace_from_segments(starts, ends, kinds, counts)
-            self._scene.rebuild_planes(planes, results)
-            self._update_plane_view()
-            return
-        state.measure_all()
-        self._scene.retrace(system, rays)
-        self._scene.rebuild_planes(planes, state.plane_results)
+            self._scene.retrace_from_segments(starts, ends, counts)
+        else:
+            state.measure_all()
+            results = state.plane_results
+            self._scene.retrace(system, rays)
+        self._scene.rebuild_planes(planes, results)
         self._update_plane_view()
 
     def _set_status(self, message: str) -> None:
@@ -197,14 +196,20 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         return path
 
     # -- menu / dialog handlers ---------------------------------------------
+    _JSON_FILTER = "JSON files (*.json);;All files (*)"
+
+    def _pick_json_path(self, mode: str) -> Path | None:
+        """Ask for a JSON path via the open/save dialog; ``None`` if cancelled."""
+        if mode == "open":
+            title, dialog = "Open Optical Stack", QtWidgets.QFileDialog.getOpenFileName
+        else:
+            title, dialog = "Save Optical Stack", QtWidgets.QFileDialog.getSaveFileName
+        path, _ = dialog(self, title, str(Path.home()), self._JSON_FILTER)
+        return Path(path) if path else None
+
     def _on_open(self) -> None:
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "Open Optical Stack",
-            str(Path.home()),
-            "JSON files (*.json);;All files (*)",
-        )
-        if not path:
+        path = self._pick_json_path("open")
+        if path is None:
             return
         run_validated(
             self,
@@ -222,15 +227,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
                 "No optical stack is loaded.",
             )
             return
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self,
-            "Save Optical Stack",
-            str(Path.home()),
-            "JSON files (*.json);;All files (*)",
-        )
-        if not path:
+        save_path = self._pick_json_path("save")
+        if save_path is None:
             return
-        save_path = Path(path)
         if not save_path.suffix:
             save_path = save_path.with_suffix(".json")
         run_validated(

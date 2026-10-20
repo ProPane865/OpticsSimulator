@@ -3,16 +3,11 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
+#include "optics/common/constants.hpp"
 #include "optics/common/vector.hpp"
 
 namespace optics::native {
-namespace {
-
-constexpr double kInf = std::numeric_limits<double>::infinity();
-
-}  // namespace
 
 std::optional<MeshHit> mesh_intersect(const Vec3& o, const Vec3& d,
                                       const std::vector<double>& tri, double det_eps,

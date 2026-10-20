@@ -13,20 +13,13 @@
 
 namespace optics::native {
 
-// Newton problem selector.
-enum NewtonKind { kNewtonIntersect = 0, kNewtonXY = 1 };
-
+// Result of one damped Newton run (iteration layout shared by the problem
+// strategies in ``intersection/newton_detail.hpp``).
 struct NewtonResult {
     std::vector<double> x;
     double f_norm = 0.0;
     int status = SOLVER_EXH;
 };
-
-// Damped Newton iteration for ``residual(x) = 0``. ``o``/``d`` are the ray
-// state for the intersection problem; ``x0``/``n0`` is the raw initial guess.
-std::optional<NewtonResult> newton_solve(int kind, const SurfaceDesc& desc, const Vec3& o,
-                                         const Vec3& d, double x_target, double y_target,
-                                         const double* x0, int n0, bool clamp);
 
 // Full ray/surface Newton solve from one seed (``_newton_intersection_kernel``).
 // (The ``HitUV`` result layout lives in ``intersection/grid.hpp``.)

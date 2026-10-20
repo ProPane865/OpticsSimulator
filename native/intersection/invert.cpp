@@ -2,7 +2,6 @@
 // seed and from the grid-seeded nearest-sample search.
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -10,20 +9,19 @@
 #include "optics/common/constants.hpp"
 #include "optics/intersection/solver.hpp"
 
+#include "newton_detail.hpp"
+
 namespace optics::native {
 namespace {
 
-constexpr double kInf = std::numeric_limits<double>::infinity();
 constexpr double kTwoPi = 6.28318530717958647692528676655900577;
 
 }  // namespace
 
 std::optional<std::pair<double, double>> solve_xy(const SurfaceDesc& desc, double x_target,
                                                   double y_target, double u, double v) {
-    const Vec3 zero = make_vec3(0.0, 0.0, 0.0);
     const double x0[2] = {u, v};
-    std::optional<NewtonResult> res =
-        newton_solve(kNewtonXY, desc, zero, zero, x_target, y_target, x0, 2, false);
+    std::optional<NewtonResult> res = newton_run(XYProblem{desc, x_target, y_target}, x0, false);
     if (!res.has_value()) {
         return std::nullopt;
     }

@@ -2,8 +2,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .ray import Ray
-
 
 @dataclass(frozen=True)
 class Transform:
@@ -41,10 +39,3 @@ class Transform:
 
     def vector_to_local(self, v: np.ndarray) -> np.ndarray:
         return self.rotation.T @ v
-
-    def ray_to_local(self, ray: Ray) -> Ray:
-        return Ray(
-            self.point_to_local(ray.origin),
-            self.vector_to_local(ray.direction),
-            ray.power,
-        )

@@ -31,48 +31,14 @@ def _rim_key(surface: "Surface", aperture: "CircularAperture", n: int) -> tuple:
     )
 
 
-class Aperture:
-    def contains(self, surface: "Surface", u: float, v: float) -> bool:
-        raise NotImplementedError
+class CircularAperture:
+    """A circular clear aperture in surface-local coordinates.
 
-    def mask(
-        self,
-        surface: "Surface",
-        U: np.ndarray,
-        V: np.ndarray,
-        X: np.ndarray,
-        Y: np.ndarray,
-        Z: np.ndarray,
-    ) -> np.ndarray:
-        """Vectorized aperture membership over parameter arrays ``U``/``V``.
+    This is the only aperture kind the native kernels can encode; every
+    membership test, rim solve and native parameter path follows from the
+    radius/center pair validated at construction.
+    """
 
-        The default implementation evaluates :meth:`contains` point by point;
-        subclasses override it with a vectorized form for speed. ``X``/``Y``/``Z``
-        are the local-space surface points, available for apertures that test
-        geometry directly.
-        """
-        U = np.asarray(U, dtype=float)
-        V = np.asarray(V, dtype=float)
-        U, V = np.broadcast_arrays(U, V)
-        out = np.array(
-            [bool(self.contains(surface, u, v)) for u, v in zip(U.ravel(), V.ravel())],
-            dtype=bool,
-        )
-        return out.reshape(U.shape)
-
-    def boundary(self, surface: "Surface", n: int = _c.APERTURE_BOUNDARY_N) -> np.ndarray:
-        raise NotImplementedError
-
-    def native_params(self) -> "tuple[float, float, float] | None":
-        """Circular slots ``(radius, cx, cy)`` for the native kernels.
-
-        ``None`` for aperture types the kernels cannot encode; building the
-        surface's native object then fails, and the stack cannot trace.
-        """
-        return None
-
-
-class CircularAperture(Aperture):
     radius: float
     center: np.ndarray
 
@@ -95,7 +61,7 @@ class CircularAperture(Aperture):
         dx = p[0] - self.center[0]
         dy = p[1] - self.center[1]
 
-        return dx ** 2 + dy ** 2 <= self.radius ** 2 + _c.APERTURE_EPS
+        return dx**2 + dy**2 <= self.radius**2 + _c.APERTURE_EPS
 
     def mask(
         self,
@@ -106,19 +72,13 @@ class CircularAperture(Aperture):
         Y: np.ndarray,
         Z: np.ndarray,
     ) -> np.ndarray:
-        finite = (
-            np.isfinite(X)
-            & np.isfinite(Y)
-            & np.isfinite(Z)
-        )
+        """Vectorized aperture membership over local-space surface points."""
+        finite = np.isfinite(X) & np.isfinite(Y) & np.isfinite(Z)
 
         dx = X - self.center[0]
         dy = Y - self.center[1]
 
-        return (
-            finite
-            & (dx ** 2 + dy ** 2 <= self.radius ** 2 + _c.APERTURE_EPS)
-        )
+        return finite & (dx**2 + dy**2 <= self.radius**2 + _c.APERTURE_EPS)
 
     def boundary(self, surface: "Surface", n: int = _c.APERTURE_BOUNDARY_N) -> np.ndarray:
         key = _rim_key(surface, self, n)
@@ -144,4 +104,9 @@ class CircularAperture(Aperture):
         return surface.transform.points_to_world(local)
 
     def native_params(self) -> "tuple[float, float, float]":
+        """Circular slots ``(radius, cx, cy)`` for the native kernels."""
         return self.radius, float(self.center[0]), float(self.center[1])
+
+
+# Backwards-compatible name for annotations of the (single) aperture type.
+Aperture = CircularAperture

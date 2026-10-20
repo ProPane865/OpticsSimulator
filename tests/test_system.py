@@ -2,11 +2,9 @@
 traces across independently constructed systems."""
 
 import numpy as np
-import pytest
 
-from optics.element import RefractiveElement
 from optics.measurement_plane import MeasurementPlane
-from optics.primitive import Aperture, Material, Ray, Surface
+from optics.primitive import Ray
 from optics.system import OpticalSystem
 
 RAY_LENGTH = 2.5
@@ -69,18 +67,6 @@ class TestConstruction:
         system_total = result.accumulate(us[0], vs[0], pws[0])
         assert direct_total > 0.0
         assert system_total == direct_total
-
-    def test_construction_validates_unsupported_aperture(self):
-        ap = Aperture()  # base aperture: native_params() -> None
-        s1 = Surface(
-            "u", "v", "0.4", u_range=(-1.5, 1.5), v_range=(-1.5, 1.5), aperture=ap
-        )
-        s2 = Surface(
-            "u", "v", "-0.4", u_range=(-1.5, 1.5), v_range=(-1.5, 1.5), aperture=ap
-        )
-        element = RefractiveElement(s1, s2, Material(1.5))
-        with pytest.raises(ValueError):
-            OpticalSystem([element])
 
 
 class TestDeterminism:

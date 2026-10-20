@@ -102,15 +102,6 @@ PYBIND11_MODULE(_native, m) {
         }
     });
 
-    m.def("norm", [](const py::array_t<double>& v) {
-        const ConstDoubles d = read_doubles(v, 1, "v");
-        require(d.size == 3, "v: expected shape (3,)");
-        Vec3 a;
-        a[0] = d.data[0];
-        a[1] = d.data[1];
-        a[2] = d.data[2];
-        return optics::native::norm(a);
-    });
     m.def(
         "normalize",
         [](const py::array_t<double>& v) { return np3(optics::native::normalize_vector(to_vec3(v, "v"))); });

@@ -14,6 +14,21 @@ if TYPE_CHECKING:
 _EPS = _c.PLANE_EPS
 
 
+def _rays_to_arrays(
+    rays: Sequence[Ray],
+) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+    """Contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers for ``rays``."""
+    if rays:
+        origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
+        dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
+        powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
+    else:
+        origins = np.empty((0, 3), dtype=float)
+        dirs = np.empty((0, 3), dtype=float)
+        powers = np.empty((0,), dtype=float)
+    return origins, dirs, powers
+
+
 class MeasurementPlane:
     """A planar detector parametrized as a graph over world XY.
 
@@ -170,10 +185,7 @@ class MeasurementPlane:
         """Trace rays through ``system`` and accumulate power into ``result``."""
         if not rays:
             return result
-        origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
-        dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
-        powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
-        self._accumulate(result, origins, dirs, powers, system)
+        self._accumulate(result, *_rays_to_arrays(rays), system)
         return result
 
     def measure(
@@ -196,15 +208,9 @@ class MeasurementPlane:
         plane_list = list(planes)
         if not plane_list:
             return []
-        if rays:
-            origins = np.ascontiguousarray([r.origin for r in rays], dtype=float)
-            dirs = np.ascontiguousarray([r.direction for r in rays], dtype=float)
-            powers = np.ascontiguousarray([r.power for r in rays], dtype=float)
-        else:
-            origins = np.empty((0, 3), dtype=float)
-            dirs = np.empty((0, 3), dtype=float)
-            powers = np.empty((0,), dtype=float)
-        return MeasurementPlane.measure_batch_arrays(plane_list, origins, dirs, powers, system)
+        return MeasurementPlane.measure_batch_arrays(
+            plane_list, *_rays_to_arrays(rays), system
+        )
 
     @staticmethod
     def measure_batch_arrays(

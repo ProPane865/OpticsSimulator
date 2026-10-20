@@ -118,26 +118,16 @@ class Surface {
     static std::shared_ptr<const Surface> create_with_model(std::shared_ptr<const SurfaceModel> model,
                                                             Options options);
 
-    const Options& options() const { return opt_; }
+    // The flattened kernel descriptor and the seed grid; local geometry,
+    // membership (``desc_accepts``) and world/local mapping go through them.
     const SurfaceDesc& desc() const { return *desc_; }
     const SeedGrid& grid() const { return *grid_; }
 
-    // Compiled local geometry.
-    Vec3 eval_local(double u, double v) const;
-    void eval_grid(const double* us, const double* vs, std::size_t n, double* out) const;
+    // Model-level tangents and descriptor-level tangents (interior pull-back
+    // policy) / world-space unit normal (``nullopt`` outside the surface).
     std::pair<Vec3, Vec3> derivatives_local(double u, double v) const;
-
-    // Descriptor-level membership and tangents (interior pull-back policy).
-    bool accepts(double u, double v) const;
     std::pair<Vec3, Vec3> derivatives(double u, double v) const;
-
-    // World-space point / unit normal (``nullopt`` outside the surface).
-    Vec3 point(double u, double v) const;
     std::optional<Vec3> normal(double u, double v) const;
-
-    // World <-> local mapping through the surface transform.
-    Vec3 to_world(const Vec3& local) const;
-    Vec3 to_local(const Vec3& world) const;
 
     // Whether the surface is exactly ``(u, v, z(u, v))`` in local space;
     // sampled once at construction (mirror of ``Surface.is_graph_over_xy``).
@@ -153,13 +143,10 @@ class Surface {
     // Aperture rim points (local space); ``rim`` throws
     // ``std::invalid_argument`` when a point does not lie on the surface.
     std::vector<double> rim(double radius, double cx, double cy, int n) const;
-    // The surface's own circular aperture (throws when it has none).
-    std::vector<double> aperture_rim(int n) const;
 
   private:
     explicit Surface(std::shared_ptr<const SurfaceModel> model, Options&& options);
 
-    Options opt_;
     std::shared_ptr<const SurfaceModel> model_;
     std::shared_ptr<SurfaceDesc> desc_;
     std::shared_ptr<SeedGrid> grid_;

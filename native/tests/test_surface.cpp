@@ -1,9 +1,8 @@
-// Persistent native Surface: eager seed grid, domain/aperture membership,
-// transform round-trips, graph-over-xy probe, kernel entry points and the
-// aperture rim.
+// Persistent native Surface: eager seed grid, domain/aperture membership
+// (through the descriptor), transform round-trips, graph-over-xy probe, kernel
+// entry points and the aperture rim.
 #include <cmath>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -16,6 +15,9 @@
 
 namespace {
 
+using optics::native::desc_accepts;
+using optics::native::desc_eval;
+using optics::native::desc_point;
 using optics::native::make_vec3;
 using optics::native::Mat3;
 using optics::native::SEED_GRID_N;
@@ -41,11 +43,11 @@ void test_plane() {
     CHECK(s->grid().p_world.size() == 3 * 16 * 16);
     CHECK(s->grid().uf_valid.size() == 16 * 16);
     CHECK(s->is_graph_over_xy());
-    CHECK(s->accepts(0.0, 0.0));
-    CHECK(s->accepts(1.0, 1.0));
-    CHECK(!s->accepts(1.5, 0.0));
+    CHECK(desc_accepts(s->desc(), 0.0, 0.0));
+    CHECK(desc_accepts(s->desc(), 1.0, 1.0));
+    CHECK(!desc_accepts(s->desc(), 1.5, 0.0));
 
-    const Vec3 p = s->eval_local(0.25, -0.5);
+    const Vec3 p = desc_eval(s->desc(), 0.25, -0.5);
     CHECK(close(p[0], 0.25) && close(p[1], -0.5) && close(p[2], 0.0));
 
     const auto n = s->normal(0.0, 0.0);
@@ -70,15 +72,8 @@ void test_plane() {
         CHECK(close(xy->first, 0.25) && close(xy->second, -0.5));
     }
 
-    // No aperture -> rim accessors refuse.
-    bool threw = false;
-    try {
-        s->aperture_rim(8);
-    } catch (const std::invalid_argument&) {
-        threw = true;
-    }
-    CHECK(threw);
-
+    // No aperture on this surface: the rim kernel still inverts the requested
+    // circle onto the plane itself.
     const std::vector<double> rim = s->rim(1.0, 0.0, 0.0, 8);
     CHECK(rim.size() == 24);
     for (std::size_t i = 0; i + 2 < rim.size(); i += 3) {
@@ -106,9 +101,9 @@ void test_transformed() {
     const auto s = Surface::create(std::move(o));
 
     const Vec3 local = make_vec3(0.1, -0.2, 0.0);
-    const Vec3 world = s->to_world(local);
+    const Vec3 world = s->desc().transform.to_world(local);
     CHECK(close(world[0], 1.1) && close(world[1], 2.0) && close(world[2], 2.8));
-    const Vec3 back = s->to_local(world);
+    const Vec3 back = s->desc().transform.to_local(world);
     CHECK(close(back[0], local[0]) && close(back[1], local[1]) && close(back[2], local[2]));
 
     // Normal is rotated: local (0,0,-1) -> rot * (0,0,-1) = (0, 1, 0).
@@ -137,11 +132,11 @@ void test_aperture() {
     Surface::Options o = plane_opts(3.0);  // domain [-3,3]^2 covers radius 2
     o.aperture_radius = 2.0;
     const auto s = Surface::create(std::move(o));
-    CHECK(s->accepts(1.9, 0.0));
-    CHECK(!s->accepts(2.5, 0.0));
+    CHECK(desc_accepts(s->desc(), 1.9, 0.0));
+    CHECK(!desc_accepts(s->desc(), 2.5, 0.0));
     CHECK(!s->normal(2.5, 0.0).has_value());
 
-    const std::vector<double> rim = s->aperture_rim(16);
+    const std::vector<double> rim = s->rim(2.0, 0.0, 0.0, 16);
     CHECK(rim.size() == 48);
     for (std::size_t i = 0; i + 2 < rim.size(); i += 3) {
         CHECK(close(std::hypot(rim[i], rim[i + 1]), 2.0, 1e-9));
@@ -157,7 +152,7 @@ void test_sphere_intersect() {
     CHECK(hit.has_value());
     if (hit.has_value()) {
         CHECK(close(hit->t, 14.0, 1e-9));
-        const Vec3 p = s->point(hit->u, hit->v);
+        const Vec3 p = desc_point(s->desc(), hit->u, hit->v);
         // Bottom cap of the sphere centered at (0, 0, 1) with R = 5.
         CHECK(close(std::hypot(std::hypot(p[0], p[1]), p[2] - 1.0), 5.0, 1e-9));
     }

@@ -2,41 +2,20 @@
 // intersection: the nearest forward hit over the sampled seed grid.
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <vector>
 
 #include "optics/common/constants.hpp"
+#include "optics/common/numeric.hpp"
 #include "optics/intersection/solver.hpp"
 
+#include "newton_detail.hpp"
+
 namespace optics::native {
-namespace {
-
-constexpr double kInf = std::numeric_limits<double>::infinity();
-
-// ``numpy.linspace(a, b, n)`` (endpoint included; a single sample is ``[a]``).
-void linspace(double a, double b, int n, std::vector<double>& out) {
-    out.assign(static_cast<std::size_t>(n < 0 ? 0 : n), 0.0);
-    if (n <= 0) {
-        return;
-    }
-    if (n == 1) {
-        out[0] = a;
-        return;
-    }
-    const double step = (b - a) / (n - 1);
-    for (int i = 0; i < n; ++i) {
-        out[static_cast<std::size_t>(i)] = a + step * i;
-    }
-    out[static_cast<std::size_t>(n - 1)] = b;
-}
-
-}  // namespace
 
 std::optional<HitUV> newton_intersection(const SurfaceDesc& desc, const Vec3& o, const Vec3& d,
                                          double u, double v, double t) {
     const double x0[3] = {t, u, v};
-    std::optional<NewtonResult> res =
-        newton_solve(kNewtonIntersect, desc, o, d, 0.0, 0.0, x0, 3, true);
+    std::optional<NewtonResult> res = newton_run(IntersectProblem{desc, o, d}, x0, true);
     if (!res.has_value()) {
         return std::nullopt;
     }
@@ -160,10 +139,8 @@ SeedGrid build_seed_grid(const SurfaceDesc& desc, int grid_n) {
     if (grid_n < 1) {
         grid_n = 1;
     }
-    std::vector<double> us;
-    std::vector<double> vs;
-    linspace(desc.u_min, desc.u_max, grid_n, us);
-    linspace(desc.v_min, desc.v_max, grid_n, vs);
+    const std::vector<double> us = linspace(desc.u_min, desc.u_max, grid_n);
+    const std::vector<double> vs = linspace(desc.v_min, desc.v_max, grid_n);
     const std::size_t n = static_cast<std::size_t>(grid_n);
     const std::size_t total = n * n;
     g.uf.resize(total);

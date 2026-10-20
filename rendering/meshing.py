@@ -15,17 +15,17 @@ _MAX_CACHED_MESHES = 64
 _MESH_CACHE: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()
 
 
-def _geometry_key(surface: "Surface", n: int) -> "tuple[object, ...] | None":
-    """Hashable local-geometry signature, or ``None`` if not cacheable."""
+def _geometry_key(surface: "Surface", n: int) -> "tuple[object, ...]":
+    """Hashable local-geometry signature."""
     aperture = surface.aperture
     if aperture is None:
         aperture_key = None
     else:
-        radius = getattr(aperture, "radius", None)
-        center = getattr(aperture, "center", None)
-        if radius is None or center is None:
-            return None  # aperture kinds without a stable key are not cached
-        aperture_key = ("circular", float(radius), float(center[0]), float(center[1]))
+        aperture_key = (
+            float(aperture.radius),
+            float(aperture.center[0]),
+            float(aperture.center[1]),
+        )
     return (
         surface.x_expr,
         surface.y_expr,

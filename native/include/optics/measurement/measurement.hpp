@@ -1,7 +1,7 @@
-// Batch measurement kernels: detector-plane power accumulation, direct and
-// stack-traced plane intersection, and the fused single-trace rendering +
-// all-planes pass (mirrors of the measurement-plane kernels in
-// ``optics/tracing/context.py``).
+// Batch measurement kernels: detector-plane power accumulation, direct plane
+// intersection, the shared-walk multi-plane pass and the fused single-trace
+// rendering + all-planes pass (the kernel side of
+// ``optics.measurement_plane``/``optics.system``).
 //
 // Raw ``double*`` buffers are appropriate only here, at the batch boundary:
 // each view describes a contiguous NumPy-owned buffer already validated by
@@ -67,22 +67,16 @@ double accumulate_power(double* grid, const double* u, const double* v, const do
 void measure_direct(const RayBatchView& rays, const Vec3& o, const Vec3& nrm, double eps,
                     MeasurementOutputView out);
 
-// Trace rays through the stack (parallel), then hit the plane; writes
-// ``(u, v, power)`` per ray, leaving misses as-is.
-void measure_stack(const TraceStack& stack, const RayBatchView& rays, const Vec3& o,
-                   const Vec3& nrm, double eps, const PlaneRegion& region,
-                   MeasurementOutputView out);
-
 // Trace every ray through the stack exactly once (parallel) and evaluate
 // every plane of ``planes`` off that single trace. Output layout is plane-
-// major ``(P, N)`` inside ``out``. Results match independent per-plane
-// ``measure_stack`` calls (the per-plane traversal is a prefix of the full
-// geometric-order walk, so refractions up to each plane are shared).
+// major ``(P, N)`` inside ``out`` (misses keep the caller-provided values).
+// The per-plane traversal is a prefix of the full geometric-order walk, so
+// refractions up to each plane are shared across planes.
 void measure_planes_multi(const TraceStack& stack, const RayBatchView& rays,
                           const PlaneBatchView& planes, double eps, MeasurementOutputView out);
 
 // Single-trace combined path: walks every ray through the stack once and emits
-// both the rendering segment buffers (byte-identical to the per-ray
+// both the rendering segment buffers (the same hop formatting as
 // ``trace_stack_segments``) and the plane measurement buffers.
 void trace_segments_and_planes(const TraceStack& stack, const RayBatchView& rays,
                                const TraceOptions& options, const PlaneBatchView& planes,

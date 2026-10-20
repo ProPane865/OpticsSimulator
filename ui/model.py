@@ -201,16 +201,7 @@ class ProjectState:
         """
         arrays = self._rays_arrays
         if arrays is None:
-            rays = self._rays
-            n = len(rays)
-            origins = np.empty((n, 3), dtype=float)
-            dirs = np.empty((n, 3), dtype=float)
-            powers = np.empty(n, dtype=float)
-            for i, ray in enumerate(rays):
-                origins[i] = ray.origin
-                dirs[i] = ray.direction
-                powers[i] = ray.power
-            arrays = (origins, dirs, powers)
+            arrays = _rays_to_arrays(self._rays)
             self._rays_arrays = arrays
         return arrays
 
@@ -323,20 +314,16 @@ class ProjectState:
         ray_arrays = _rays_to_arrays(new_rays)
 
         if planes is not None:
-            new_planes: list[MeasurementPlane] = []
+            new_planes = [plane for _, plane in planes]
             new_names: list[str] = []
-            new_results: list[MeasurementResult] = []
             used: set[str] = set()
-            for base_name, plane in planes:
+            for base_name, _ in planes:
                 name = unique_name(base_name, used, prefix="plane")
                 used.add(name)
-                new_results.append(
-                    MeasurementPlane.measure_batch_arrays(
-                        [plane], *ray_arrays, new_system
-                    )[0]
-                )
-                new_planes.append(plane)
                 new_names.append(name)
+            new_results = MeasurementPlane.measure_batch_arrays(
+                new_planes, *ray_arrays, new_system
+            )
             replaced = True
         else:
             new_results = MeasurementPlane.measure_batch_arrays(

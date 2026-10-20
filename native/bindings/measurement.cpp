@@ -1,7 +1,7 @@
 // Measurement entry points: detector power accumulation, direct plane
 // measurement, the multi-plane single-trace pass and the fused
-// rendering-segments + planes batch. Stack-traced measurement runs through
-// the multi-plane pass; the single-stack kernel stays internal to C++.
+// rendering-segments + planes batch. All stack-traced measurement runs
+// through the shared-walk kernels.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
@@ -17,6 +17,19 @@ namespace {
 
 using optics::native::TraceStack;
 using namespace optics::bindings;
+
+// Shared ray-fan validation: ``(N, 3)`` origins/directions and ``(N,)``
+// powers read into an SoA view.
+optics::native::RayBatchView read_ray_batch(const py::array_t<double>& origins,
+                                            const py::array_t<double>& dirs,
+                                            const py::array_t<double>& powers) {
+    const ConstDoubles od = read_doubles(origins, 2, "origins");
+    const ConstDoubles dd = read_doubles(dirs, 2, "dirs");
+    const ConstDoubles pw = read_doubles(powers, 1, "powers");
+    const std::size_t n = pw.size;
+    require(od.size == 3 * n && dd.size == 3 * n, "origins/dirs: expected (N, 3)");
+    return {od.data, dd.data, pw.data, n};
+}
 
 double py_accumulate(const py::array_t<double>& grid, const py::array_t<double>& u,
                      const py::array_t<double>& v, const py::array_t<double>& power, double u_min,
@@ -41,17 +54,12 @@ void py_measure_direct(const py::array_t<double>& origins, const py::array_t<dou
                        const py::array_t<double>& powers, const py::array_t<double>& o,
                        const py::array_t<double>& nrm, double eps, const py::array_t<double>& us,
                        const py::array_t<double>& vs, const py::array_t<double>& pws) {
-    const ConstDoubles od = read_doubles(origins, 2, "origins");
-    const ConstDoubles dd = read_doubles(dirs, 2, "dirs");
-    const ConstDoubles pw = read_doubles(powers, 1, "powers");
-    const std::size_t n = pw.size;
-    require(od.size == 3 * n && dd.size == 3 * n, "origins/dirs: expected (N, 3)");
+    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers);
     const Vec3 ov = to_vec3(o, "plane origin");
     const Vec3 nv = to_vec3(nrm, "plane normal");
     double* ud = write_doubles(us, "us");
     double* vd = write_doubles(vs, "vs");
     double* pd = write_doubles(pws, "pws");
-    const optics::native::RayBatchView rays{od.data, dd.data, pw.data, n};
     const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
     optics::native::measure_direct(rays, ov, nv, eps, out);
@@ -91,19 +99,15 @@ void py_measure_planes_multi(const TraceStack& stack, const py::array_t<double>&
                              const py::array_t<double>& v_min, const py::array_t<double>& v_max,
                              double eps, const py::array_t<double>& us,
                              const py::array_t<double>& vs, const py::array_t<double>& pws) {
-    const ConstDoubles od = read_doubles(origins, 2, "origins");
-    const ConstDoubles dd = read_doubles(dirs, 2, "dirs");
-    const ConstDoubles pw = read_doubles(powers, 1, "powers");
-    const std::size_t n = pw.size;
-    require(od.size == 3 * n && dd.size == 3 * n, "origins/dirs: expected (N, 3)");
+    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers);
+    const std::size_t n = rays.count;
     const PlaneArrays planes = read_planes(po, pn, u_min, u_max, v_min, v_max);
     const std::size_t p = planes.p;
     double* ud = write_matrix(us, p, n, "us");
     double* vd = write_matrix(vs, p, n, "vs");
     double* pd = write_matrix(pws, p, n, "pws");
-    const optics::native::RayBatchView rays{od.data, dd.data, pw.data, n};
-    const optics::native::PlaneBatchView plane_view{planes.po,      planes.pn,      planes.u_min,
-                                                    planes.u_max,    planes.v_min,   planes.v_max,
+    const optics::native::PlaneBatchView plane_view{planes.po,   planes.pn,    planes.u_min,
+                                                    planes.u_max, planes.v_min, planes.v_max,
                                                     p};
     const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
@@ -121,38 +125,20 @@ void py_trace_segments_and_planes(const TraceStack& stack, const py::array_t<dou
                                   const py::array_t<std::int64_t>& counts,
                                   const py::array_t<double>& us, const py::array_t<double>& vs,
                                   const py::array_t<double>& pws) {
-    const ConstDoubles od = read_doubles(origins, 2, "origins");
-    const ConstDoubles dd = read_doubles(dirs, 2, "dirs");
-    const ConstDoubles pw = read_doubles(powers, 1, "powers");
-    const std::size_t n = pw.size;
-    require(od.size == 3 * n && dd.size == 3 * n, "origins/dirs: expected (N, 3)");
+    const optics::native::RayBatchView rays = read_ray_batch(origins, dirs, powers);
+    const std::size_t n = rays.count;
     const PlaneArrays planes = read_planes(po, pn, u_min, u_max, v_min, v_max);
     const std::size_t p = planes.p;
-    const py::buffer_info s_info = starts.request();
-    const py::buffer_info e_info = ends.request();
-    const py::buffer_info k_info = kinds.request();
-    const py::buffer_info c_info = counts.request();
-    require(s_info.ndim == 3 && static_cast<std::size_t>(s_info.shape[0]) == n && s_info.shape[2] == 3,
-            "starts: expected shape (N, cap, 3)");
-    require(e_info.ndim == 3 && e_info.size == s_info.size, "ends: expected shape (N, cap, 3)");
-    require(k_info.ndim == 2 && static_cast<std::size_t>(k_info.shape[0]) == n &&
-                static_cast<std::size_t>(k_info.shape[1]) == static_cast<std::size_t>(s_info.shape[1]),
-            "kinds: expected shape (N, cap)");
-    require(c_info.ndim == 1 && static_cast<std::size_t>(c_info.size) == n, "counts: expected (N,)");
-    require(!s_info.readonly && !e_info.readonly && !k_info.readonly && !c_info.readonly,
-            "segment buffers must be writeable");
-    const std::size_t cap = static_cast<std::size_t>(s_info.shape[1]);
+    const SegmentBuffers buffers = read_segment_buffers(starts, ends, kinds, counts, n);
     double* ud = write_matrix(us, p, n, "us");
     double* vd = write_matrix(vs, p, n, "vs");
     double* pd = write_matrix(pws, p, n, "pws");
-    const optics::native::RayBatchView rays{od.data, dd.data, pw.data, n};
-    const optics::native::PlaneBatchView plane_view{planes.po,      planes.pn,      planes.u_min,
-                                                    planes.u_max,    planes.v_min,   planes.v_max,
+    const optics::native::PlaneBatchView plane_view{planes.po,   planes.pn,    planes.u_min,
+                                                    planes.u_max, planes.v_min, planes.v_max,
                                                     p};
     const optics::native::TraceOptions options{ray_length, eps};
-    const optics::native::SegmentOutputView segs{
-        static_cast<double*>(s_info.ptr),      static_cast<double*>(e_info.ptr),
-        static_cast<signed char*>(k_info.ptr), static_cast<std::int64_t*>(c_info.ptr), cap};
+    const optics::native::SegmentOutputView segs{buffers.starts, buffers.ends, buffers.kinds,
+                                                 buffers.counts, buffers.cap};
     const optics::native::MeasurementOutputView out{ud, vd, pd};
     const py::gil_scoped_release release;
     optics::native::trace_segments_and_planes(stack, rays, options, plane_view, segs, out);

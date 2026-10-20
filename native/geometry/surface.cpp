@@ -4,10 +4,10 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
-#include <stdexcept>
 #include <utility>
 
 #include "optics/common/constants.hpp"
+#include "optics/common/numeric.hpp"
 #include "optics/intersection/solver.hpp"
 
 namespace optics::native {
@@ -16,24 +16,6 @@ namespace {
 
 double fd_step(double lo, double hi) {
     return std::max(FD_STEP_REL * std::abs(hi - lo), FD_MIN_STEP);
-}
-
-// ``numpy.linspace(a, b, n)`` (endpoint included).
-std::vector<double> linspace(double a, double b, int n) {
-    std::vector<double> out(static_cast<std::size_t>(n < 0 ? 0 : n), 0.0);
-    if (n <= 0) {
-        return out;
-    }
-    if (n == 1) {
-        out[0] = a;
-        return out;
-    }
-    const double step = (b - a) / (n - 1);
-    for (int i = 0; i < n; ++i) {
-        out[static_cast<std::size_t>(i)] = a + step * i;
-    }
-    out[static_cast<std::size_t>(n - 1)] = b;
-    return out;
 }
 
 // Interior-sample probe for the graph-over-xy flag (mirror of
@@ -237,28 +219,29 @@ std::optional<Vec3> surface_normal(const SurfaceDesc& desc, double u, double v) 
 // --- Persistent surface object ------------------------------------------------
 
 Surface::Surface(std::shared_ptr<const SurfaceModel> model, Options&& options)
-    : opt_(std::move(options)),
-      model_(model
+    : model_(model
                  ? std::move(model)
-                 : SurfaceModel::compile(opt_.x_src, opt_.y_src, opt_.z_src, opt_.u_min,
-                                         opt_.u_max, opt_.v_min, opt_.v_max)),
+                 : SurfaceModel::compile(options.x_src, options.y_src, options.z_src,
+                                         options.u_min, options.u_max, options.v_min,
+                                         options.v_max)),
       desc_(std::make_shared<SurfaceDesc>()),
       grid_(std::make_shared<SeedGrid>()) {
     desc_->model = model_;
-    desc_->u_min = opt_.u_min;
-    desc_->u_max = opt_.u_max;
-    desc_->v_min = opt_.v_min;
-    desc_->v_max = opt_.v_max;
-    desc_->tu = DOMAIN_TOL * std::max(1.0, opt_.u_max - opt_.u_min);
-    desc_->tv = DOMAIN_TOL * std::max(1.0, opt_.v_max - opt_.v_min);
-    if (opt_.aperture_radius >= 0.0) {
-        desc_->aperture = CircularAperture{opt_.aperture_radius, opt_.aperture_cx,
-                                           opt_.aperture_cy};
+    desc_->u_min = options.u_min;
+    desc_->u_max = options.u_max;
+    desc_->v_min = options.v_min;
+    desc_->v_max = options.v_max;
+    desc_->tu = DOMAIN_TOL * std::max(1.0, options.u_max - options.u_min);
+    desc_->tv = DOMAIN_TOL * std::max(1.0, options.v_max - options.v_min);
+    if (options.aperture_radius >= 0.0) {
+        desc_->aperture = CircularAperture{options.aperture_radius, options.aperture_cx,
+                                           options.aperture_cy};
     }
-    desc_->transform.rot = opt_.rot;
-    desc_->transform.trans = opt_.trans;
-    *grid_ = build_seed_grid(*desc_, opt_.grid_n < 1 ? 1 : opt_.grid_n);
-    graph_xy_ = check_graph_over_xy(*model_, opt_.u_min, opt_.u_max, opt_.v_min, opt_.v_max);
+    desc_->transform.rot = options.rot;
+    desc_->transform.trans = options.trans;
+    *grid_ = build_seed_grid(*desc_, options.grid_n < 1 ? 1 : options.grid_n);
+    graph_xy_ = check_graph_over_xy(*model_, options.u_min, options.u_max, options.v_min,
+                                    options.v_max);
 }
 
 std::shared_ptr<const Surface> Surface::create(Options options) {
@@ -270,31 +253,17 @@ std::shared_ptr<const Surface> Surface::create_with_model(std::shared_ptr<const 
     return std::shared_ptr<const Surface>(new Surface(std::move(model), std::move(options)));
 }
 
-Vec3 Surface::eval_local(double u, double v) const { return desc_eval(*desc_, u, v); }
-
-void Surface::eval_grid(const double* us, const double* vs, std::size_t n, double* out) const {
-    model_->eval_grid(us, vs, n, out);
-}
-
 std::pair<Vec3, Vec3> Surface::derivatives_local(double u, double v) const {
     return model_->derivatives(u, v);
 }
-
-bool Surface::accepts(double u, double v) const { return desc_accepts(*desc_, u, v); }
 
 std::pair<Vec3, Vec3> Surface::derivatives(double u, double v) const {
     return desc_derivatives(*desc_, u, v);
 }
 
-Vec3 Surface::point(double u, double v) const { return desc_point(*desc_, u, v); }
-
 std::optional<Vec3> Surface::normal(double u, double v) const {
     return surface_normal(*desc_, u, v);
 }
-
-Vec3 Surface::to_world(const Vec3& local) const { return desc_->transform.to_world(local); }
-
-Vec3 Surface::to_local(const Vec3& world) const { return desc_->transform.to_local(world); }
 
 std::optional<HitUV> Surface::intersect(const Vec3& o, const Vec3& d) const {
     return surface_intersect(*desc_, *grid_, o, d);
@@ -310,13 +279,6 @@ std::optional<std::pair<double, double>> Surface::parameters_at_xy(double x, dou
 
 std::vector<double> Surface::rim(double radius, double cx, double cy, int n) const {
     return build_rim(*desc_, *grid_, radius, cx, cy, n);
-}
-
-std::vector<double> Surface::aperture_rim(int n) const {
-    if (opt_.aperture_radius < 0.0) {
-        throw std::invalid_argument("Surface has no circular aperture");
-    }
-    return rim(opt_.aperture_radius, opt_.aperture_cx, opt_.aperture_cy, n);
 }
 
 }  // namespace optics::native

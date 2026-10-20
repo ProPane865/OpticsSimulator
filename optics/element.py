@@ -61,8 +61,7 @@ class RefractiveElement:
 
         Wraps the two native surfaces, the sidewall mesh and the refractive
         index; the axis-aligned bounds and graph flags are derived natively
-        at construction, so trace-stack assembly is a pure reference. Raises
-        :class:`ValueError` when a surface aperture cannot be encoded.
+        at construction, so trace-stack assembly is a pure reference.
         """
         if self._native_element is None:
             s1 = self.surface1.native_surface

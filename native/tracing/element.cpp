@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -12,6 +11,7 @@
 
 #include "optics/common/constants.hpp"
 #include "optics/common/matrix.hpp"
+#include "optics/common/numeric.hpp"
 #include "optics/geometry/surface.hpp"
 #include "optics/intersection/mesh.hpp"
 #include "optics/intersection/solver.hpp"
@@ -21,34 +21,14 @@
 namespace optics::native {
 namespace {
 
-constexpr double kInf = std::numeric_limits<double>::infinity();
 constexpr int kMaxPathPts = MAX_INTERNAL_BOUNCES + 2;
-
-// ``numpy.linspace(a, b, n)`` (endpoint included; a single sample is ``[a]``).
-void linspace_nodes(double a, double b, int n, std::vector<double>& out) {
-    out.assign(static_cast<std::size_t>(n < 0 ? 0 : n), 0.0);
-    if (n <= 0) {
-        return;
-    }
-    if (n == 1) {
-        out[0] = a;
-        return;
-    }
-    const double step = (b - a) / (n - 1);
-    for (int i = 0; i < n; ++i) {
-        out[static_cast<std::size_t>(i)] = a + step * i;
-    }
-    out[static_cast<std::size_t>(n - 1)] = b;
-}
 
 }  // namespace
 
 // Accumulate one surface's local-frame sample bounds into ``lo``/``hi``.
 void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi) {
-    std::vector<double> us;
-    std::vector<double> vs;
-    linspace_nodes(d.u_min, d.u_max, CONTAINMENT_BOUNDS_N, us);
-    linspace_nodes(d.v_min, d.v_max, CONTAINMENT_BOUNDS_N, vs);
+    const std::vector<double> us = linspace(d.u_min, d.u_max, CONTAINMENT_BOUNDS_N);
+    const std::vector<double> vs = linspace(d.v_min, d.v_max, CONTAINMENT_BOUNDS_N);
     const int n = CONTAINMENT_BOUNDS_N;
     for (int r = 0; r < n; ++r) {
         for (int c = 0; c < n; ++c) {

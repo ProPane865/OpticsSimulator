@@ -1,6 +1,6 @@
 // Stack-tracing entry points: single-ray segments and the batched segment
-// buffer driver. Trace-to-plane traversal is internal to the C++ measurement
-// kernels.
+// buffer driver. Both run the shared geometric-order walk
+// (``build_hops`` + ``format_segments``) inside the trace kernels.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
@@ -34,36 +34,18 @@ void py_trace_segments_batch(const TraceStack& stack, const py::array_t<double>&
     require(d_info.ndim == 2 && d_info.shape[1] == 3 && d_info.size == o_info.size,
             "dirs: expected shape (N, 3)");
     const std::size_t n = static_cast<std::size_t>(o_info.shape[0]);
-    const py::buffer_info s_info = starts.request();
-    const py::buffer_info e_info = ends.request();
-    const py::buffer_info k_info = kinds.request();
-    const py::buffer_info c_info = counts.request();
-    require(s_info.ndim == 3 &&
-                static_cast<std::size_t>(s_info.shape[0]) == n && s_info.shape[2] == 3,
-            "starts: expected shape (N, cap, 3)");
-    require(e_info.ndim == 3 && e_info.size == s_info.size, "ends: expected shape (N, cap, 3)");
-    require(k_info.ndim == 2 && static_cast<std::size_t>(k_info.shape[0]) == n &&
-                static_cast<std::size_t>(k_info.shape[1]) ==
-                    static_cast<std::size_t>(s_info.shape[1]),
-            "kinds: expected shape (N, cap)");
-    require(c_info.ndim == 1 && static_cast<std::size_t>(c_info.size) == n,
-            "counts: expected shape (N,)");
-    require(!s_info.readonly && !e_info.readonly && !k_info.readonly && !c_info.readonly,
-            "segment buffers must be writeable");
-    const std::size_t cap = static_cast<std::size_t>(s_info.shape[1]);
+    const SegmentBuffers seg = read_segment_buffers(starts, ends, kinds, counts, n);
     const double* od = static_cast<const double*>(o_info.ptr);
     const double* dd = static_cast<const double*>(d_info.ptr);
-    double* sd = static_cast<double*>(s_info.ptr);
-    double* ed = static_cast<double*>(e_info.ptr);
-    signed char* kd = static_cast<signed char*>(k_info.ptr);
-    std::int64_t* cd = static_cast<std::int64_t*>(c_info.ptr);
     const TraceOptions options{ray_length, PLANE_EPS};
     const py::gil_scoped_release release;
     optics::native::run_chunks(n, [&](std::size_t lo, std::size_t hi) {
         for (std::size_t i = lo; i < hi; ++i) {
-            cd[i] = trace_stack_segments(stack, as_vec3(od + 3 * i), as_vec3(dd + 3 * i), options,
-                                         sd + 3 * cap * i, ed + 3 * cap * i, kd + cap * i, cap)
-                        .count;
+            seg.counts[i] =
+                trace_stack_segments(stack, as_vec3(od + 3 * i), as_vec3(dd + 3 * i), options,
+                                     seg.starts + 3 * seg.cap * i, seg.ends + 3 * seg.cap * i,
+                                     seg.kinds + seg.cap * i, seg.cap)
+                    .count;
         }
     });
 }

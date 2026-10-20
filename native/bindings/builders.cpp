@@ -97,10 +97,8 @@ std::shared_ptr<Element> build_element(const std::shared_ptr<Surface>& surface1,
                 static_cast<std::size_t>(nm_info.shape[0]) == k,
             "normals: expected shape (K, 3)");
     require(is_contiguous(nm_info), "normals: array must be contiguous");
-    std::vector<double> tri_copy(static_cast<const double*>(tri_info.ptr),
-                                 static_cast<const double*>(tri_info.ptr) + tri_info.size);
-    std::vector<double> nm_copy(static_cast<const double*>(nm_info.ptr),
-                                static_cast<const double*>(nm_info.ptr) + nm_info.size);
+    std::vector<double> tri_copy = copy_vector(tri_info);
+    std::vector<double> nm_copy = copy_vector(nm_info);
     const std::shared_ptr<const Element> element = [&] {
         const py::gil_scoped_release release;
         return Element::create(surface1, surface2, index, std::move(tri_copy), std::move(nm_copy));

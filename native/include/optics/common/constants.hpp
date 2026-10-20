@@ -2,7 +2,12 @@
 // Keep both sides in lock-step.
 #pragma once
 
+#include <limits>
+
 namespace optics::native {
+
+// Positive infinity, shared by the trace/intersection kernels.
+inline constexpr double kInf = std::numeric_limits<double>::infinity();
 
 // --- Damped Newton iteration (solver) ---
 inline constexpr int MAX_NEWTON_ITER = 50;

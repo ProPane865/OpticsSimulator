@@ -30,13 +30,6 @@ def test_translation_applied_to_points_only():
     np.testing.assert_allclose(TF.vector_to_world(p), ROT @ p, atol=1e-12)
 
 
-def test_ray_to_local():
-    ray = Ray(np.array([1.0, 2.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0)
-    local = TF.ray_to_local(ray)
-    np.testing.assert_allclose(local.origin, TF.point_to_local(ray.origin), atol=1e-12)
-    np.testing.assert_allclose(local.direction, TF.vector_to_local(ray.direction), atol=1e-12)
-
-
 def test_points_to_world_matches_row_wise():
     pts = np.array([
         [0.1, -0.2, 0.3],

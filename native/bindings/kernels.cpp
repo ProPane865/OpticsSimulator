@@ -1,7 +1,8 @@
-// Thin GIL-releasing wrappers for the numerical kernels exposed to Python:
-// plane and mesh intersection plus the interface-direction helpers. The
-// ray/surface Newton kernels run through the persistent ``NativeSurface``
-// object (see ``builders.cpp``) and the element/stack kernels.
+// Thin GIL-releasing wrappers for the plane and mesh intersection kernels
+// exposed to Python. The ray/surface Newton kernels run through the
+// persistent ``NativeSurface`` object (see ``builders.cpp``) and the
+// element/stack kernels; refraction/direction logic stays internal to the
+// trace kernels.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -12,7 +13,6 @@
 
 #include "optics/intersection/mesh.hpp"
 #include "optics/intersection/plane.hpp"
-#include "optics/tracing/direction.hpp"
 
 #include "register.hpp"
 #include "support.hpp"
@@ -49,8 +49,7 @@ std::tuple<double, std::int64_t, double, double, bool> py_mesh_intersect(
             "tri: expected shape (K, 3, 3)");
     require(is_contiguous(info),
             "tri: array must be contiguous");
-    const std::vector<double> tri_copy(static_cast<const double*>(info.ptr),
-                                       static_cast<const double*>(info.ptr) + info.size);
+    const std::vector<double> tri_copy = copy_vector(info);
     const Vec3 ov = to_vec3(o, "origin");
     const Vec3 dv = to_vec3(d, "direction");
     const auto hit = [&] {
@@ -63,17 +62,6 @@ std::tuple<double, std::int64_t, double, double, bool> py_mesh_intersect(
     return {hit->t, static_cast<std::int64_t>(hit->face), hit->u, hit->v, true};
 }
 
-py::object py_orient(const py::array_t<double>& normal, const py::array_t<double>& incident) {
-    return np3(optics::native::orient(to_vec3(normal, "normal"), to_vec3(incident, "incident")));
-}
-
-py::object py_refract_or_reflect(const py::array_t<double>& incident,
-                                 const py::array_t<double>& normal, double n_from, double n_to) {
-    const auto rv = optics::native::refract_or_reflect(to_vec3(incident, "incident"),
-                                                       to_vec3(normal, "normal"), n_from, n_to);
-    return py::make_tuple(np3(rv.first), rv.second);
-}
-
 }  // namespace
 
 namespace optics::bindings {
@@ -83,9 +71,6 @@ void register_kernels(py::module_& m) {
           py::arg("n"), py::arg("eps"));
     m.def("mesh_intersect", &py_mesh_intersect, py::arg("o"), py::arg("d"), py::arg("tri"),
           py::arg("det_eps"), py::arg("bary_tol"), py::arg("min_face_t"));
-    m.def("orient", &py_orient, py::arg("normal"), py::arg("incident"));
-    m.def("refract_or_reflect", &py_refract_or_reflect, py::arg("incident"), py::arg("normal"),
-          py::arg("n_from"), py::arg("n_to"));
 }
 
 }  // namespace optics::bindings

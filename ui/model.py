@@ -29,7 +29,6 @@ __all__ = [
     "DEFAULT_ELEMENT_CONFIG",
     "ProjectState",
     "classify_element_edit",
-    "unique_name",
 ]
 
 DEFAULT_ELEMENT_CONFIG: dict[str, Any] = {

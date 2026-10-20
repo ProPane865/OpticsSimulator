@@ -6,6 +6,7 @@
 
 #include "optics/common/constants.hpp"
 #include "optics/common/numeric.hpp"
+#include "optics/geometry/surface.hpp"
 #include "optics/intersection/solver.hpp"
 
 #include "newton_detail.hpp"
@@ -142,30 +143,23 @@ SeedGrid build_seed_grid(const SurfaceDesc& desc, int grid_n) {
     if (grid_n < 1) {
         grid_n = 1;
     }
-    const std::vector<double> us = linspace(desc.u_min, desc.u_max, grid_n);
-    const std::vector<double> vs = linspace(desc.v_min, desc.v_max, grid_n);
     const std::size_t n = static_cast<std::size_t>(grid_n);
     const std::size_t total = n * n;
     g.uf.resize(total);
     g.vf.resize(total);
     g.pts.resize(3 * total);
     g.finite.resize(total);
-    for (int r = 0; r < grid_n; ++r) {
-        for (int c = 0; c < grid_n; ++c) {
-            const std::size_t k = static_cast<std::size_t>(r) * n + static_cast<std::size_t>(c);
-            const double u = us[static_cast<std::size_t>(c)];
-            const double v = vs[static_cast<std::size_t>(r)];
-            g.uf[k] = u;
-            g.vf[k] = v;
-            const Vec3 p = desc.model->eval_local(u, v);
-            g.pts[3 * k + 0] = p[0];
-            g.pts[3 * k + 1] = p[1];
-            g.pts[3 * k + 2] = p[2];
-            g.finite[k] = (std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]))
-                              ? static_cast<unsigned char>(1)
-                              : static_cast<unsigned char>(0);
-        }
-    }
+    grid_nodes(desc, grid_n, [&](int r, int c, double u, double v, const Vec3& p) {
+        const std::size_t k = static_cast<std::size_t>(r) * n + static_cast<std::size_t>(c);
+        g.uf[k] = u;
+        g.vf[k] = v;
+        g.pts[3 * k + 0] = p[0];
+        g.pts[3 * k + 1] = p[1];
+        g.pts[3 * k + 2] = p[2];
+        g.finite[k] = (std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]))
+                          ? static_cast<unsigned char>(1)
+                          : static_cast<unsigned char>(0);
+    });
     for (std::size_t k = 0; k < total; ++k) {
         if (!g.finite[k] || !desc_accepts(desc, g.uf[k], g.vf[k])) {
             continue;

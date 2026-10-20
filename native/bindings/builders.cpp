@@ -4,10 +4,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include <algorithm>
-#include <cmath>
 #include <cstring>
-#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -86,17 +83,14 @@ std::shared_ptr<Element> build_element(const std::shared_ptr<Surface>& surface1,
                                        const std::shared_ptr<Surface>& surface2, double index,
                                        const py::array_t<double>& tri,
                                        const py::array_t<double>& normals) {
-    const py::buffer_info tri_info = tri.request();
-    require(tri_info.ndim == 3 && tri_info.shape[1] == 3 && tri_info.shape[2] == 3,
-            "tri: expected shape (K, 3, 3)");
-    require(is_contiguous(tri_info), "tri: array must be contiguous");
-    const std::size_t k = static_cast<std::size_t>(tri_info.shape[0]);
+    const ConstDoubles tri_d = read_tri(tri);
+    const std::size_t k = tri_d.size / 9;
     const py::buffer_info nm_info = normals.request();
     require(nm_info.ndim == 2 && nm_info.shape[1] == 3 &&
                 static_cast<std::size_t>(nm_info.shape[0]) == k,
             "normals: expected shape (K, 3)");
     require(is_contiguous(nm_info), "normals: array must be contiguous");
-    std::vector<double> tri_copy = copy_vector(tri_info);
+    std::vector<double> tri_copy(tri_d.data, tri_d.data + tri_d.size);
     std::vector<double> nm_copy = copy_vector(nm_info);
     const std::shared_ptr<const Element> element = [&] {
         const py::gil_scoped_release release;

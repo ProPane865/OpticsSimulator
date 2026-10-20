@@ -31,8 +31,6 @@ from .scene import SceneController
 from .widgets import configure_spin, enable_widgets, find_child, run_validated
 
 __all__ = [
-    "LABEL_BY_SOURCE_TYPE",
-    "SOURCE_TYPE_BY_LABEL",
     "ElementEditor",
     "PlaneEditor",
     "SourceEditor",

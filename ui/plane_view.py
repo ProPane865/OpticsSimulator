@@ -16,7 +16,7 @@ from PySide6 import QtGui, QtWidgets
 from optics.measurement_plane import MeasurementResult
 from rendering.colormaps import MEASUREMENT_IDLE_RGB, colormap_lut, normalize_irradiance, sample_lut
 
-__all__ = ["PlaneView", "PLANE_VIEW_COLORMAP"]
+__all__ = ["PlaneView"]
 
 PLANE_VIEW_COLORMAP = "viridis"
 

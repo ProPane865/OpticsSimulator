@@ -1,4 +1,4 @@
-﻿"""Closed refractive element: geometry and cached sidewall construction."""
+"""Closed refractive element: geometry and cached sidewall construction."""
 
 from typing import Any
 

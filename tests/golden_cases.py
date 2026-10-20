@@ -17,8 +17,9 @@ from optics.config import refractive_element_from_config
 from optics.measurement_plane import MeasurementPlane, rays_to_arrays
 from optics.primitive import CircularAperture, Ray, Surface, Transform
 from optics.primitive.vector import rotation_from_z
-from optics.source import PointSource, fibonacci_cone_directions
+from optics.source import PointSource
 from optics.system import OpticalSystem
+from tests.oracle import fibonacci_cone_directions
 
 DEFAULT_RTOL = 1e-8
 DEFAULT_ATOL = 1e-10
@@ -211,7 +212,7 @@ def case_aperture() -> dict:
     u_lin = np.linspace(-0.9, 0.9, 21)
     U, V = np.meshgrid(u_lin, u_lin, indexing="xy")
     points = surface.evaluate_local(U, V)
-    mask = surface.aperture_mask(U, V, points[:, :, 0], points[:, :, 1], points[:, :, 2])
+    mask = surface.aperture_mask(points[:, :, 0], points[:, :, 1], points[:, :, 2])
     hit_in = surface.intersect(_ray([0.3, 0.0, 5.0], [0.0, 0.0, -1.0]))
     hit_out = surface.intersect(_ray([0.6, 0.0, 5.0], [0.0, 0.0, -1.0]))
     boundary = aperture.boundary(surface, n=12)

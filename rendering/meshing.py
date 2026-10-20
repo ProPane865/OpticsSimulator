@@ -6,6 +6,8 @@ import numpy as np
 if TYPE_CHECKING:
     from optics.primitive import Surface
 
+from optics._util import cached_lru
+
 # Meshes depend only on the surface's *local* geometry (expressions, parameter
 # ranges and aperture) plus the grid resolution -- not its world transform, so
 # the cache is keyed by a geometry signature rather than the Surface object.
@@ -49,7 +51,7 @@ class SurfaceMesher:
         if surface.aperture is not None:
             ok &= np.asarray(
                 surface.aperture.mask(
-                    surface, u, v, pts[..., 0], pts[..., 1], pts[..., 2]
+                    pts[..., 0], pts[..., 1], pts[..., 2]
                 ),
                 dtype=bool,
             )
@@ -159,16 +161,7 @@ class SurfaceMesher:
         """
         n = int(n)
         key = _geometry_key(self.surface, n)
-        cached = _MESH_CACHE.get(key)
-        if cached is not None:
-            _MESH_CACHE.move_to_end(key)
-            local = cached
-        else:
-            local = self._compute_mesh(n)
-            _MESH_CACHE[key] = local
-            _MESH_CACHE.move_to_end(key)
-            while len(_MESH_CACHE) > _MAX_CACHED_MESHES:
-                _MESH_CACHE.popitem(last=False)
+        local = cached_lru(_MESH_CACHE, key, lambda: self._compute_mesh(n), _MAX_CACHED_MESHES)
         local_verts, faces = local
         return self.surface.transform.points_to_world(local_verts), faces
 
@@ -183,12 +176,10 @@ class SurfaceMesher:
         U, V = np.meshgrid(us, vs)
         pts = surface.evaluate_local(U, V)
         X, Y, Z = pts[..., 0], pts[..., 1], pts[..., 2]
-        ok = surface.aperture_mask(U, V, X, Y, Z)
+        ok = surface.aperture_mask(X, Y, Z)
         idmap = np.full((n, n), -1, dtype=np.int64)
         idmap[ok] = np.arange(np.count_nonzero(ok))
         verts = pts[ok]
-        if idmap.shape[0] < 2 or idmap.shape[1] < 2:
-            return verts, np.empty((0, 3), dtype=np.int64)
         i = np.repeat(np.arange(n - 1), n - 1)
         j = np.tile(np.arange(n - 1), n - 1)
         a = idmap[i, j]

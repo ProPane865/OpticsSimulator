@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "optics/common/constants.hpp"
-#include "optics/common/matrix.hpp"
 #include "optics/common/numeric.hpp"
 #include "optics/geometry/surface.hpp"
 #include "optics/intersection/mesh.hpp"
@@ -29,22 +28,15 @@ namespace {
 
 // Accumulate one surface's local-frame sample bounds into ``lo``/``hi``.
 void sample_surface_bounds(const SurfaceDesc& d, Vec3& lo, Vec3& hi) {
-    const std::vector<double> us = linspace(d.u_min, d.u_max, CONTAINMENT_BOUNDS_N);
-    const std::vector<double> vs = linspace(d.v_min, d.v_max, CONTAINMENT_BOUNDS_N);
-    const int n = CONTAINMENT_BOUNDS_N;
-    for (int r = 0; r < n; ++r) {
-        for (int c = 0; c < n; ++c) {
-            const Vec3 p =
-                d.model->eval_local(us[static_cast<std::size_t>(c)], vs[static_cast<std::size_t>(r)]);
-            if (!finite3(p)) {
-                continue;
-            }
-            for (int j = 0; j < 3; ++j) {
-                lo[j] = std::min(lo[j], p[j]);
-                hi[j] = std::max(hi[j], p[j]);
-            }
+    grid_nodes(d, CONTAINMENT_BOUNDS_N, [&](int, int, double, double, const Vec3& p) {
+        if (!finite3(p)) {
+            return;
         }
-    }
+        for (int j = 0; j < 3; ++j) {
+            lo[j] = std::min(lo[j], p[j]);
+            hi[j] = std::max(hi[j], p[j]);
+        }
+    });
 }
 
 // Conservative forward test: false only when the cached world AABB holds no

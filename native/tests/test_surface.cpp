@@ -9,7 +9,6 @@
 #include "optics/common/constants.hpp"
 #include "optics/common/matrix.hpp"
 #include "optics/geometry/surface.hpp"
-#include "optics/intersection/solver.hpp"
 
 #include "check.hpp"
 

@@ -233,6 +233,8 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
     responsive. Best-effort: any failure just leaves the work for the first
     interactive trace.
     """
+    import logging
+
     from optics.config import refractive_element_from_config
     from optics.system import OpticalSystem
 
@@ -245,7 +247,7 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
         plane = MeasurementPlane(**DEFAULT_MEASUREMENT_CONFIG)
         MeasurementPlane.measure_batch_arrays([plane], origins, dirs, powers, system)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("warm-up trace skipped", exc_info=True)
 
 
 def main() -> int:

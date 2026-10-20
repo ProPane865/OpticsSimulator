@@ -134,8 +134,6 @@ class Surface:
 
     def aperture_mask(
         self,
-        U: np.ndarray,
-        V: np.ndarray,
         X: np.ndarray,
         Y: np.ndarray,
         Z: np.ndarray,
@@ -149,7 +147,7 @@ class Surface:
         if self.aperture is None:
             return finite
 
-        return self.aperture.mask(self, U, V, X, Y, Z)
+        return self.aperture.mask(X, Y, Z)
 
     def intersect(self, ray: Ray) -> Hit | None:
         """Nearest forward hit of the ray on this surface, or ``None``.

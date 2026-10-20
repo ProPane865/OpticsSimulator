@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .. import constants as _c
+from .._util import cached_lru
 
 if TYPE_CHECKING:
     from .surface import Surface
@@ -54,20 +55,10 @@ class CircularAperture:
 
     def contains(self, surface: "Surface", u: float, v: float) -> bool:
         p = surface.evaluate_local(u, v)
-
-        if not np.all(np.isfinite(p)):
-            return False
-
-        dx = p[0] - self.center[0]
-        dy = p[1] - self.center[1]
-
-        return dx**2 + dy**2 <= self.radius**2 + _c.APERTURE_EPS
+        return bool(self.mask(p[0], p[1], p[2]))
 
     def mask(
         self,
-        surface: "Surface",
-        U: np.ndarray,
-        V: np.ndarray,
         X: np.ndarray,
         Y: np.ndarray,
         Z: np.ndarray,
@@ -82,25 +73,19 @@ class CircularAperture:
 
     def boundary(self, surface: "Surface", n: int = _c.APERTURE_BOUNDARY_N) -> np.ndarray:
         key = _rim_key(surface, self, n)
-        cached = _RIM_CACHE.get(key)
-        if cached is not None:
-            _RIM_CACHE.move_to_end(key)
-            local = cached
-        else:
+
+        def _compute_rim() -> np.ndarray:
             # Invert the rim circle onto the surface in a single native pass
             # on the persistent surface (continuation seeding, matching the
             # previous per-point loop).
-            local = surface.native_surface.rim(
+            return surface.native_surface.rim(
                 self.radius,
                 float(self.center[0]),
                 float(self.center[1]),
                 int(n),
             )
-            _RIM_CACHE[key] = local
-            _RIM_CACHE.move_to_end(key)
-            while len(_RIM_CACHE) > _RIM_CACHE_MAX:
-                _RIM_CACHE.popitem(last=False)
 
+        local = cached_lru(_RIM_CACHE, key, _compute_rim, _RIM_CACHE_MAX)
         return surface.transform.points_to_world(local)
 
     def native_params(self) -> "tuple[float, float, float]":

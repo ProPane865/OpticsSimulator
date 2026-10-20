@@ -3,8 +3,6 @@
 // ``tests/test_shared_trace.py``). The rendering path is a single
 // implementation: ``trace_stack_segments`` composes ``build_hops`` with
 // ``format_segments``.
-#include <vector>
-
 #include "optics/common/constants.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/tracing/trace.hpp"

@@ -44,12 +44,8 @@ std::tuple<double, double, double, bool> py_plane_intersect(const py::array_t<do
 std::tuple<double, std::int64_t, double, double, bool> py_mesh_intersect(
     const py::array_t<double>& o, const py::array_t<double>& d, const py::array_t<double>& tri,
     double det_eps, double bary_tol, double min_face_t) {
-    const py::buffer_info info = tri.request();
-    require(info.ndim == 3 && info.shape[1] == 3 && info.shape[2] == 3,
-            "tri: expected shape (K, 3, 3)");
-    require(is_contiguous(info),
-            "tri: array must be contiguous");
-    const std::vector<double> tri_copy = copy_vector(info);
+    const ConstDoubles tri_d = read_tri(tri);
+    const std::vector<double> tri_copy(tri_d.data, tri_d.data + tri_d.size);
     const Vec3 ov = to_vec3(o, "origin");
     const Vec3 dv = to_vec3(d, "direction");
     const auto hit = [&] {

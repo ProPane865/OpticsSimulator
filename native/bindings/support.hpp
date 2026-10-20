@@ -100,6 +100,17 @@ inline std::vector<double> copy_vector(const py::buffer_info& info) {
                                static_cast<const double*>(info.ptr) + info.size);
 }
 
+// Validate a ``(K, 3, 3)`` triangle buffer and return its raw view. Callers
+// copy with ``copy_vector`` (or from ``.data``) when the GIL is released across
+// the kernel call.
+inline ConstDoubles read_tri(const py::array_t<double>& tri) {
+    const py::buffer_info info = tri.request();
+    require(info.ndim == 3 && info.shape[1] == 3 && info.shape[2] == 3,
+            "tri: expected shape (K, 3, 3)");
+    require(is_contiguous(info), "tri: array must be contiguous");
+    return {static_cast<const double*>(info.ptr), static_cast<std::size_t>(info.size)};
+}
+
 // Batched rendering segment output buffers: ``(N, cap, 3)`` starts/ends,
 // ``(N, cap)`` kinds and ``(N,)`` counts, validated against the ray count.
 struct SegmentBuffers {

@@ -1,4 +1,4 @@
-﻿"""The optical bench as one piece of persistent native state.
+"""The optical bench as one piece of persistent native state.
 
 An :class:`OpticalSystem` owns the ordered element stack and the native trace
 stack assembled from it. Each element already carries its own native element
@@ -21,6 +21,7 @@ import numpy as np
 
 from . import _native
 from . import constants as _c
+from ._util import coerce_ray_arrays
 from .element import RefractiveElement
 from .primitive import Ray
 
@@ -144,9 +145,7 @@ class OpticalSystem:
 
         An empty stack measures the straight rays directly against each plane.
         """
-        origins = np.ascontiguousarray(origins, dtype=float)
-        dirs = np.ascontiguousarray(dirs, dtype=float)
-        powers = np.ascontiguousarray(powers, dtype=float)
+        origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
         po, pn, u_min, u_max, v_min, v_max = _plane_columns(planes)
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))
         _native.measure_planes_multi(
@@ -170,9 +169,7 @@ class OpticalSystem:
         ``(P, N)`` plane hits ``(us, vs, pws)``; an empty stack yields straight
         incident segments and direct plane hits.
         """
-        origins = np.ascontiguousarray(origins, dtype=float)
-        dirs = np.ascontiguousarray(dirs, dtype=float)
-        powers = np.ascontiguousarray(powers, dtype=float)
+        origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
         po, pn, u_min, u_max, v_min, v_max = _plane_columns(planes)
         starts, ends, kinds, counts = self._segment_buffers(origins.shape[0])
         us, vs, pws = self._plane_buffers(origins.shape[0], len(planes))

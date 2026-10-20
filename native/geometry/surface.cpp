@@ -18,6 +18,26 @@ double fd_step(double lo, double hi) {
     return std::max(FD_STEP_REL * std::abs(hi - lo), FD_MIN_STEP);
 }
 
+// Shrink-and-retry one-sided finite difference for a single ``sign`` direction.
+// Probes ``probe(step)`` (a sample offset by ``sign * step`` along the
+// direction); a non-finite probe -- including one the probe rejects by returning
+// ``nan3()`` for an out-of-domain step -- halves the step and retries up to
+// ``FD_STEP_SHRINKS`` times. Returns ``(probe(step) - base) / (sign * step)`` on
+// the first finite hit, or ``nan3()`` when every step fails. Shared by the
+// model-space and descriptor-space one-sided partials below.
+template <class Probe>
+inline Vec3 fd_sign(const Vec3& base, double sign, double step0, Probe&& probe) {
+    double step = step0;
+    for (int t = 0; t < FD_STEP_SHRINKS; ++t) {
+        const Vec3 p = probe(step);
+        if (finite3(p)) {
+            return (p - base) / (sign * step);
+        }
+        step *= 0.5;
+    }
+    return nan3();
+}
+
 // Interior-sample probe for the graph-over-xy flag: five-point linspaces
 // trimmed to their three interior nodes.
 bool check_graph_over_xy(const SurfaceModel& model, double u_min, double u_max, double v_min,
@@ -111,18 +131,15 @@ Vec3 SurfaceModel::partial_rt(double u, double v, double h, double lo, double hi
     const double inward = center >= coord ? 1.0 : -1.0;
     for (int s = 0; s < 2; ++s) {
         const double sign = s == 0 ? inward : -inward;
-        double step = h;
-        for (int t = 0; t < FD_STEP_SHRINKS; ++t) {
+        const Vec3 deriv = fd_sign(base, sign, h, [&](double step) {
             const double nxt = coord + sign * step;
             if (nxt < lo || nxt > hi) {
-                step *= 0.5;
-                continue;
+                return nan3();
             }
-            const Vec3 p = along_u ? eval_local(nxt, v) : eval_local(u, nxt);
-            if (finite3(p)) {
-                return (p - base) / (sign * step);
-            }
-            step *= 0.5;
+            return along_u ? eval_local(nxt, v) : eval_local(u, nxt);
+        });
+        if (finite3(deriv)) {
+            return deriv;
         }
     }
     return nan3();
@@ -158,13 +175,11 @@ Vec3 partial_desc(const SurfaceDesc& d, double u, double v, double du, double dv
     const double step = FD_STEP_REL * std::max({1.0, std::abs(u), std::abs(v)});
     for (int si = 0; si < 2; ++si) {
         const double sign = si == 0 ? 1.0 : -1.0;
-        double h = step;
-        for (int t = 0; t < FD_STEP_SHRINKS; ++t) {
-            const Vec3 p = desc_eval(d, u + sign * du * h, v + sign * dv * h);
-            if (finite3(p)) {
-                return (p - base) / (sign * h);
-            }
-            h *= 0.5;
+        const Vec3 deriv =
+            fd_sign(base, sign, step,
+                    [&](double h) { return desc_eval(d, u + sign * du * h, v + sign * dv * h); });
+        if (finite3(deriv)) {
+            return deriv;
         }
     }
     return nan3();

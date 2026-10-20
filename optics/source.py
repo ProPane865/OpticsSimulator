@@ -8,24 +8,12 @@ from .primitive import Ray
 SINGLE_POINT = "single_point"
 POINT_ARRAY = "point_array"
 
-_GOLDEN_ANGLE = np.pi * (3.0 - np.sqrt(5.0))
 
-
-def fibonacci_cone_directions(count: int, cone_angle_deg: float = 360.0) -> np.ndarray:
-    count = int(count)
-    if count <= 0:
-        return np.empty((0, 3), dtype=float)
-    cone_angle_deg = float(cone_angle_deg)
+def _validate_cone_angle(cone_angle_deg: float) -> float:
+    """Return ``cone_angle_deg`` as a float, rejecting non-finite/out-of-range."""
     if not np.isfinite(cone_angle_deg) or not 0.0 <= cone_angle_deg <= 360.0:
         raise ValueError("Cone angle must be finite and between 0 and 360 degrees")
-
-    half_angle = np.deg2rad(cone_angle_deg / 2.0)
-    cos_max = np.cos(half_angle)
-    i = np.arange(count, dtype=float)
-    c = cos_max + (1.0 - cos_max) * (i + 0.5) / count
-    r = np.sqrt(np.maximum(0.0, 1.0 - c * c))
-    phi = i * _GOLDEN_ANGLE
-    return np.column_stack([r * np.cos(phi), r * np.sin(phi), -c])
+    return cone_angle_deg
 
 
 class PointSource:
@@ -59,9 +47,7 @@ class PointSource:
 
         self.source_type = str(source_type)
 
-        self.cone_angle = float(cone_angle)
-        if not np.isfinite(self.cone_angle) or not 0.0 <= self.cone_angle <= 360.0:
-            raise ValueError("Cone angle must be finite and between 0 and 360 degrees")
+        self.cone_angle = _validate_cone_angle(float(cone_angle))
 
     def emit_arrays(self) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
         """Emit the ray fan as contiguous ``(N, 3)`` origins/dirs and ``(N,)`` powers.

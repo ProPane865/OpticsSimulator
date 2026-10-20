@@ -60,10 +60,6 @@ class LensSidewall:
         """Unit normal per triangle, matching :meth:`triangles`."""
         return self._face_normals
 
-    def normal(self, face: int) -> np.ndarray:
-        """Outward unit normal of the triangle with the given face index."""
-        return self._face_normals[int(face)]
-
     def intersect(self, ray: Ray) -> MeshHit | None:
         o = np.ascontiguousarray(ray.origin, dtype=float)
         d = np.ascontiguousarray(ray.direction, dtype=float)

@@ -5,6 +5,7 @@ import numpy as np
 
 from . import _native
 from . import constants as _c
+from ._util import coerce_ray_arrays
 from .primitive import Ray
 from .primitive.vector import normalize
 
@@ -204,18 +205,15 @@ class MeasurementPlane:
         plane_list = list(planes)
         if not plane_list:
             return []
-        origins = np.ascontiguousarray(origins, dtype=float)
-        dirs = np.ascontiguousarray(dirs, dtype=float)
-        powers = np.ascontiguousarray(powers, dtype=float)
+        origins, dirs, powers = coerce_ray_arrays(origins, dirs, powers)
         if origins.shape[0] == 0:
             return [plane.new_result() for plane in plane_list]
         if system is None:
-            results = []
-            for plane in plane_list:
-                result = plane.new_result()
-                result.accumulate(*_direct_hits(plane, origins, dirs, powers))
-                results.append(result)
-            return results
+            direct = [_direct_hits(plane, origins, dirs, powers) for plane in plane_list]
+            us = np.vstack([d[0] for d in direct])
+            vs = np.vstack([d[1] for d in direct])
+            pws = np.vstack([d[2] for d in direct])
+            return results_from_hits(plane_list, us, vs, pws)
         us, vs, pws = system.measure_planes(origins, dirs, powers, plane_list)
         return results_from_hits(plane_list, us, vs, pws)
 

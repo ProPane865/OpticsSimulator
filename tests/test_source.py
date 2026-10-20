@@ -2,12 +2,8 @@ import numpy as np
 import pytest
 
 from optics.primitive import Ray
-from optics.source import (
-    POINT_ARRAY,
-    SINGLE_POINT,
-    PointSource,
-    fibonacci_cone_directions,
-)
+from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource
+from tests.oracle import fibonacci_cone_directions
 
 
 def test_default_source_attributes():

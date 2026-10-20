@@ -12,6 +12,7 @@
 
 #include "optics/common/constants.hpp"
 #include "optics/common/matrix.hpp"
+#include "optics/common/numeric.hpp"
 #include "optics/expression/expression.hpp"
 #include "optics/geometry/aperture.hpp"
 #include "optics/geometry/transform.hpp"
@@ -72,6 +73,23 @@ inline Vec3 desc_point(const SurfaceDesc& d, double u, double v) {
 // Model-level finite-difference tangents.
 inline std::pair<Vec3, Vec3> desc_deriv_pair(const SurfaceDesc& d, double u, double v) {
     return d.model->derivatives(u, v);
+}
+
+// Walk a ``grid_n x grid_n`` linspace node grid in row-major order, invoking
+// ``visit(row, col, u, v, p_local)`` for every node. Shared by the seed-grid
+// build and the element containment bounds so the linspace/eval scaffolding is
+// written once; each consumer keeps its own per-node handling.
+template <class Visit>
+inline void grid_nodes(const SurfaceDesc& d, int grid_n, Visit&& visit) {
+    const std::vector<double> us = linspace(d.u_min, d.u_max, grid_n);
+    const std::vector<double> vs = linspace(d.v_min, d.v_max, grid_n);
+    for (int r = 0; r < grid_n; ++r) {
+        for (int c = 0; c < grid_n; ++c) {
+            const std::size_t rc = static_cast<std::size_t>(r);
+            const std::size_t cc = static_cast<std::size_t>(c);
+            visit(r, c, us[cc], vs[rc], d.model->eval_local(us[cc], vs[rc]));
+        }
+    }
 }
 
 // Domain + circular-aperture membership.

@@ -377,7 +377,7 @@
         <attribute name="title">
          <string>Measurement Planes</string>
         </attribute>
-        <layout class="QVBoxLayout" name="verticalLayout_7">
+        <layout class="QVBoxLayout" name="verticalLayout_9">
          <item>
           <widget class="QWidget" name="widget_12" native="true">
            <layout class="QVBoxLayout" name="verticalLayout_5">
@@ -524,18 +524,18 @@
              </widget>
             </item>
             <item>
-             <spacer name="horizontalSpacer">
-              <property name="orientation">
-               <enum>Qt::Orientation::Horizontal</enum>
+             <widget class="QDialogButtonBox" name="planeButtonBox">
+              <property name="standardButtons">
+               <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
               </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>40</width>
-                <height>20</height>
-               </size>
-              </property>
-             </spacer>
+             </widget>
             </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="widget_13" native="true">
+           <layout class="QVBoxLayout" name="verticalLayout_7">
             <item>
              <widget class="QLabel" name="label_20">
               <property name="text">
@@ -551,12 +551,12 @@
              </widget>
             </item>
             <item>
-             <widget class="QWidget" name="planeView" native="true"/>
-            </item>
-            <item>
-             <widget class="QDialogButtonBox" name="planeButtonBox">
-              <property name="standardButtons">
-               <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
+             <widget class="QWidget" name="planeView" native="true">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
               </property>
              </widget>
             </item>

@@ -90,7 +90,7 @@ class _AspectLabel(QtWidgets.QLabel):
             return
         painter = QtGui.QPainter(self)
         try:
-            painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, True)
+            painter.setRenderHint(QtGui.QPainter.RenderHint.LosslessImageRendering, True)
             painter.drawPixmap(x, y, w, h, pixmap)
         finally:
             painter.end()
@@ -101,7 +101,7 @@ class PlaneView:
 
     def __init__(self, container: QtWidgets.QWidget) -> None:
         self._label = _AspectLabel(container)
-        self._label.setMinimumSize(160, 160)
+        self._label.setMinimumSize(512, 512)
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._label)

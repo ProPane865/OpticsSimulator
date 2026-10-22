@@ -31,6 +31,8 @@ __all__ = [
     "classify_element_edit",
 ]
 
+PlaneRow = tuple[np.ndarray, np.ndarray, np.ndarray]
+
 DEFAULT_ELEMENT_CONFIG: dict[str, Any] = {
     "surface1": {
         "x": "u",
@@ -145,6 +147,8 @@ class ProjectState:
         self._planes: list[MeasurementPlane] = []
         self._plane_names: list[str] = []
         self._plane_results: list[MeasurementResult] = []
+        self._plane_hit_rows: list[PlaneRow] = []
+        self._plane_reconstruct: bool = False
         self._system: OpticalSystem | None = None
 
     # -- read-only accessors -------------------------------------------------
@@ -198,9 +202,8 @@ class ProjectState:
         identical results to ``plane.measure(self.rays, self.system)``.
         """
         origins, dirs, powers = self.rays_arrays()
-        return MeasurementPlane.measure_batch_arrays(
-            [plane], origins, dirs, powers, self.system
-        )[0]
+        row = self._measure_rows([plane])[0]
+        return self._result_from_row(plane, row)
 
     @property
     def planes(self) -> list[MeasurementPlane]:
@@ -214,6 +217,17 @@ class ProjectState:
     def plane_results(self) -> list[MeasurementResult]:
         """Accumulated detector image per plane (parallel to :attr:`planes`)."""
         return self._plane_results
+
+    @property
+    def plane_reconstruct(self) -> bool:
+        """Whether plane images use adaptive-kernel reconstruction.
+
+        Raw mode histograms the hits; reconstruct mode spreads each hit with
+        a Wendland kernel (:meth:`~optics.measurement_plane.MeasurementResult.
+        reconstruct`). Toggling re-derives the images from cached hits, so it
+        never triggers a re-trace.
+        """
+        return self._plane_reconstruct
 
     # -- naming --------------------------------------------------------------
     def new_element_name(self) -> str:
@@ -252,33 +266,77 @@ class ProjectState:
         self._rays_arrays = None
 
     # -- measurement plane operations ---------------------------------------
+    @staticmethod
+    def _split_hits(us: np.ndarray, vs: np.ndarray, pws: np.ndarray) -> list[PlaneRow]:
+        """Split ``(P, N)`` hit buffers into per-plane ``(u, v, power)`` rows."""
+        return [(us[q], vs[q], pws[q]) for q in range(us.shape[0])]
+
+    def _measure_rows(self, planes: Sequence[MeasurementPlane]) -> list[PlaneRow]:
+        """One trace's hits against ``planes``, split into per-plane rows."""
+        origins, dirs, powers = self.rays_arrays()
+        return self._split_hits(*self.system.measure_planes(origins, dirs, powers, planes))
+
+    def _result_from_row(self, plane: MeasurementPlane, row: PlaneRow) -> MeasurementResult:
+        """Detector image for one hit row, filled in the current display mode."""
+        u, v, power = row
+        result = plane.new_result()
+        if self._plane_reconstruct:
+            result.reconstruct(u, v, power)
+        else:
+            result.accumulate(u, v, power)
+        return result
+
+    def _derive_results(self, planes: Sequence[MeasurementPlane] | None = None) -> list[MeasurementResult]:
+        rows = self._plane_hit_rows
+        planes = self._planes if planes is None else list(planes)
+        return [
+            self._result_from_row(plane, row) for plane, row in zip(planes, rows)
+        ]
+
     def add_plane(self, name: str, plane: MeasurementPlane) -> MeasurementResult:
-        result = self.measure_plane(plane)
+        row = self._measure_rows([plane])[0]
+        result = self._result_from_row(plane, row)
         self._planes.append(plane)
         self._plane_names.append(name)
         self._plane_results.append(result)
+        self._plane_hit_rows.append(row)
         return result
 
-    def replace_plane(
-        self, index: int, plane: MeasurementPlane, result: MeasurementResult | None = None
-    ) -> None:
+    def replace_plane(self, index: int, plane: MeasurementPlane) -> None:
+        row = self._measure_rows([plane])[0]
         self._planes[index] = plane
-        self._plane_results[index] = self.measure_plane(plane) if result is None else result
+        self._plane_hit_rows[index] = row
+        self._plane_results[index] = self._result_from_row(plane, row)
 
     def remove_plane(self, index: int) -> None:
         self._planes.pop(index)
         self._plane_names.pop(index)
         self._plane_results.pop(index)
+        self._plane_hit_rows.pop(index)
 
-    def set_plane_results(self, results: Sequence[MeasurementResult]) -> None:
-        """Store the per-plane images produced by one combined trace."""
-        self._plane_results = list(results)
+    def set_plane_hits(self, us: np.ndarray, vs: np.ndarray, pws: np.ndarray) -> list[MeasurementResult]:
+        """Cache one trace's ``(P, N)`` plane hits and derive the images.
+
+        The images use the current display mode; keeping the rows lets
+        :meth:`set_plane_display_mode` re-derive them without re-tracing.
+        """
+        self._plane_hit_rows = self._split_hits(us, vs, pws)
+        self._plane_results = self._derive_results()
+        return list(self._plane_results)
+
+    def set_plane_display_mode(self, reconstruct: bool) -> list[MeasurementResult]:
+        """Switch images between raw histogram and adaptive reconstruction.
+
+        Re-derives every image from the cached hit rows (no re-trace) and
+        returns the fresh per-plane results (parallel to :attr:`planes`).
+        """
+        self._plane_reconstruct = bool(reconstruct)
+        self._plane_results = self._derive_results()
+        return list(self._plane_results)
 
     def measure_all(self) -> None:
-        origins, dirs, powers = self.rays_arrays()
-        self._plane_results = MeasurementPlane.measure_batch_arrays(
-            self._planes, origins, dirs, powers, self.system
-        )
+        self._plane_hit_rows = self._measure_rows(self._planes)
+        self._plane_results = self._derive_results()
 
     # -- document (de)serialization -----------------------------------------
     def load_document(self, document: object) -> tuple[list[RefractiveElement], bool]:
@@ -307,17 +365,20 @@ class ProjectState:
                 name = unique_name(base_name, used, prefix="plane")
                 used.add(name)
                 new_names.append(name)
-            new_results = MeasurementPlane.measure_batch_arrays(
-                new_planes, *ray_arrays, new_system
+            new_rows = self._split_hits(
+                *new_system.measure_planes(ray_arrays[0], ray_arrays[1], ray_arrays[2], new_planes)
             )
             replaced = True
         else:
-            new_results = MeasurementPlane.measure_batch_arrays(
-                self._planes, *ray_arrays, new_system
+            new_rows = self._split_hits(
+                *new_system.measure_planes(ray_arrays[0], ray_arrays[1], ray_arrays[2], self._planes)
             )
             new_planes = self._planes
             new_names = self._plane_names
             replaced = False
+        new_results = [
+            self._result_from_row(plane, row) for plane, row in zip(new_planes, new_rows)
+        ]
 
         self._schema = elements_config
         self._elements = elements
@@ -328,6 +389,7 @@ class ProjectState:
         self._planes = new_planes
         self._plane_names = new_names
         self._plane_results = new_results
+        self._plane_hit_rows = new_rows
         return elements, replaced
 
     def to_document(self) -> dict[str, Any]:

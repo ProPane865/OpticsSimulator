@@ -17,7 +17,7 @@ from PySide6.QtUiTools import QUiLoader
 from vispy import app as vispy_app
 
 from optics.element import RefractiveElement
-from optics.measurement_plane import MeasurementPlane, MeasurementResult, results_from_hits
+from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.primitive import Ray
 from optics.project import DEFAULT_MEASUREMENT_CONFIG, DEFAULT_SOURCE_CONFIG
 from optics.source import PointSource
@@ -92,6 +92,11 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         find_child(self._ui, QtGui.QAction, "actionMeasurement_Plane", UI_PATH.name).triggered.connect(
             self._plane_editor.add
         )
+        # The plane dock was re-parented to the window in _load_ui.
+        display_mode = find_child(
+            self, QtWidgets.QComboBox, "planeDisplayModeCombo", UI_PATH.name
+        )
+        display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
 
     # -- orchestration shared by the editors --------------------------------
     def _refresh_trace(self) -> None:
@@ -107,14 +112,19 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             starts, ends, _kinds, counts, us, vs, pws = system.trace_segments_and_planes(
                 origins, dirs, powers, RAY_LENGTH, planes
             )
-            results = results_from_hits(planes, us, vs, pws)
-            state.set_plane_results(results)
+            results = state.set_plane_hits(us, vs, pws)
             self._scene.retrace_from_segments(starts, ends, counts)
         else:
             state.measure_all()
             results = state.plane_results
             self._scene.retrace(system, rays)
         self._scene.rebuild_planes(planes, results)
+        self._update_plane_view()
+
+    def _on_display_mode_changed(self, index: int) -> None:
+        """Re-derive every plane image in the selected display mode (no re-trace)."""
+        results = self._state.set_plane_display_mode(index == 1)
+        self._scene.rebuild_planes(self._state.planes, results)
         self._update_plane_view()
 
     def _set_status(self, message: str) -> None:

@@ -22,7 +22,7 @@ import numpy as np
 from PySide6 import QtGui, QtWidgets
 
 from optics.config import refractive_element_from_config
-from optics.measurement_plane import MeasurementPlane, MeasurementResult
+from optics.measurement_plane import MeasurementPlane
 from optics.project import DEFAULT_MEASUREMENT_CONFIG
 from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource
 
@@ -442,7 +442,7 @@ class PlaneEditor(_SelectorEditor):
             res_spin.setValue(int(value))
         self._update_view()
 
-    def _build_current(self) -> tuple[int, MeasurementPlane, MeasurementResult] | None:
+    def _build_current(self) -> tuple[int, MeasurementPlane] | None:
         index = self._selector.currentIndex()
         planes = self._state.planes
         if index < 0 or index >= len(planes):
@@ -455,12 +455,12 @@ class PlaneEditor(_SelectorEditor):
             v_range=(old.v_min, old.v_max),
             resolution=[spin.value() for spin in self._resolution_spins],
         )
-        return index, updated, self._state.measure_plane(updated)
+        return index, updated
 
-    def _commit_current(self, built: tuple[int, MeasurementPlane, MeasurementResult]) -> None:
-        index, updated, result = built
-        self._state.replace_plane(index, updated, result)
-        self._scene.replace_plane_nodes(index, updated, result)
+    def _commit_current(self, built: tuple[int, MeasurementPlane]) -> None:
+        index, updated = built
+        self._state.replace_plane(index, updated)
+        self._scene.replace_plane_nodes(index, updated, self._state.plane_results[index])
         self._update_view()
         self._set_status(f"Updated properties for {self._state.plane_names[index]}")
 

@@ -1001,6 +1001,47 @@ def test_plane_view_follows_selector(window):
     assert _plane_view_size(window) == (8, 4)
 
 
+def _display_mode_combo(window):
+    combo = window.findChild(QtWidgets.QComboBox, "planeDisplayModeCombo")
+    assert combo is not None
+    return combo
+
+
+def test_display_mode_defaults_to_raw(window):
+    combo = _display_mode_combo(window)
+    assert [combo.itemText(i) for i in range(combo.count())] == ["Raw", "Reconstruct"]
+    assert combo.currentIndex() == 0
+
+
+def test_display_mode_toggles_plane_image(window):
+    _trigger_measurement_plane(window)
+    raw = window.plane_results[0].grid.copy()
+    raw_image = _plane_view_pixmap(window).toImage().copy()
+
+    _display_mode_combo(window).setCurrentIndex(1)
+    recon = window.plane_results[0].grid
+    assert recon.sum() == pytest.approx(raw.sum(), rel=1e-9)
+    assert (recon > 0.0).sum() > (raw > 0.0).sum()
+    assert not np.array_equal(recon, raw)
+    assert _plane_view_pixmap(window).toImage() != raw_image
+
+    _display_mode_combo(window).setCurrentIndex(0)
+    np.testing.assert_array_equal(window.plane_results[0].grid, raw)
+
+
+def test_display_mode_applies_to_new_planes(window):
+    combo = _display_mode_combo(window)
+    combo.setCurrentIndex(1)
+    _trigger_measurement_plane(window)
+    recon = window.plane_results[0].grid.copy()
+    assert (recon > 0.0).sum() > 1
+
+    combo.setCurrentIndex(0)
+    raw = window.plane_results[0].grid
+    assert not np.array_equal(recon, raw)
+    assert recon.sum() == pytest.approx(raw.sum(), rel=1e-9)
+
+
 def test_plane_view_clears_when_last_plane_removed(window):
     _trigger_measurement_plane(window)
     assert _plane_view_size(window) == (64, 64)

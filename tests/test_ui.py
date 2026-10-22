@@ -648,10 +648,41 @@ def test_source_panel_populated_with_defaults(window):
     assert editor["z"].value() == pytest.approx(3.0)
 
 
-def test_point_array_option_disabled(window):
+def test_point_array_option_enabled(window):
     combo = _source_editor(window)["type"]
     item = combo.model().item(combo.findText("Point Array"))
-    assert not item.isEnabled()
+    assert item.isEnabled()
+
+
+def test_point_array_apply_from_image(window, tmp_path):
+    image = QtGui.QImage(3, 3, QtGui.QImage.Format.Format_RGB32)
+    image.fill(QtGui.QColor(0, 0, 0))
+    for x in range(3):
+        image.setPixelColor(x, 0, QtGui.QColor(255, 255, 255))
+    path = tmp_path / "grid.png"
+    assert image.save(str(path), "PNG")
+
+    editor = _source_editor(window)
+    window._source_editor._load_image(path)
+    editor["type"].setCurrentText("Point Array")
+    editor["rays"].setValue(2)
+    _click_source(window, OK)
+
+    assert window.source.source_type == "point_array"
+    assert len(window.rays) == 6  # 3 bright pixels x 2 rays
+    assert len(window._scene._source_nodes) == 1
+
+    editor["type"].setCurrentText("Single Point")
+    _click_source(window, OK)
+    assert window.source.source_type == "single_point"
+
+
+def test_point_array_apply_without_image_warns(window, captured_warnings):
+    editor = _source_editor(window)
+    editor["type"].setCurrentText("Point Array")
+    _click_source(window, OK)
+    assert captured_warnings
+    assert window.source.source_type == "single_point"
 
 
 def test_source_sphere_drawn_at_startup(window):

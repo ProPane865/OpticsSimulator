@@ -2,7 +2,13 @@ import numpy as np
 import pytest
 
 from optics.primitive import Ray
-from optics.source import POINT_ARRAY, SINGLE_POINT, PointSource
+from optics.source import (
+    MAX_ARRAY_RAYS,
+    POINT_ARRAY,
+    SINGLE_POINT,
+    PointSource,
+    resample_grid,
+)
 from tests.oracle import fibonacci_cone_directions
 
 
@@ -72,10 +78,90 @@ def test_fibonacci_full_cone_is_sphere():
     assert np.allclose(np.linalg.norm(dirs, axis=1), 1.0)
 
 
-def test_point_array_not_implemented():
-    source = PointSource([0.0, 0.0, 0.0], source_type=POINT_ARRAY)
-    with pytest.raises(NotImplementedError):
+def test_point_array_grid_points_positions_and_weights():
+    weights = np.array([[0.0, 1.0], [1.0, 0.0]])
+    source = PointSource([0.0, 0.0, 3.0], weights=weights, pixel_pitch=1.0, source_type=POINT_ARRAY)
+    points, point_weights = source.grid_points()
+    np.testing.assert_allclose(points, np.array([[0.5, 0.5, 3.0], [-0.5, -0.5, 3.0]]))
+    np.testing.assert_allclose(point_weights, [1.0, 1.0])
+
+
+def test_point_array_emits_per_point_fan():
+    weights = np.array([[0.0, 1.0], [1.0, 0.0]])
+    source = PointSource([0.0, 0.0, 3.0], power=2.0, num_rays=4, weights=weights,
+                         pixel_pitch=1.0, source_type=POINT_ARRAY)
+    rays = source.emit_rays()
+    assert len(rays) == 8  # 2 active points x 4 rays
+    origins = np.array([ray.origin for ray in rays])
+    expected = np.repeat([[0.5, 0.5, 3.0], [-0.5, -0.5, 3.0]], 4, axis=0)
+    np.testing.assert_allclose(origins, expected)
+
+
+def test_point_array_power_split_by_brightness():
+    weights = np.array([[1.0, 3.0]])
+    source = PointSource([0.0, 0.0, 3.0], power=4.0, num_rays=2, weights=weights,
+                         pixel_pitch=1.0, source_type=POINT_ARRAY)
+    powers = np.array([ray.power for ray in source.emit_rays()])
+    assert powers.sum() == pytest.approx(4.0)
+    dim = np.all([ray.power == pytest.approx(0.5) for ray in source.emit_rays()[:2]])
+    assert dim  # first point weight 1 -> 1/4 of power -> 0.5 total over 2 rays
+    assert powers[:2].sum() == pytest.approx(1.0)
+    assert powers[2:].sum() == pytest.approx(3.0)
+
+
+def test_point_array_directions_are_cone_fan():
+    weights = np.ones((3, 3))
+    source = PointSource([0.0, 0.0, 0.0], num_rays=16, weights=weights, source_type=POINT_ARRAY)
+    dirs = np.array([ray.direction for ray in source.emit_rays()])
+    assert np.allclose(np.linalg.norm(dirs, axis=1), 1.0)
+    assert np.any(dirs[:, 2] < 0.0)  # fans toward -z
+
+
+def test_point_array_zero_power_emits_zero():
+    weights = np.ones((2, 2))
+    source = PointSource([0.0, 0.0, 0.0], power=0.0, num_rays=3, weights=weights, source_type=POINT_ARRAY)
+    rays = source.emit_rays()
+    assert len(rays) == 12
+    assert all(ray.power == 0.0 for ray in rays)
+
+
+def test_point_array_over_ray_cap_raises():
+    weights = np.ones((129, 129))  # 16641 > MAX_ARRAY_RAYS
+    assert weights.size > MAX_ARRAY_RAYS
+    source = PointSource([0.0, 0.0, 0.0], num_rays=1, weights=weights, source_type=POINT_ARRAY)
+    with pytest.raises(ValueError, match="max"):
         source.emit_rays()
+
+
+def test_point_array_requires_grid():
+    source = PointSource([0.0, 0.0, 0.0], source_type=POINT_ARRAY)
+    with pytest.raises(ValueError, match="intensity grid"):
+        source.emit_rays()
+
+
+def test_point_array_invalid_grid_raises():
+    with pytest.raises(ValueError):
+        PointSource([0.0, 0.0, 0.0], source_type=POINT_ARRAY, weights=np.ones(4))
+
+
+def test_resample_grid_downsamples():
+    grid = np.arange(16.0).reshape(4, 4)
+    out = resample_grid(grid, 2)
+    assert out.shape == (2, 2)
+    expected = grid.reshape(2, 2, 2, 2).mean(axis=(1, 3))
+    np.testing.assert_allclose(out, expected)
+
+
+def test_resample_grid_noop_when_small():
+    grid = np.ones((3, 5))
+    np.testing.assert_allclose(resample_grid(grid, 8), grid)
+
+
+def test_resample_grid_rejects_bad_input():
+    with pytest.raises(ValueError):
+        resample_grid(np.ones(4), 2)
+    with pytest.raises(ValueError):
+        resample_grid(np.ones((2, 2)), 0)
 
 
 def test_unknown_source_type_raises():

@@ -9,6 +9,7 @@ from vispy.scene import visuals
 from optics.element import RefractiveElement
 from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.primitive import LensSidewall, Ray, Surface
+from optics.source import POINT_ARRAY
 from optics.system import OpticalSystem
 
 from .colormaps import (
@@ -392,8 +393,22 @@ def build_element_nodes(view: Any, element: RefractiveElement) -> list[Any]:
     return nodes
 
 
+def _add_marker_cloud(view: Any, points: np.ndarray, color: Any, size: float = 8.0) -> Any:
+    markers = visuals.Markers(pos=points, face_color=color, size=size, edge_width=0)
+    markers.update_gl_state(depth_test=False)
+    return _attach(view, markers)
+
+
 def build_source_nodes(view: Any, source: Any, radius: float = 0.08) -> list[Any]:
-    """Attach the source marker sphere to ``view``."""
+    """Attach the source marker(s) to ``view``.
+
+    A single point draws one sphere; a point array draws one scatter marker per
+    active grid point (a single visual, so large arrays stay cheap).
+    """
+    if getattr(source, "source_type", None) == POINT_ARRAY:
+        points, _weights = source.grid_points()
+        if points.shape[0]:
+            return [_add_marker_cloud(view, points, SOURCE_COLOR)]
     return [_add_marker(view, np.asarray(source.position, dtype=float), SOURCE_COLOR, radius=radius)]
 
 

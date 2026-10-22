@@ -22,6 +22,7 @@ from optics.primitive import Ray
 from optics.project import DEFAULT_MEASUREMENT_CONFIG, DEFAULT_SOURCE_CONFIG
 from optics.source import PointSource
 
+from . import imagecodec
 from .editors import ElementEditor, PlaneEditor, SourceEditor
 from .model import DEFAULT_ELEMENT_CONFIG, ProjectState
 from .plane_view import PlaneView
@@ -263,6 +264,7 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
 def main() -> int:
     qapp = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     vispy_app.use_app("pyside6")
+    imagecodec.register()
 
     canvas = make_display([], [])
     window = OpticsMainWindow(canvas)

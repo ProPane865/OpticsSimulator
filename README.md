@@ -140,6 +140,31 @@ light source and measurement planes:
 }
 ```
 
+### Light sources
+
+`source_type` is `single_point` (one origin, a Fibonacci cone fan) or
+`point_array` (an intensity-weighted grid). A point array is driven by a PNG
+image converted to grayscale: the image lies in the `x-y` plane centred on
+`position` (row 0 is `+y`), one emitter per pixel at `pixel_pitch` spacing, and
+each pixel's brightness scales its share of the total `power`. Every active
+point emits its own cone fan, so the total ray count is
+`active_points x num_rays`, capped at 16384; images are block-mean downsampled
+to `max_grid_dim` per side before emission. The image is embedded in the project
+as a base64 PNG and re-decoded on load. PNG (de)coding is provided by the Qt UI
+layer (`ui.imagecodec`) through the codec seam in `optics.source`, so the Qt-free
+core can still emit from an already-decoded grid:
+
+```json
+"source": {
+  "position": [0, 0, 3],
+  "power": 1.0, "num_rays": 4,
+  "source_type": "point_array",
+  "cone_angle": 60.0,
+  "pixel_pitch": 0.05, "max_grid_dim": 64,
+  "image": "<base64 PNG>"
+}
+```
+
 ## Optical stack format
 
 A stack is a JSON object mapping element names to element configs:

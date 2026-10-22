@@ -39,9 +39,26 @@ def test_source_from_config_rejects_non_dict():
         source_from_config([1, 2, 3])
 
 
-def test_source_from_config_rejects_point_array():
-    with pytest.raises(ValueError, match="not supported"):
+def test_source_from_config_rejects_point_array_without_image():
+    with pytest.raises(ValueError, match="image"):
         source_from_config({"source_type": "point_array"})
+
+
+def test_point_array_source_round_trip(memory_codec):
+    grid = np.array([[0.0, 1.0], [2.0, 0.0]])
+    source = PointSource(
+        position=[0.0, 0.0, 3.0], power=1.5, num_rays=4,
+        source_type="point_array", cone_angle=60.0, pixel_pitch=0.1, weights=grid,
+    )
+    config = source_to_config(source)
+    assert config["source_type"] == "point_array"
+    assert config["pixel_pitch"] == pytest.approx(0.1)
+    assert "image" in config
+
+    restored = source_from_config(config)
+    assert restored.source_type == "point_array"
+    assert restored.pixel_pitch == pytest.approx(0.1)
+    np.testing.assert_allclose(restored.weights, grid)
 
 
 def test_plane_round_trip():

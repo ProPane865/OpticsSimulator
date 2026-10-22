@@ -1,14 +1,43 @@
+import base64
+import io
 import re
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from optics import source as source_module
 from optics.config import (
     refractive_element_from_config,
     refractive_element_from_json,
 )
 from optics.element import RefractiveElement
+from optics.source import register_image_codec
+
+
+@pytest.fixture
+def memory_codec():
+    """Register a symmetric in-memory grid codec so project I/O works without Qt.
+
+    Encodes the weight grid via ``numpy.save`` (base64) instead of a real PNG,
+    exercising the codec seam the optics core exposes. Restores the previous
+    codec (usually the unregistered default) on teardown.
+    """
+    saved = (source_module._image_decoder, source_module._image_encoder)
+
+    def encode(weights: np.ndarray) -> str:
+        buffer = io.BytesIO()
+        np.save(buffer, np.asarray(weights, dtype=float), allow_pickle=False)
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    def decode(data: str) -> np.ndarray:
+        return np.load(io.BytesIO(base64.b64decode(data)), allow_pickle=False).astype(float)
+
+    register_image_codec(decode, encode)
+    try:
+        yield
+    finally:
+        register_image_codec(saved[0], saved[1])  # type: ignore[arg-type]
 
 
 def _parametric_equation(equation: str) -> str:

@@ -41,6 +41,15 @@ jobs:
           cmake --build build-native --config Release --target optics_native_tests
           ctest --test-dir build-native -C Release --output-on-failure
 
+      - name: Native C++ tests (sanitizers)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g" \
+            -DOPTICS_BUILD_MODULE=OFF -DOPTICS_BUILD_TESTS=ON
+          cmake --build build-sanitize --target optics_native_tests
+          ctest --test-dir build-sanitize --output-on-failure
+
       - name: Lint (ruff)
         run: ruff check .
 

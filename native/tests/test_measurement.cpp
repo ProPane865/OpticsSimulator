@@ -128,7 +128,7 @@ void test_planes_multi() {
         double tv = kSentinel;
         double tp = kSentinel;
         const RayBatchView rays_t{trapped_o, trapped_d, trapped_p, 1};
-        const PlaneBatchView planes_t{po_t, pn_t, r_min, r_max, r_min, r_max, 2};
+        const PlaneBatchView planes_t{po_t, pn_t, r_min, r_max, r_min, r_max, 1};
         const MeasurementOutputView out_t{&tu, &tv, &tp};
         measure_planes_multi(slab, rays_t, planes_t, optics::native::PLANE_EPS, out_t);
         CHECK(tu == kSentinel && tv == kSentinel && tp == kSentinel);

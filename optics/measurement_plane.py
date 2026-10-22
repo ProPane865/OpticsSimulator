@@ -57,12 +57,23 @@ def results_from_hits(
     us: np.ndarray,
     vs: np.ndarray,
     pws: np.ndarray,
+    reconstruct: bool = False,
+    neighbors: int = 8,
+    bandwidth_scale: float = 1.5,
 ) -> "list[MeasurementResult]":
-    """One fresh detector image per plane from ``(P, N)`` hit buffers."""
+    """One fresh detector image per plane from ``(P, N)`` hit buffers.
+
+    With ``reconstruct`` the hits fill the image through the adaptive-kernel
+    reconstruction (:meth:`MeasurementResult.reconstruct`) instead of the
+    plain per-bin histogram.
+    """
     results = []
     for q, plane in enumerate(planes):
         result = plane.new_result()
-        result.accumulate(us[q], vs[q], pws[q])
+        if reconstruct:
+            result.reconstruct(us[q], vs[q], pws[q], neighbors, bandwidth_scale)
+        else:
+            result.accumulate(us[q], vs[q], pws[q])
         results.append(result)
     return results
 
@@ -181,11 +192,26 @@ class MeasurementPlane:
         return i, j
 
     def measure(
-        self, rays: Sequence[Ray], system: "OpticalSystem | None" = None
+        self,
+        rays: Sequence[Ray],
+        system: "OpticalSystem | None" = None,
+        *,
+        reconstruct: bool = False,
+        neighbors: int = 8,
+        bandwidth_scale: float = 1.5,
     ) -> "MeasurementResult":
-        """Trace rays through ``system`` into a fresh detector image."""
+        """Trace rays through ``system`` into a fresh detector image.
+
+        ``reconstruct`` fills the image with adaptive-kernel reconstruction
+        of the hits instead of the plain per-bin histogram.
+        """
         return MeasurementPlane.measure_batch_arrays(
-            [self], *rays_to_arrays(rays), system
+            [self],
+            *rays_to_arrays(rays),
+            system,
+            reconstruct=reconstruct,
+            neighbors=neighbors,
+            bandwidth_scale=bandwidth_scale,
         )[0]
 
     @staticmethod
@@ -195,12 +221,18 @@ class MeasurementPlane:
         dirs: np.ndarray,
         powers: np.ndarray,
         system: "OpticalSystem | None" = None,
+        *,
+        reconstruct: bool = False,
+        neighbors: int = 8,
+        bandwidth_scale: float = 1.5,
     ) -> "list[MeasurementResult]":
         """Measure every plane, tracing the ray fan through ``system`` once.
 
         ``origins``/``dirs`` are ``(N, 3)`` and ``powers`` is ``(N,)``; the fan
         is traced through ``system`` once (or measured directly without one),
         and a fresh result is returned per plane in the order of ``planes``.
+        ``reconstruct`` fills the images through adaptive-kernel
+        reconstruction of the hits instead of the plain histogram.
         """
         plane_list = list(planes)
         if not plane_list:
@@ -213,9 +245,13 @@ class MeasurementPlane:
             us = np.vstack([d[0] for d in direct])
             vs = np.vstack([d[1] for d in direct])
             pws = np.vstack([d[2] for d in direct])
-            return results_from_hits(plane_list, us, vs, pws)
+            return results_from_hits(
+                plane_list, us, vs, pws, reconstruct, neighbors, bandwidth_scale
+            )
         us, vs, pws = system.measure_planes(origins, dirs, powers, plane_list)
-        return results_from_hits(plane_list, us, vs, pws)
+        return results_from_hits(
+            plane_list, us, vs, pws, reconstruct, neighbors, bandwidth_scale
+        )
 
 
 class MeasurementResult:
@@ -262,6 +298,46 @@ class MeasurementResult:
                 p.rv,
                 p.interval_u,
                 p.interval_v,
+            )
+        )
+        self._total += added
+        return added
+
+    def reconstruct(
+        self,
+        u: Any,
+        v: Any,
+        power: Any,
+        neighbors: int = 8,
+        bandwidth_scale: float = 1.5,
+    ) -> float:
+        """Deposit ray power with adaptive-kernel reconstruction.
+
+        Each in-extent hit spreads its power over the overlapping bins with a
+        compact Wendland kernel whose radius follows the local hit spacing,
+        renormalised so the deposited power equals the ray power; returns the
+        added power.
+        """
+        u = np.atleast_1d(np.asarray(u, dtype=float))
+        v = np.atleast_1d(np.asarray(v, dtype=float))
+        power = np.atleast_1d(np.asarray(power, dtype=float))
+        p = self._plane
+        added = float(
+            _native.reconstruct(
+                self.grid,
+                np.ascontiguousarray(u),
+                np.ascontiguousarray(v),
+                np.ascontiguousarray(power),
+                p.u_min,
+                p.u_max,
+                p.v_min,
+                p.v_max,
+                p.ru,
+                p.rv,
+                p.interval_u,
+                p.interval_v,
+                int(neighbors),
+                float(bandwidth_scale),
             )
         )
         self._total += added

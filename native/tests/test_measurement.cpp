@@ -1,14 +1,17 @@
-// Measurement kernel suite: detector accumulation, direct plane intersection,
-// the shared-walk multi-plane pass (analytic crossings, stack misses and
-// trapped rays) and the fused rendering + planes kernel.
+// Measurement kernel suite: detector accumulation, adaptive-kernel
+// reconstruction, direct plane intersection, the shared-walk multi-plane pass
+// (analytic crossings, stack misses and trapped rays) and the fused rendering
+// + planes kernel.
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <vector>
 
 #include "optics/common/constants.hpp"
 #include "optics/common/vector.hpp"
 #include "optics/measurement/measurement.hpp"
+#include "optics/measurement/reconstruct.hpp"
 #include "optics/tracing/trace.hpp"
 
 #include "check.hpp"
@@ -23,6 +26,7 @@ using optics::native::measure_planes_multi;
 using optics::native::MeasurementOutputView;
 using optics::native::PlaneBatchView;
 using optics::native::RayBatchView;
+using optics::native::reconstruct_irradiance;
 using optics::native::SegmentOutputView;
 using optics::native::trace_segments_and_planes;
 using optics::native::TraceOptions;
@@ -56,6 +60,146 @@ void test_accumulate() {
     CHECK(close(accumulate_power(grid, u, v, nan_pw, 1, -1.0, 1.0, -1.0, 1.0, 2, 2, 2.0, 2.0),
                 0.0));
     CHECK(close(grid[3], 1.0));
+}
+
+// Four rays on a small square, one per central pixel: each kernel lands on a
+// single pixel (nearest centre at q = 0.707, next at q > 1), so every central
+// pixel receives exactly the ray power and the outer ring stays empty.
+void test_reconstruct_square() {
+    const double u[4] = {0.25, -0.25, 0.25, -0.25};
+    const double v[4] = {0.25, 0.25, -0.25, -0.25};
+    const double pw[4] = {1.0, 1.0, 1.0, 1.0};
+    double grid[16] = {0.0};
+    const double total = reconstruct_irradiance(grid, u, v, pw, 4, -2.0, 2.0, -2.0, 2.0, 4, 4,
+                                                4.0, 4.0, 2, 1.0);
+    CHECK(close(total, 4.0));
+    CHECK(close(grid[1 * 4 + 1], 1.0) && close(grid[1 * 4 + 2], 1.0));
+    CHECK(close(grid[2 * 4 + 1], 1.0) && close(grid[2 * 4 + 2], 1.0));
+    double sum = 0.0;
+    for (double g : grid) {
+        sum += g;
+    }
+    CHECK(close(sum, 4.0));
+    CHECK(close(grid[0], 0.0) && close(grid[3], 0.0) && close(grid[12], 0.0) &&
+          close(grid[15], 0.0));
+}
+
+// Two close rays on a coarse grid: every kernel window misses the unit
+// support (q >= 1 everywhere), so both rays are skipped without depositing.
+void test_reconstruct_zero_weight_skip() {
+    const double u[2] = {0.0, 0.4};
+    const double v[2] = {0.0, 0.0};
+    const double pw[2] = {1.0, 3.0};
+    double grid[16] = {0.0};
+    const double total = reconstruct_irradiance(grid, u, v, pw, 2, -2.0, 2.0, -2.0, 2.0, 4, 4,
+                                                4.0, 4.0, 1, 1.0);
+    CHECK(close(total, 0.0));
+    for (double g : grid) {
+        CHECK(close(g, 0.0));
+    }
+}
+
+// Rays at the plane corner: the truncated window is renormalised, so each
+// ray still deposits its full power into the single overlapping pixel.
+void test_reconstruct_boundary_renormalisation() {
+    const double u[2] = {0.95, 0.95};
+    const double v[2] = {0.95, -0.95};
+    const double pw[2] = {1.0, 1.0};
+    double grid[4] = {0.0};
+    const double total = reconstruct_irradiance(grid, u, v, pw, 2, -1.0, 1.0, -1.0, 1.0, 2, 2,
+                                                2.0, 2.0, 1, 0.5);
+    CHECK(close(total, 2.0));
+    CHECK(close(grid[1 * 2 + 1], 1.0));  // corner pixel (v >= 0, u >= 0)
+    CHECK(close(grid[0 * 2 + 1], 1.0));  // edge pixel (v < 0, u >= 0)
+    CHECK(close(grid[0], 0.0) && close(grid[2], 0.0));
+}
+
+// Duplicate hits have zero k-th neighbour distance: zero bandwidth skips them.
+void test_reconstruct_duplicate_bandwidth() {
+    const double u[2] = {0.0, 0.0};
+    const double v[2] = {0.0, 0.0};
+    const double pw[2] = {5.0, 5.0};
+    double grid[4] = {0.0};
+    const double total = reconstruct_irradiance(grid, u, v, pw, 2, -1.0, 1.0, -1.0, 1.0, 2, 2,
+                                                2.0, 2.0, 1, 1.0);
+    CHECK(close(total, 0.0));
+    CHECK(close(grid[0], 0.0) && close(grid[3], 0.0));
+}
+
+// Non-finite and out-of-extent samples are filtered before the neighbour
+// search: the surviving four corners reconstruct as in the square case.
+void test_reconstruct_filtering() {
+    const double u[7] = {0.25, -0.25, 0.25, -0.25, kNan, 5.0, 0.0};
+    const double v[7] = {0.25, 0.25, -0.25, -0.25, 0.0, 0.0, 0.0};
+    const double pw[7] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, kNan};
+    double grid[16] = {0.0};
+    const double total = reconstruct_irradiance(grid, u, v, pw, 7, -2.0, 2.0, -2.0, 2.0, 4, 4,
+                                                4.0, 4.0, 2, 1.0);
+    CHECK(close(total, 4.0));
+    CHECK(close(grid[1 * 4 + 1], 1.0) && close(grid[2 * 4 + 2], 1.0));
+    double sum = 0.0;
+    for (double g : grid) {
+        sum += g;
+    }
+    CHECK(close(sum, 4.0));
+
+    // Nothing valid: no work, no deposited power.
+    double empty_grid[4] = {0.0};
+    const double empty_u[1] = {kNan};
+    CHECK(close(reconstruct_irradiance(empty_grid, empty_u, empty_u, pw, 1, -1.0, 1.0, -1.0, 1.0,
+                                       2, 2, 2.0, 2.0, 8, 1.5),
+                0.0));
+}
+
+// Fewer points than requested neighbours: the search clamps to the available
+// points instead of failing, and conservation still holds.
+void test_reconstruct_more_neighbors_than_points() {
+    const double u[3] = {0.0, 1.0, 0.0};
+    const double v[3] = {0.0, 0.0, 1.0};
+    const double pw[3] = {1.0, 1.0, 1.0};
+    double grid[16] = {0.0};
+    const double total = reconstruct_irradiance(grid, u, v, pw, 3, -2.0, 2.0, -2.0, 2.0, 4, 4,
+                                                4.0, 4.0, 8, 1.0);
+    CHECK(close(total, 3.0));
+    double sum = 0.0;
+    for (double g : grid) {
+        sum += g;
+    }
+    CHECK(close(sum, 3.0));
+}
+
+// A dense sample forces the parallel deposition path on an anisotropic grid;
+// repeated runs must be bit-identical (deterministic chunk reduction) and
+// conserve power exactly.
+void test_reconstruct_parallel_determinism() {
+    const std::size_t m = 2000;
+    std::vector<double> u(m);
+    std::vector<double> v(m);
+    std::vector<double> pw(m, 1.0);
+    std::uint64_t s = 0x9E3779B97F4A7C15ull;
+    const auto rnd = [&s]() {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        return static_cast<double>(s >> 11) / 9007199254740992.0;
+    };
+    for (std::size_t i = 0; i < m; ++i) {
+        u[i] = (2.0 * rnd() - 1.0) * 1.1;
+        v[i] = (2.0 * rnd() - 1.0) * 1.1;
+    }
+    std::vector<double> g1(64 * 32, 0.0);
+    std::vector<double> g2(64 * 32, 0.0);
+    const double t1 = reconstruct_irradiance(g1.data(), u.data(), v.data(), pw.data(), m, -1.2,
+                                             1.2, -1.2, 1.2, 64, 32, 2.4, 2.4, 8, 1.5);
+    const double t2 = reconstruct_irradiance(g2.data(), u.data(), v.data(), pw.data(), m, -1.2,
+                                             1.2, -1.2, 1.2, 64, 32, 2.4, 2.4, 8, 1.5);
+    CHECK(close(t1, static_cast<double>(m)));
+    CHECK(std::memcmp(g1.data(), g2.data(), g1.size() * sizeof(double)) == 0);
+    double sum = 0.0;
+    for (double g : g1) {
+        sum += g;
+    }
+    CHECK(close(sum, static_cast<double>(m)));
 }
 
 void test_measure_direct() {

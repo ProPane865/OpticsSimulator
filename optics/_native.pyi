@@ -108,6 +108,22 @@ def accumulate(
     interval_u: float,
     interval_v: float,
 ) -> float: ...
+def reconstruct(
+    grid: np.ndarray,
+    u: np.ndarray,
+    v: np.ndarray,
+    power: np.ndarray,
+    u_min: float,
+    u_max: float,
+    v_min: float,
+    v_max: float,
+    ru: int,
+    rv: int,
+    interval_u: float,
+    interval_v: float,
+    neighbors: int,
+    bandwidth_scale: float,
+) -> float: ...
 def measure_direct(
     origins: np.ndarray,
     dirs: np.ndarray,

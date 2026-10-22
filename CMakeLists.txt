@@ -27,7 +27,8 @@ add_library(optics_core OBJECT
   native/tracing/direction.cpp
   native/tracing/element.cpp
   native/tracing/stack.cpp
-  native/measurement/measurement.cpp)
+  native/measurement/measurement.cpp
+  native/measurement/reconstruct.cpp)
 target_include_directories(optics_core PUBLIC native/include)
 target_compile_options(optics_core PUBLIC
   $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffp-contract=off>)

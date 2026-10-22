@@ -1,14 +1,16 @@
-// Measurement entry points: detector power accumulation, direct plane
-// measurement, the multi-plane single-trace pass and the fused
-// rendering-segments + planes batch. All stack-traced measurement runs
-// through the shared-walk kernels.
+// Measurement entry points: detector power accumulation, adaptive-kernel
+// irradiance reconstruction, direct plane measurement, the multi-plane
+// single-trace pass and the fused rendering-segments + planes batch. All
+// stack-traced measurement runs through the shared-walk kernels.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
 #include "optics/measurement/measurement.hpp"
+#include "optics/measurement/reconstruct.hpp"
 
 #include "register.hpp"
 #include "support.hpp"
@@ -48,6 +50,29 @@ double py_accumulate(const py::array_t<double>& grid, const py::array_t<double>&
     return optics::native::accumulate_power(static_cast<double*>(g_info.ptr), ud.data, vd.data,
                                             pd.data, ud.size, u_min, u_max, v_min, v_max, ru, rv,
                                             interval_u, interval_v);
+}
+
+double py_reconstruct(const py::array_t<double>& grid, const py::array_t<double>& u,
+                      const py::array_t<double>& v, const py::array_t<double>& power, double u_min,
+                      double u_max, double v_min, double v_max, int ru, int rv, double interval_u,
+                      double interval_v, std::int64_t neighbors, double bandwidth_scale) {
+    const py::buffer_info g_info = grid.request();
+    require(g_info.ndim == 2 && !g_info.readonly && static_cast<int>(g_info.shape[1]) == ru &&
+                static_cast<int>(g_info.shape[0]) == rv,
+            "grid: expected writeable shape (rv, ru)");
+    require(is_contiguous(g_info), "grid: array must be contiguous");
+    const ConstDoubles ud = read_doubles(u, 1, "u");
+    const ConstDoubles vd = read_doubles(v, 1, "v");
+    const ConstDoubles pd = read_doubles(power, 1, "power");
+    require(ud.size == vd.size && vd.size == pd.size, "u/v/power sizes must match");
+    require(neighbors >= 1, "neighbors: must be at least 1");
+    require(std::isfinite(bandwidth_scale) && bandwidth_scale >= 0.0,
+            "bandwidth_scale: must be finite and non-negative");
+    const py::gil_scoped_release release;
+    return optics::native::reconstruct_irradiance(
+        static_cast<double*>(g_info.ptr), ud.data, vd.data, pd.data, ud.size, u_min, u_max, v_min,
+        v_max, ru, rv, interval_u, interval_v, static_cast<std::size_t>(neighbors),
+        bandwidth_scale);
 }
 
 void py_measure_direct(const py::array_t<double>& origins, const py::array_t<double>& dirs,
@@ -152,6 +177,10 @@ void register_measurement(py::module_& m) {
     m.def("accumulate", &py_accumulate, py::arg("grid"), py::arg("u"), py::arg("v"),
           py::arg("power"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"), py::arg("v_max"),
           py::arg("ru"), py::arg("rv"), py::arg("interval_u"), py::arg("interval_v"));
+    m.def("reconstruct", &py_reconstruct, py::arg("grid"), py::arg("u"), py::arg("v"),
+          py::arg("power"), py::arg("u_min"), py::arg("u_max"), py::arg("v_min"), py::arg("v_max"),
+          py::arg("ru"), py::arg("rv"), py::arg("interval_u"), py::arg("interval_v"),
+          py::arg("neighbors"), py::arg("bandwidth_scale"));
     m.def("measure_direct", &py_measure_direct, py::arg("origins"), py::arg("dirs"),
           py::arg("powers"), py::arg("o"), py::arg("n"), py::arg("eps"), py::arg("us"),
           py::arg("vs"), py::arg("pws"));

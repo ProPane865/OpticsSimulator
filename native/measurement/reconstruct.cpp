@@ -270,19 +270,28 @@ double reconstruct_irradiance(double* grid, const double* u, const double* v,
         return 0.0;
     }
 
+    const double du = interval_u / ru;
+    const double dv = interval_v / rv;
+    const std::size_t cells = static_cast<std::size_t>(ru) * static_cast<std::size_t>(rv);
+
+    // Bandwidth floor at the pixel scale: a locally over-dense sample (a point
+    // array, or coincident hits) drives the k-th neighbour spacing far below the
+    // pixel pitch, shrinking the compact kernel to a single pixel (grainy image,
+    // or zero-bandwidth drops). Two pixels of support keeps every such hit soft.
+    // Resolved beams already have k-th-neighbour bandwidths of ~2-3 pixels, so
+    // this floor leaves well-sampled structure untouched and only lifts the
+    // degenerate, undersmoothed cases.
+    const double h_min = 2.0 * std::hypot(du, dv);
+
     const KdTree tree(pu, pv);
     const std::size_t k = std::min(neighbors + 1, m);
     std::vector<double> h(m);
     run_chunks(m, [&](std::size_t lo, std::size_t hi) {
         KnnSearch knn(tree, pu, pv, k);
         for (std::size_t i = lo; i < hi; ++i) {
-            h[i] = bandwidth_scale * std::sqrt(knn(i));
+            h[i] = std::max(bandwidth_scale * std::sqrt(knn(i)), h_min);
         }
     });
-
-    const double du = interval_u / ru;
-    const double dv = interval_v / rv;
-    const std::size_t cells = static_cast<std::size_t>(ru) * static_cast<std::size_t>(rv);
 
     unsigned hc = std::thread::hardware_concurrency();
     if (hc == 0) {

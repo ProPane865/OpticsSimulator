@@ -84,19 +84,23 @@ void test_reconstruct_square() {
           close(grid[15], 0.0));
 }
 
-// Two close rays on a coarse grid: every kernel window misses the unit
-// support (q >= 1 everywhere), so both rays are skipped without depositing.
-void test_reconstruct_zero_weight_skip() {
+// Two close rays on a coarse grid: the pixel-size bandwidth floor keeps every
+// kernel at least one pixel wide, so both rays deposit into the nearest pixels
+// instead of collapsing to a zero-width window and vanishing.
+void test_reconstruct_floor_avoids_dropouts() {
     const double u[2] = {0.0, 0.4};
     const double v[2] = {0.0, 0.0};
     const double pw[2] = {1.0, 3.0};
     double grid[16] = {0.0};
     const double total = reconstruct_irradiance(grid, u, v, pw, 2, -2.0, 2.0, -2.0, 2.0, 4, 4,
                                                 4.0, 4.0, 1, 1.0);
-    CHECK(close(total, 0.0));
+    CHECK(close(total, 4.0));
+    double sum = 0.0;
     for (double g : grid) {
-        CHECK(close(g, 0.0));
+        sum += g;
     }
+    CHECK(close(sum, 4.0));
+    CHECK(sum > 0.0);
 }
 
 // Rays at the plane corner: the truncated window is renormalised, so each
@@ -114,7 +118,10 @@ void test_reconstruct_boundary_renormalisation() {
     CHECK(close(grid[0], 0.0) && close(grid[2], 0.0));
 }
 
-// Duplicate hits have zero k-th neighbour distance: zero bandwidth skips them.
+// Coincident (duplicate) hits have zero k-th neighbour distance: the bandwidth
+// floor keeps them at pixel width, so their power is conserved (spread over
+// the neighbouring pixels) rather than dropped as in the old zero-bandwidth
+// skip.
 void test_reconstruct_duplicate_bandwidth() {
     const double u[2] = {0.0, 0.0};
     const double v[2] = {0.0, 0.0};
@@ -122,8 +129,13 @@ void test_reconstruct_duplicate_bandwidth() {
     double grid[4] = {0.0};
     const double total = reconstruct_irradiance(grid, u, v, pw, 2, -1.0, 1.0, -1.0, 1.0, 2, 2,
                                                 2.0, 2.0, 1, 1.0);
-    CHECK(close(total, 0.0));
-    CHECK(close(grid[0], 0.0) && close(grid[3], 0.0));
+    CHECK(close(total, 10.0));
+    double sum = 0.0;
+    for (double g : grid) {
+        sum += g;
+    }
+    CHECK(close(sum, 10.0));
+    CHECK(grid[0] > 0.0 || grid[3] > 0.0);
 }
 
 // Non-finite and out-of-extent samples are filtered before the neighbour

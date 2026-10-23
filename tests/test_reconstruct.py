@@ -123,6 +123,28 @@ def test_reconstruct_ignores_misses_and_out_of_extent():
     assert np.all(np.isfinite(result.grid))
 
 
+def test_reconstruct_tight_cluster_spreads_over_pixels():
+    # A point array piles many rays into each point: the intra-point spacing is
+    # far below the pixel pitch, so the adaptive bandwidth would collapse the
+    # compact kernel to a single pixel and grain the image. The pixel-size
+    # bandwidth floor keeps every hit spread over neighbouring pixels.
+    plane = _plane(resolution=(128, 128))
+    result = plane.new_result()
+    rng = np.random.default_rng(2024)
+    du = plane.interval_u / plane.ru
+    jitter = du / 50.0  # intra-point spread ~2 orders of magnitude under a pixel
+    u = rng.normal(0.0, jitter, 512)
+    v = rng.normal(0.0, jitter, 512)
+    power = np.full(512, 1.0 / 512.0)
+    added = result.reconstruct(u, v, power)
+    assert added == pytest.approx(1.0, abs=1e-10)
+    assert result.grid.sum() == pytest.approx(1.0, abs=1e-10)
+    grid = result.grid
+    # Without the floor all power lands in the single containing pixel.
+    assert np.count_nonzero(grid) >= 3
+    assert grid.max() / grid.sum() < 0.5
+
+
 def test_reconstruct_is_deterministic():
     u, v, power = _fib_disk(n=2048)
     plane = _plane(resolution=(128, 128))

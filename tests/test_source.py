@@ -117,6 +117,29 @@ def test_point_array_directions_are_cone_fan():
     assert np.any(dirs[:, 2] < 0.0)  # fans toward -z
 
 
+def test_point_array_cones_differ_per_point():
+    weights = np.ones((1, 2))
+    source = PointSource([0.0, 0.0, 0.0], num_rays=16, weights=weights,
+                         pixel_pitch=1.0, source_type=POINT_ARRAY)
+    blocks = [np.array([r.direction for r in source.emit_rays()])[i:i + 16]
+              for i in (0, 16)]
+    assert blocks[0].shape == (16, 3) and blocks[1].shape == (16, 3)
+    assert not np.allclose(blocks[0], blocks[1])
+    # Each per-ray z and in-plane radius is preserved (pure rotation about z)
+    assert np.allclose(blocks[0][:, 2], blocks[1][:, 2])
+    rad0 = np.hypot(blocks[0][:, 0], blocks[0][:, 1])
+    rad1 = np.hypot(blocks[1][:, 0], blocks[1][:, 1])
+    assert np.allclose(rad0, rad1)
+
+
+def test_point_array_emission_is_deterministic():
+    weights = np.ones((2, 2))
+    source = PointSource([0.0, 0.0, 0.0], num_rays=8, weights=weights, source_type=POINT_ARRAY)
+    first = np.array([r.direction for r in source.emit_rays()])
+    second = np.array([r.direction for r in source.emit_rays()])
+    np.testing.assert_allclose(first, second)
+
+
 def test_point_array_zero_power_emits_zero():
     weights = np.ones((2, 2))
     source = PointSource([0.0, 0.0, 0.0], power=0.0, num_rays=3, weights=weights, source_type=POINT_ARRAY)

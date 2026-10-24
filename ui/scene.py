@@ -20,22 +20,23 @@ if TYPE_CHECKING:
 
 __all__ = ["SceneController", "make_display"]
 
-RAY_LENGTH = 60.0
+RAY_LENGTH = visualize.DEFAULT_RAY_LENGTH
 
 
 def make_display(
     elements: Sequence[RefractiveElement],
     rays: Sequence[Ray],
-    x_range: tuple[float, float] = (-2.0, 2.0),
-    y_range: tuple[float, float] = (-2.0, 2.0),
     ray_length: float = RAY_LENGTH,
+    axis_length: float | None = None,
 ) -> Any:
     canvas = visualize.create_canvas()
     view = canvas.central_widget.add_view(camera="turntable")
     canvas.unfreeze()
     canvas.view = view
     canvas.freeze()
-    visualize.build_scene(view, elements, rays, x_range=x_range, y_range=y_range, ray_length=ray_length)
+    visualize.build_scene(
+        view, elements, rays, ray_length=ray_length, axis_length=axis_length
+    )
     return canvas
 
 
@@ -66,6 +67,25 @@ class SceneController:
         visualize.clear_scene(self._view)
         _, self._element_nodes, self._ray_nodes = visualize.build_scene(
             self._view, elements, rays, ray_length=ray_length
+        )
+
+    def frame_view(
+        self,
+        elements: Sequence[RefractiveElement],
+        source: Any = None,
+        planes: Sequence[MeasurementPlane] = (),
+        ray_length: float = RAY_LENGTH,
+    ) -> None:
+        """Fit the camera to a freshly loaded scene.
+
+        Called on project load/import only: the camera keeps the user's zoom
+        and orbit across element edits and retraces.
+        """
+        visualize.frame_view(
+            self._view,
+            visualize.scene_bounds(
+                elements, source=source, planes=planes, ray_length=ray_length
+            ),
         )
 
     def refresh_source(self, source: Any) -> None:

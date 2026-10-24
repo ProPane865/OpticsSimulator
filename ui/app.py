@@ -105,6 +105,14 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         display_mode.currentIndexChanged.connect(self._on_display_mode_changed)
 
     # -- orchestration shared by the editors --------------------------------
+    def frame_to_scene(self) -> None:
+        """Fit the camera to the whole project (called on load/import only)."""
+        self._scene.frame_view(
+            self._state.elements,
+            source=self._state.source,
+            planes=self._state.planes,
+        )
+
     def _refresh_trace(self) -> None:
         state = self._state
         system = state.system
@@ -177,6 +185,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._scene.full_rebuild(self._state.elements, self._state.rays)
         self._scene.refresh_source(self._state.source)
         self._scene.rebuild_planes(self._state.planes, self._state.plane_results)
+        self.frame_to_scene()
         if replaced_planes:
             self._plane_editor.populate_selector()
         self._element_editor.populate_selector()
@@ -199,6 +208,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._scene.full_rebuild(self._state.elements, self._state.rays)
         self._element_editor.populate_selector()
         self._refresh_trace()
+        self.frame_to_scene()
         self._update_plane_view()
 
         self._set_status(f"Imported {len(added)} element(s) from {path.name}")
@@ -303,7 +313,7 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
             elements = [refractive_element_from_config(DEFAULT_ELEMENT_CONFIG)]
         origins, dirs, powers = PointSource(**DEFAULT_SOURCE_CONFIG).emit_arrays()
         system = OpticalSystem(list(elements))
-        system.trace_segments(origins, dirs, ray_length=60.0)
+        system.trace_segments(origins, dirs, ray_length=RAY_LENGTH)
         plane = MeasurementPlane(**DEFAULT_MEASUREMENT_CONFIG)
         MeasurementPlane.measure_batch_arrays([plane], origins, dirs, powers, system)
     except Exception:
@@ -320,6 +330,9 @@ def main() -> int:
     with as_file(files("optics") / "examples" / "doublet.json") as example_path:
         window.load_stack(example_path)
     window.show()
+    # The load framed against a not-yet-laid-out viewbox; frame again now that
+    # the view has real dimensions so the fit accounts for the window aspect.
+    window.frame_to_scene()
     threading.Thread(
         target=_warm_trace_kernels, args=(window.elements,), daemon=True
     ).start()

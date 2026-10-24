@@ -118,6 +118,44 @@ def test_load_stack_rebuilds_scene(window, repo_root):
     assert "test_stack.json" in window.statusBar().currentMessage()
 
 
+def _doublet(make_window, repo_root):
+    window = make_window()
+    window.load_stack(repo_root / "optics" / "examples" / "doublet.json")
+    return window
+
+
+def test_camera_frames_loaded_scene(make_window, repo_root):
+    window = _doublet(make_window, repo_root)
+    camera = window.canvas.view.camera
+
+    # The millimetre stack, its source and its planes must fit; vispy's own
+    # one-shot auto-fit only ever saw the empty placeholder scene.
+    assert camera.scale_factor is not None
+    assert camera.scale_factor > 20.0
+    assert abs(camera.center[2]) < 20.0
+
+
+def test_camera_reset_restores_framed_view(make_window, repo_root):
+    window = _doublet(make_window, repo_root)
+    camera = window.canvas.view.camera
+    framed = camera.scale_factor
+
+    camera.scale_factor = framed * 0.1
+    camera.reset()
+
+    assert camera.scale_factor == pytest.approx(framed)
+
+
+def test_element_edit_keeps_camera_framing(make_window, repo_root):
+    window = _doublet(make_window, repo_root)
+    camera = window.canvas.view.camera
+    framed = camera.scale_factor
+
+    _trigger(window, "menuNew", "actionOptical_Element")
+
+    assert camera.scale_factor == pytest.approx(framed)
+
+
 def test_load_stack_invalid_json_raises(window, tmp_path):
     bad = tmp_path / "bad_stack.json"
     bad.write_text("{not valid json", encoding="utf-8")

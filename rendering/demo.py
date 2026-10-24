@@ -20,24 +20,23 @@ def default_stack() -> list[RefractiveElement]:
 
 def default_rays() -> list[Ray]:
     return [
-        Ray(np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0),
-        Ray(np.array([0.5, 0.0, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0),
-        Ray(np.array([0.0, 0.4, 3.0]), np.array([0.0, 0.0, -1.0]), 1.0),
+        Ray(np.array([0.0, 0.0, 30.0]), np.array([0.0, 0.0, -1.0]), 1.0),
+        Ray(np.array([5.0, 0.0, 30.0]), np.array([0.0, 0.0, -1.0]), 1.0),
+        Ray(np.array([0.0, 4.0, 30.0]), np.array([0.0, 0.0, -1.0]), 1.0),
     ]
 
 
 def visualize(
     elements: list[RefractiveElement],
     rays: list[Ray],
-    x_range: "tuple[float, float]" = (-2.0, 2.0),
-    y_range: "tuple[float, float]" = (-2.0, 2.0),
-    ray_length: float = 3.0,
+    ray_length: float = _visualize.DEFAULT_RAY_LENGTH,
     show: bool = True,
 ) -> Any:
     canvas = _visualize.create_canvas()
     view = canvas.central_widget.add_view(camera="turntable")
-    _visualize.build_scene(
-        view, elements, rays, x_range=x_range, y_range=y_range, ray_length=ray_length
+    _visualize.build_scene(view, elements, rays, ray_length=ray_length)
+    _visualize.frame_view(
+        view, _visualize.scene_bounds(elements, ray_length=ray_length)
     )
 
     if show:
@@ -46,7 +45,7 @@ def visualize(
 
 
 def main() -> None:
-    visualize(default_stack(), default_rays(), ray_length=6.0)
+    visualize(default_stack(), default_rays())
 
 
 if __name__ == "__main__":

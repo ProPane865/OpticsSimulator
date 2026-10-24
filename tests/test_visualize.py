@@ -7,6 +7,7 @@ from vispy import scene
 import rendering.visualize as visualize
 from optics.measurement_plane import MeasurementPlane
 from optics.primitive import Ray, Surface
+from optics.source import PointSource
 from optics.system import OpticalSystem
 from rendering import demo
 from rendering.meshing import SurfaceMesher
@@ -174,9 +175,27 @@ def test_visualize_attaches_sidewall_when_aperture(sphere_pair, monkeypatch):
 
     attached = []
 
+    class _FakeCamera:
+        def __init__(self):
+            self.ranges = []
+            self.center = None
+            self.scale_factor = None
+
+        def set_range(self, **kwargs):
+            self.ranges.append(kwargs)
+
+        def set_default_state(self):
+            pass
+
     class _FakeView:
+        def __init__(self):
+            self.camera = _FakeCamera()
+            self.size = (900, 700)
+
         def add(self, visual):
             attached.append(("view", visual))
+
+    views = []
 
     class _FakeCanvas:
         def __init__(self, **kwargs):
@@ -187,7 +206,9 @@ def test_visualize_attaches_sidewall_when_aperture(sphere_pair, monkeypatch):
 
     class _FakeCentralWidget:
         def add_view(self, **kwargs):
-            return _FakeView()
+            view = _FakeView()
+            views.append(view)
+            return view
 
     monkeypatch.setattr(visualize, "scene", types.SimpleNamespace(SceneCanvas=_FakeCanvas))
     monkeypatch.setattr(visualize, "make_surface_visual", lambda surface, color: ("surface", surface))
@@ -199,6 +220,98 @@ def test_visualize_attaches_sidewall_when_aperture(sphere_pair, monkeypatch):
     assert kinds.count("surface") == 2
     assert "wall" in kinds
     assert canvas is not None
+    camera = views[0].camera
+    assert len(camera.ranges) == 1
+    assert camera.ranges[0]["z"][1] > 0.0
+
+
+class _FakeCamera:
+    #: Sentinel standing in for the scale factor a real camera derives inside
+    #: set_range(), so a test can tell "left to vispy" from "set by frame_view".
+    FITTED = 1000.0
+
+    def __init__(self):
+        self.ranges = []
+        self.center = None
+        self.scale_factor = None
+        self.default_states = 0
+
+    def set_range(self, **kwargs):
+        self.ranges.append(kwargs)
+        self.scale_factor = self.FITTED
+
+    def set_default_state(self):
+        self.default_states += 1
+
+
+def _framing_view(size=(800, 600)):
+    return types.SimpleNamespace(camera=_FakeCamera(), size=size)
+
+
+def test_scene_bounds_covers_elements_planes_source(make_element):
+    elem = make_element("sqrt(1 - (x**2) - (y**2))", "0", aperture_radius=0.5)
+    source = PointSource(position=np.array([0.0, 0.0, 5.0]), num_rays=4)
+    (x0, x1), (y0, y1), (z0, z1) = visualize.scene_bounds(
+        [elem], source=source, planes=[_measurement_plane()]
+    )
+    assert x0 <= -0.5 + 1e-9 and x1 >= 0.5 - 1e-9
+    assert y0 <= -0.5 + 1e-9 and y1 >= 0.5 - 1e-9
+    assert z0 <= -3.0 and z1 >= 5.0
+
+
+def test_scene_bounds_ray_length_reaches_down_the_design_axis():
+    source = PointSource(position=np.array([0.0, 0.0, 5.0]), num_rays=4)
+    bounds = visualize.scene_bounds(source=source, ray_length=40.0)
+    assert bounds[2][0] == pytest.approx(-35.0)
+    assert bounds[2][1] == pytest.approx(5.0)
+
+
+def test_scene_bounds_empty_scene_is_non_degenerate():
+    assert visualize.scene_bounds() == ((-1.0, 1.0), (-1.0, 1.0), (-1.0, 1.0))
+
+
+def test_scene_bounds_flat_stack_widens_degenerate_axes(make_element):
+    elem = make_element("0", "0")
+    (x0, x1), (_y0, _y1), (z0, z1) = visualize.scene_bounds([elem])
+    assert x0 < 0.0 and x1 > 0.0
+    assert z0 < 0.0 and z1 > 0.0
+
+
+def test_frame_view_delegates_fit_to_a_laid_out_camera():
+    view = _framing_view()
+    visualize.frame_view(view, ((-10.0, 10.0), (-5.0, 5.0), (-30.0, 30.0)))
+    camera = view.camera
+    assert camera.ranges[0]["x"] == (-10.0, 10.0)
+    assert camera.ranges[0]["z"] == (-30.0, 30.0)
+    assert camera.center == (0.0, 0.0, 0.0)
+    assert camera.scale_factor == _FakeCamera.FITTED  # vispy computed the fit
+    assert camera.default_states == 1
+
+
+def test_frame_view_without_view_size_sets_its_own_scale_factor():
+    view = _framing_view(size=(0, 0))
+    visualize.frame_view(view, ((-10.0, 10.0), (-5.0, 5.0), (-30.0, 30.0)))
+    expected = np.sqrt(20.0**2 + 10.0**2 + 60.0**2) * (1.0 + visualize.FRAME_MARGIN)
+    assert view.camera.scale_factor == pytest.approx(expected)
+    assert view.camera.default_states == 1
+
+
+def test_build_scene_axis_length_follows_scene(make_element, monkeypatch):
+    elem = make_element("0", "-2", aperture_radius=0.5)
+    lengths = []
+    monkeypatch.setattr(
+        visualize, "_add_axes", lambda view, width, length: lengths.append(length)
+    )
+    monkeypatch.setattr(visualize, "build_element_nodes", lambda view, element: [])
+    monkeypatch.setattr(
+        visualize,
+        "build_ray_nodes",
+        lambda view, elements, rays, ray_length: [],
+    )
+
+    visualize.build_scene(_FakeView(), [elem], [])
+
+    assert lengths == [pytest.approx(2.0)]
 
 
 def _measurement_plane(resolution=(6, 5)):

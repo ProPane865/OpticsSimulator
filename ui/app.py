@@ -303,7 +303,7 @@ def _warm_trace_kernels(elements: Sequence[RefractiveElement]) -> None:
             elements = [refractive_element_from_config(DEFAULT_ELEMENT_CONFIG)]
         origins, dirs, powers = PointSource(**DEFAULT_SOURCE_CONFIG).emit_arrays()
         system = OpticalSystem(list(elements))
-        system.trace_segments(origins, dirs, ray_length=6.0)
+        system.trace_segments(origins, dirs, ray_length=60.0)
         plane = MeasurementPlane(**DEFAULT_MEASUREMENT_CONFIG)
         MeasurementPlane.measure_batch_arrays([plane], origins, dirs, powers, system)
     except Exception:

@@ -22,7 +22,7 @@ PROJECT_VERSION = 1
 DEFAULT_MAX_GRID_DIM = 64
 
 DEFAULT_SOURCE_CONFIG: dict[str, Any] = {
-    "position": [0.0, 0.0, 3.0],
+    "position": [0.0, 0.0, 30.0],
     "power": 1.0,
     "num_rays": 16,
     "source_type": SINGLE_POINT,
@@ -30,10 +30,10 @@ DEFAULT_SOURCE_CONFIG: dict[str, Any] = {
 }
 
 DEFAULT_MEASUREMENT_CONFIG: dict[str, Any] = {
-    "origin": [0.0, 0.0, -3.0],
+    "origin": [0.0, 0.0, -30.0],
     "normal": [0.0, 0.0, 1.0],
-    "u_range": [-2.0, 2.0],
-    "v_range": [-2.0, 2.0],
+    "u_range": [-20.0, 20.0],
+    "v_range": [-20.0, 20.0],
     "resolution": [64, 64],
 }
 
@@ -42,7 +42,7 @@ def source_from_config(config: object) -> PointSource:
     if not isinstance(config, dict):
         raise ValueError("Source config must be an object")
     source_type = str(config.get("source_type", SINGLE_POINT))
-    position = np.asarray(config.get("position", [0.0, 0.0, 3.0]), dtype=float)
+    position = np.asarray(config.get("position", [0.0, 0.0, 30.0]), dtype=float)
     power = float(config.get("power", 1.0))
     num_rays = int(config.get("num_rays", 16))
     cone_angle = float(config.get("cone_angle", 60.0))

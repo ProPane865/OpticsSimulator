@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = ["SceneController", "make_display"]
 
-RAY_LENGTH = 6.0
+RAY_LENGTH = 60.0
 
 
 def make_display(

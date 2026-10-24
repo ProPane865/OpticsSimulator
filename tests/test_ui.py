@@ -339,18 +339,18 @@ def test_new_element_default_geometry(window):
     _trigger_new_element(window)
 
     element = window.elements[-1]
-    assert element.surface2.z_expr == "0.25"
-    assert element.surface1.z_expr == "-0.25"
-    assert float(element.surface2.point(0.0, 0.0)[2] - element.surface1.point(0.0, 0.0)[2]) == pytest.approx(0.5)
+    assert element.surface2.z_expr == "2.5"
+    assert element.surface1.z_expr == "-2.5"
+    assert float(element.surface2.point(0.0, 0.0)[2] - element.surface1.point(0.0, 0.0)[2]) == pytest.approx(5.0)
     assert element.material.refractive_index == pytest.approx(1.5)
-    assert element.surface1.aperture.radius == pytest.approx(0.75)
-    assert element.surface2.aperture.radius == pytest.approx(0.75)
+    assert element.surface1.aperture.radius == pytest.approx(7.5)
+    assert element.surface2.aperture.radius == pytest.approx(7.5)
 
     editor = _editor(window)
     assert editor["index"].value() == pytest.approx(1.5)
-    assert editor["radius"].value() == pytest.approx(0.75)
-    assert editor["s1"].text() == "-0.25"
-    assert editor["s2"].text() == "0.25"
+    assert editor["radius"].value() == pytest.approx(7.5)
+    assert editor["s1"].text() == "-2.5"
+    assert editor["s2"].text() == "2.5"
 
 
 def test_ok_applies_to_new_element(window, repo_root):
@@ -578,8 +578,8 @@ def test_load_project_planes_replace_existing(make_window, repo_root, tmp_path):
     window2.load_stack(out_path)
 
     assert len(window2.planes) == 2
-    assert window2.planes[0].o[2] == pytest.approx(-3.0)
-    assert window2.planes[1].o[2] == pytest.approx(-4.0)
+    assert window2.planes[0].o[2] == pytest.approx(-30.0)
+    assert window2.planes[1].o[2] == pytest.approx(-31.0)
 
 
 def test_load_project_invalid_source_keeps_state(window, repo_root, tmp_path):
@@ -690,7 +690,7 @@ def test_source_panel_populated_with_defaults(window):
     assert editor["power"].value() == pytest.approx(1.0)
     assert editor["cone"].value() == pytest.approx(60.0)
     assert editor["rays"].value() == 16
-    assert editor["z"].value() == pytest.approx(3.0)
+    assert editor["z"].value() == pytest.approx(30.0)
 
 
 def test_point_array_option_enabled(window):
@@ -896,7 +896,7 @@ def test_add_plane_populates_selector_and_fields(window):
     editor = _plane_editor(window)
     assert editor["selector"].isEnabled()
     assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane1"]
-    assert editor["pos"][2].value() == pytest.approx(-3.0)
+    assert editor["pos"][2].value() == pytest.approx(-30.0)
     assert editor["normal"][2].value() == pytest.approx(1.0)
     assert [spin.value() for spin in editor["resolution"]] == [64, 64]
 
@@ -983,9 +983,9 @@ def test_plane_selector_switches_fields(window):
     editor = _plane_editor(window)
     assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane1", "plane2"]
     editor["selector"].setCurrentText("plane1")
-    assert editor["pos"][2].value() == pytest.approx(-3.0)
+    assert editor["pos"][2].value() == pytest.approx(-30.0)
     editor["selector"].setCurrentText("plane2")
-    assert editor["pos"][2].value() == pytest.approx(-4.0)
+    assert editor["pos"][2].value() == pytest.approx(-31.0)
 
 
 def test_remove_plane_button(window):
@@ -1010,7 +1010,7 @@ def test_remove_selected_plane_keeps_others(window):
 
     assert len(window.planes) == 1
     assert [editor["selector"].itemText(i) for i in range(editor["selector"].count())] == ["plane2"]
-    assert window.planes[0].o[2] == pytest.approx(-4.0)
+    assert window.planes[0].o[2] == pytest.approx(-31.0)
 
 
 def _plane_image_label(window):

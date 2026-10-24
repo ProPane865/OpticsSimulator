@@ -33,8 +33,9 @@
     <property name="title">
      <string>File</string>
     </property>
-    <addaction name="actionOpen"/>
-    <addaction name="actionSave_As"/>
+     <addaction name="actionOpen"/>
+     <addaction name="actionImport_Zemax"/>
+     <addaction name="actionSave_As"/>
    </widget>
    <widget class="QMenu" name="menuNew">
     <property name="title">
@@ -706,11 +707,16 @@
     </layout>
    </widget>
   </widget>
-  <action name="actionOpen">
-   <property name="text">
-    <string>Open</string>
-   </property>
-  </action>
+   <action name="actionOpen">
+    <property name="text">
+     <string>Open</string>
+    </property>
+   </action>
+   <action name="actionImport_Zemax">
+    <property name="text">
+     <string>Import Zemax</string>
+    </property>
+   </action>
   <action name="actionOptical_Element">
    <property name="text">
     <string>Optical Element</string>

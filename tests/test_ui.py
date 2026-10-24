@@ -601,6 +601,51 @@ def test_load_project_invalid_source_keeps_state(window, repo_root, tmp_path):
     assert len(window.elements) == 2
 
 
+def test_file_menu_has_import_action(window):
+    menu_bar = window.findChild(QtWidgets.QMenuBar, "menubar")
+    file_menu = menu_bar.findChild(QtWidgets.QMenu, "menuFile")
+    assert file_menu is not None
+    assert any(a.objectName() == "actionImport_Zemax" for a in file_menu.actions())
+
+
+def _patch_open_dialog(monkeypatch, path):
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *args, **kwargs: (str(path), "")),
+    )
+
+
+def test_import_zemax_merges_into_existing(window, repo_root, monkeypatch):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    _trigger_measurement_plane(window)
+    elements_before = len(window.elements)
+    source_before = window.source
+
+    _patch_open_dialog(monkeypatch, repo_root / "tests" / "zmx" / "biconvex.zmx")
+    _trigger(window, "menuFile", "actionImport_Zemax")
+
+    # biconvex imports a single lens; existing lens1/lens2 force a rename.
+    assert len(window.elements) == elements_before + 1
+    assert "lens3" in window._state.schema
+    selector = window.findChild(QtWidgets.QComboBox, "lensSelector")
+    items = [selector.itemText(i) for i in range(selector.count())]
+    assert "lens3" in items
+    assert window.source is source_before
+    assert len(window.planes) == 1
+    assert "Imported 1 element" in window.statusBar().currentMessage()
+
+
+def test_import_zemax_cancelling_changes_nothing(window, repo_root, monkeypatch):
+    window.load_stack(repo_root / "tests" / "test_stack.json")
+    elements_before = len(window.elements)
+
+    _patch_open_dialog(monkeypatch, "")  # cancelled dialog
+    _trigger(window, "menuFile", "actionImport_Zemax")
+
+    assert len(window.elements) == elements_before
+
+
 def test_save_as_empty_stack_warns(window, tmp_path, monkeypatch, captured_warnings):
     dialog_calls = []
     monkeypatch.setattr(

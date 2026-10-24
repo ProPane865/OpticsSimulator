@@ -8,12 +8,13 @@ versioned file semantics can be reasoned about and unit-tested in isolation.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Iterable, Sequence
 from typing import Any
 
 import numpy as np
 
-from optics.config import stack_from_config
+from optics.config import refractive_element_from_config, stack_from_config
 from optics.element import RefractiveElement
 from optics.measurement_plane import MeasurementPlane, MeasurementResult, rays_to_arrays
 from optics.primitive import Ray
@@ -258,6 +259,71 @@ class ProjectState:
         del self._schema[name]
         self._elements.pop(index)
         self._system = None
+
+    def import_elements(
+        self, elements_config: dict[str, Any], *, radius: float = 0.0
+    ) -> list[str]:
+        """Merge imported ``elements_config`` into the current project.
+
+        The stack is cascaded downstream (along ``-Z``) of the rearmost existing
+        element (or the source when the project has none), separated by a gap
+        scaled by ``radius``; the internal spacing and any cemented shared
+        vertices are preserved (a single translation is applied to every
+        element). The current source and measurement planes are kept and
+        re-measured. Element names are de-duplicated against the existing
+        schema (``lens1`` -> ``lens3`` on collision).
+
+        Construction and combined-system validation run before any mutation, so
+        a bad import leaves the current state untouched (callers re-raise).
+        Returns the names actually added. Assumes untilted (``[0, 0, 1]``)
+        elements, as the Zemax importer emits.
+        """
+        if not elements_config:
+            return []
+
+        taken: set[str] = set(self._schema or {})
+        named: list[tuple[str, dict[str, Any]]] = []
+        for base, config in elements_config.items():
+            name = unique_name(base, taken, prefix="lens")
+            taken.add(name)
+            named.append((name, config))
+
+        incoming_front = max(
+            float(config.get("position", [0.0, 0.0, 0.0])[2]) for _, config in named
+        )
+        if self._elements:
+            anchor = min(float(element.surface2.point(0.0, 0.0)[2]) for element in self._elements)
+        else:
+            anchor = float(self._source.position[2])
+        delta = anchor - max(2.0 * float(radius), 1.0) - incoming_front
+
+        offset_configs: dict[str, Any] = {}
+        built: list[RefractiveElement] = []
+        for name, config in named:
+            new_config = copy.deepcopy(config)
+            position = [float(value) for value in new_config.get("position", [0.0, 0.0, 0.0])]
+            position[2] += delta
+            new_config["position"] = position
+            offset_configs[name] = new_config
+            built.append(refractive_element_from_config(new_config))
+
+        new_system = OpticalSystem([*self._elements, *built])
+        origins, dirs, powers = self.rays_arrays()
+        new_rows = self._split_hits(
+            *new_system.measure_planes(origins, dirs, powers, self._planes)
+        )
+        new_results = [
+            self._result_from_row(plane, row) for plane, row in zip(self._planes, new_rows)
+        ]
+
+        if self._schema is None:
+            self._schema = {}
+        self._schema.update(offset_configs)
+        self._elements.extend(built)
+        self._system = new_system
+        self._plane_hit_rows = new_rows
+        self._plane_results = new_results
+        return [name for name, _ in named]
 
     # -- source / rays -------------------------------------------------------
     def set_source(self, source: PointSource, rays: list[Ray]) -> None:

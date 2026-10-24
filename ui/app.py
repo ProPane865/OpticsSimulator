@@ -17,6 +17,8 @@ from PySide6.QtUiTools import QUiLoader
 from vispy import app as vispy_app
 
 from optics.element import RefractiveElement
+from optics.importers.zmx import load_zmx_elements
+from optics.io import load_project
 from optics.measurement_plane import MeasurementPlane, MeasurementResult
 from optics.primitive import Ray
 from optics.project import DEFAULT_MEASUREMENT_CONFIG, DEFAULT_SOURCE_CONFIG
@@ -86,6 +88,9 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
 
     def _connect_actions(self) -> None:
         find_child(self._ui, QtGui.QAction, "actionOpen", UI_PATH.name).triggered.connect(self._on_open)
+        find_child(self._ui, QtGui.QAction, "actionImport_Zemax", UI_PATH.name).triggered.connect(
+            self._on_import_zemax
+        )
         find_child(self._ui, QtGui.QAction, "actionOptical_Element", UI_PATH.name).triggered.connect(
             self._element_editor.add
         )
@@ -166,8 +171,7 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
     # -- project load / save -------------------------------------------------
     def load_stack(self, path: str | Path) -> "list[RefractiveElement]":
         path = Path(path)
-        with open(path) as f:
-            document = json.load(f)
+        document = load_project(path)
         elements, replaced_planes = self._state.load_document(document)
 
         self._scene.full_rebuild(self._state.elements, self._state.rays)
@@ -181,6 +185,25 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         self._set_status(f"Loaded {len(elements)} element(s) from {path.name}")
         return elements
 
+    def import_elements(self, path: str | Path) -> "list[str]":
+        """Merge a ``.zmx`` prescription's lenses into the current project.
+
+        The current source and measurement planes are kept; the imported stack
+        is cascaded downstream of the existing elements (see
+        :meth:`ui.model.ProjectState.import_elements`).
+        """
+        path = Path(path)
+        elements_config, geometry = load_zmx_elements(path)
+        added = self._state.import_elements(elements_config, radius=geometry.radius)
+
+        self._scene.full_rebuild(self._state.elements, self._state.rays)
+        self._element_editor.populate_selector()
+        self._refresh_trace()
+        self._update_plane_view()
+
+        self._set_status(f"Imported {len(added)} element(s) from {path.name}")
+        return added
+
     def save_stack(self, path: str | Path) -> Path:
         document = self._state.to_document()
         path = Path(path)
@@ -190,15 +213,27 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
         return path
 
     # -- menu / dialog handlers ---------------------------------------------
-    _JSON_FILTER = "JSON files (*.json);;All files (*)"
+    # Open/Save work on JSON project documents; Zemax ``.zmx`` is import-only
+    # (see ``_IMPORT_FILTER`` / ``_on_import_zemax``).
+    _OPEN_FILTER = "JSON files (*.json);;All files (*)"
+    _SAVE_FILTER = "JSON files (*.json);;All files (*)"
+    _IMPORT_FILTER = "Zemax files (*.zmx);;All files (*)"
 
     def _pick_json_path(self, mode: str) -> Path | None:
-        """Ask for a JSON path via the open/save dialog; ``None`` if cancelled."""
+        """Ask for a project path via the open/save dialog; ``None`` if cancelled."""
         if mode == "open":
-            title, dialog = "Open Optical Stack", QtWidgets.QFileDialog.getOpenFileName
+            title, dialog, file_filter = (
+                "Open Optical Stack",
+                QtWidgets.QFileDialog.getOpenFileName,
+                self._OPEN_FILTER,
+            )
         else:
-            title, dialog = "Save Optical Stack", QtWidgets.QFileDialog.getSaveFileName
-        path, _ = dialog(self, title, str(Path.home()), self._JSON_FILTER)
+            title, dialog, file_filter = (
+                "Save Optical Stack",
+                QtWidgets.QFileDialog.getSaveFileName,
+                self._SAVE_FILTER,
+            )
+        path, _ = dialog(self, title, str(Path.home()), file_filter)
         return Path(path) if path else None
 
     def _on_open(self) -> None:
@@ -210,6 +245,20 @@ class OpticsMainWindow(QtWidgets.QMainWindow):
             lambda: self.load_stack(path),
             title="Open Failed",
             message="Could not load optical stack",
+            critical=True,
+        )
+
+    def _on_import_zemax(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Import Zemax Prescription", str(Path.home()), self._IMPORT_FILTER
+        )
+        if not path:
+            return
+        run_validated(
+            self,
+            lambda: self.import_elements(Path(path)),
+            title="Import Failed",
+            message="Could not import Zemax elements",
             critical=True,
         )
 

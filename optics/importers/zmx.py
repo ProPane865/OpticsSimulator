@@ -19,6 +19,15 @@ Vertex positions are folded into each element's ``position`` and local
 
 Units: ZMX values are passed through verbatim; no unit rescaling.
 
+Encoding: Zemax writes ``.zmx`` as UTF-16 with a byte-order mark; :func:`parse_zmx`
+BOM-sniffs UTF-16/UTF-32/UTF-8 and falls back to UTF-8.
+
+Dialect: sequential, multi-line prescriptions (``SURF n`` followed by indented
+``TYPE``/``CURV``/``DISZ``/``GLAS``/``DIAM`` keyword lines, where ``DISZ`` is the
+thickness to the next surface and ``DIAM`` the semi-diameter). Glass is either a
+catalog name (``GLAS "N-BK7" nd abbe name``) or an anonymous blank
+(``GLAS ___BLANK 1 0 nd abbe ...``) whose index is attached to the surface.
+
 Supported subset (v1): sequential mode, STANDARD surfaces (spherical and
 conic), air-spaced and cemented singlets/doublets/triplets, constant
 reference index from ``GLAS`` ``nd`` (or a small built-in table).
@@ -27,6 +36,7 @@ surfaces, non-sequential mode, ...) is rejected with an explicit error.
 """
 
 import copy
+import math
 import re
 import warnings
 from collections.abc import Callable
@@ -61,6 +71,7 @@ class ZmxSurface:
     conic: float = 0.0
     coefficients: list[float] = field(default_factory=list)
     vertex_z: float = 0.0
+    refractive_index: float | None = None
 
 
 @dataclass
@@ -94,16 +105,23 @@ _AIR_GLASS = {"", "NULL", "AIR"}
 
 _MIRROR = "MIRROR"
 
+# Model name Zemax writes for a glass defined only by an explicit (nd, abbe)
+# pair rather than a catalog name; the numeric layout differs from named glass.
+_GLASS_BLANK = "___BLANK"
+
 _KNOWN_GLOBAL_TAGS = {
-    "APD", "APX", "APY", "BLKR", "CHNI", "CTC", "DECN", "DESC", "END",
-    "ENPD", "ENVD", "FIELD", "FIEL", "FILE", "FTYP", "GLRS", "IGNR",
-    "LANG", "LDMF", "MODE", "NAME", "NFRA", "NONSEQ", "NONX", "OBJS",
-    "OBRA", "OPRI", "ODSC", "PATH", "PATW", "PDVA", "PERF", "POPS",
-    "PUSH", "PUPO", "PWTC", "RAGL", "RAND", "RAYC", "SEQ", "SOLV",
-    "STOP", "TOL", "USER", "WWGT",
+    "APD", "APX", "APY", "BLNK", "BLKR", "CHNI", "COFN", "CTC", "DECN",
+    "DESC", "END", "ENPD", "ENVD", "FIELD", "FIEL", "FILE", "FWGN", "FTYP",
+    "FIMP", "GFAC", "GLRS", "GSTD", "GCAT", "HIDE", "IGNR", "LANG", "LDMF",
+    "MAZH", "MIRR", "MODE", "MNUM", "MOFF", "NAME", "NFRA", "NONSEQ",
+    "NONX", "NSCD", "OBJS", "OBRA", "OPRI", "ODSC", "PATH", "PATW", "PDVA",
+    "PERF", "PICB", "PFIL", "POPS", "POLS", "PUSH", "PUPO", "PWAV", "PWTC",
+    "RAGL", "RAND", "RAIM", "RAYC", "ROPD", "SDMA", "SEQ", "SOLV", "SLAB",
+    "STOP", "TOL", "USER", "VERS", "VDXN", "VDYN", "VCXN", "VCYN", "VANN",
+    "WWGT", "WAVM", "XFLN", "YFLN",
 }
 
-_SURFACE_TAGS = {"TYPE", "CURV", "THIC", "CONI", "DISZ", "DIAM", "PARM"}
+_SURFACE_TAGS = {"TYPE", "CURV", "DISZ", "DIAM", "CONI", "PARM"}
 
 _COMMON_GLASS_INDICES = {
     "N-BK7": 1.5168, "BK7": 1.5168, "N-SF11": 1.7847, "SF11": 1.7847,
@@ -196,6 +214,15 @@ def _register_glass(
     if not parts:
         return
     model = parts[0].strip()
+    if model.upper() == _GLASS_BLANK:
+        index = _float(parts[3]) if len(parts) > 3 else None
+        abbe = _float(parts[4]) if len(parts) > 4 else None
+        if current is not None and current.glass == "" and index is not None:
+            current.glass = _GLASS_BLANK
+            current.refractive_index = index
+            if abbe is not None:
+                prescription.glasses.setdefault(_GLASS_BLANK, (index, abbe))
+        return
     index = _float(parts[1]) if len(parts) > 1 else None
     abbe = _float(parts[2]) if len(parts) > 2 else None
     name = parts[3].strip() if len(parts) > 3 and parts[3].strip() else model
@@ -219,16 +246,18 @@ def _apply_surface_keyword(
             current.surface_type = value.upper()
         return
     number = _float(value)
-    if number is None:
+    if number is None or not math.isfinite(number):
+        if tag == "DISZ":
+            return  # infinite object/image-space distance: nothing to advance
         warn(f"Ignored malformed {tag} line in ZMX")
         return
     if tag == "CURV":
         current.curvature = number
-    elif tag == "THIC":
+    elif tag == "DISZ":
         current.thickness = number
     elif tag == "CONI":
         current.conic = number
-    elif tag in ("DISZ", "DIAM"):
+    elif tag == "DIAM":
         current.semi_diameter = max(current.semi_diameter, number)
     elif tag == "PARM":
         if number != 0.0:
@@ -247,9 +276,13 @@ def _apply_keyword(
             value = _float(token)
             if value is not None:
                 prescription.wavelengths.append(value)
+    elif tag == "WAVM":
+        value = _float(fields[2]) if len(fields) > 2 else None
+        if value is not None:
+            prescription.wavelengths.append(value)
     elif tag == "UNIT":
         if len(fields) > 1:
-            prescription.units = _unquote(fields[-1]).upper()
+            prescription.units = _unquote(fields[1]).upper()
     elif tag == "GLAS":
         _register_glass(fields, current, prescription)
     elif current is not None and tag in _SURFACE_TAGS:
@@ -258,9 +291,26 @@ def _apply_keyword(
         warn(f"Unsupported ZMX keyword {tag!r} ignored")
 
 
+def _read_text(path: str | Path) -> str:
+    """Decode a ZMX file, honouring the UTF-16 (with BOM) that Zemax writes."""
+    data = Path(path).read_bytes()
+    if data[:2] == b"\xff\xfe":
+        return data.decode("utf-16-le", errors="replace").lstrip("\ufeff")
+    if data[:2] == b"\xfe\xff":
+        return data.decode("utf-16-be", errors="replace").lstrip("\ufeff")
+    if data[:3] == b"\xef\xbb\xbf":
+        return data.decode("utf-8-sig", errors="replace")
+    if len(data) >= 2 and data[0] != 0 and data[1] == 0:
+        try:  # BOM-less little-endian UTF-16 (ASCII text has NUL high bytes)
+            return data.decode("utf-16-le")
+        except UnicodeDecodeError:
+            pass
+    return data.decode("utf-8", errors="replace")
+
+
 def parse_zmx(path: str | Path) -> ZmxPrescription:
-    """Parse a ZMX text file into a :class:`ZmxPrescription`."""
-    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    """Parse a ZMX text file (UTF-16 or UTF-8) into a :class:`ZmxPrescription`."""
+    text = _read_text(path)
     prescription = ZmxPrescription(surfaces=[])
 
     def warn(message: str) -> None:
@@ -358,7 +408,14 @@ def _resolve_index(
     name: str,
     glasses: dict[str, tuple[float, float]],
     warn: Callable[[str], None],
+    refractive_index: float | None = None,
 ) -> float:
+    if refractive_index is not None and 1.0 < refractive_index < 10.0:
+        warn(
+            f"{name or _GLASS_BLANK} imported using n={refractive_index:.6g}. "
+            "Wavelength-dependent glass dispersion is not currently supported."
+        )
+        return refractive_index
     key = name.strip().upper()
     entry = glasses.get(key)
     if entry is not None and 1.0 < entry[0] < 10.0:
@@ -425,7 +482,10 @@ def zmx_to_elements(
             "surface2": _surface_config(rear, -front.thickness),
             "material": {
                 "refractive_index": _resolve_index(
-                    front.glass, prescription.glasses, warn
+                    front.glass,
+                    prescription.glasses,
+                    warn,
+                    front.refractive_index,
                 )
             },
             "position": [0.0, 0.0, -front.vertex_z],

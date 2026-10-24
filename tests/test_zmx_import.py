@@ -25,6 +25,8 @@ from optics.system import OpticalSystem
 
 ZMX_DIR = Path(__file__).parent / "zmx"
 
+N_BK7 = '"N-BK7" 1.5168 64.17 "N-BK7"'
+
 
 def _load_quiet_elements(path: Path) -> tuple[dict[str, Any], Any]:
     with warnings.catch_warnings():
@@ -32,27 +34,58 @@ def _load_quiet_elements(path: Path) -> tuple[dict[str, Any], Any]:
         return load_zmx_elements(path)
 
 
+def _surf(
+    num: int,
+    *,
+    stype: str = "STANDARD",
+    curv: float = 0.0,
+    disz: float = 0.0,
+    glass: str | None = None,
+    diam: float = 12.5,
+    parm: float | None = None,
+) -> list[str]:
+    """Build one multi-line Zemax surface block (the modern .zmx dialect)."""
+    block = [
+        f"SURF {num}",
+        f"  TYPE {stype}",
+        f'  CURV {curv!r} 0 0 0 0 ""',
+        f"  DISZ {disz!r}",
+    ]
+    if glass is not None:
+        block.append(f"  GLAS {glass}")
+    block.append(f'  DIAM {diam!r} 0 0 0 1 ""')
+    if parm is not None:
+        block.append(f"  PARM {parm!r}")
+    return block
+
+
 def _modern_case(
     tmp_path: Path,
-    surf_lines: list[str],
-    last: str = 'SURF 9 "IMA Standard" IMA 0 0 NULL 12.5 0 0 0 0 0',
+    surf_blocks: list[str],
+    last: list[str] | None = None,
 ) -> Path:
+    """Write a sequential UTF-16 prescription with the given middle surfaces."""
     lines = [
-        'FILE VER 1602 1 "case"',
-        "UNIT MF MM",
-        'SURF 0 "OBJ Standard" OBJ 0 25 NULL 12.5 0 0 0 0 0',
-        *surf_lines,
-        last,
-        'GLAS "N-BK7" 1.5168 64.17 "N-BK7"',
+        "VERS 150514 56 37269",
+        "MODE SEQ",
+        "UNIT MM X W X CM MR CPMM",
+        "WAVM 1 5.87560E-1 1",
+        *_surf(0, stype="OBJ", disz=25.0, diam=25.0),
+        *surf_blocks,
+        *(
+            last
+            if last is not None
+            else _surf(9, stype="IMA", disz=0.0, diam=12.5)
+        ),
         "END",
     ]
     path = tmp_path / "case.zmx"
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_bytes(("\n".join(lines) + "\n").encode("utf-16"))
     return path
 
 
 # -- parsing -----------------------------------------------------------------
-def test_parse_modern_dialect() -> None:
+def test_parse_singlet() -> None:
     prescription = parse_zmx(ZMX_DIR / "biconvex.zmx")
     assert [s.index for s in prescription.surfaces] == [0, 1, 2, 3]
     assert prescription.units == "MM"
@@ -68,7 +101,7 @@ def test_parse_modern_dialect() -> None:
     assert prescription.glasses["N-BK7"][0] == pytest.approx(1.51679364)
 
 
-def test_parse_legacy_dialect() -> None:
+def test_parse_cemented_doublet() -> None:
     prescription = parse_zmx(ZMX_DIR / "cemented_doublet.zmx")
     assert len(prescription.surfaces) == 5
     s1, s2, s3 = prescription.surfaces[1:4]
@@ -156,6 +189,36 @@ def test_cemented_doublet_shares_the_interface() -> None:
     assert second.material.refractive_index == pytest.approx(1.64997)
 
 
+# -- glass index resolution ----------------------------------------------------
+def test_blank_glass_uses_inline_index(tmp_path: Path) -> None:
+    # Zemax writes catalog-less glasses as `GLAS ___BLANK 1 0 nd abbe ...`;
+    # the index must come from the numeric column (not the model name).
+    path = _modern_case(
+        tmp_path,
+        _surf(1, curv=0.02, disz=4.0, glass="___BLANK 1 0 1.62 36.3")
+        + _surf(2, curv=-0.02, disz=10.0),
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        elements, _ = load_zmx_elements(path)
+    assert elements["lens1"]["material"]["refractive_index"] == pytest.approx(1.62)
+    assert any("dispersion" in str(w.message) for w in caught)
+
+
+def test_parse_reads_utf16_without_warnings(tmp_path: Path) -> None:
+    path = _modern_case(
+        tmp_path,
+        _surf(1, curv=0.02, disz=5.0, glass=N_BK7) + _surf(2, curv=-0.02, disz=10.0),
+    )
+    assert path.read_bytes()[:2] == b"\xff\xfe"  # UTF-16 LE BOM, as Zemax writes
+    prescription = parse_zmx(path)
+    assert [s.index for s in prescription.surfaces] == [0, 1, 2, 9]
+    assert prescription.surfaces[1].thickness == pytest.approx(5.0)
+    assert prescription.surfaces[1].semi_diameter == pytest.approx(12.5)
+    assert prescription.wavelengths == pytest.approx([0.58756])
+    assert prescription.warnings == []
+
+
 # -- warnings ------------------------------------------------------------------
 def test_monochromatic_import_warning() -> None:
     with pytest.warns(UserWarning, match="dispersion"):
@@ -170,7 +233,7 @@ def test_builtin_table_warning() -> None:
 # -- rejections ----------------------------------------------------------------
 def test_reject_mirror(tmp_path: Path) -> None:
     path = _modern_case(
-        tmp_path, ['SURF 1 "STANDARD" STANDARD 0.02 5 MIRROR 12.5 0 0 0 0 0']
+        tmp_path, _surf(1, curv=0.02, disz=5.0, glass="MIRROR 0 0 MIRROR")
     )
     with pytest.raises(UnsupportedZmxError, match="[Mm]irror"):
         load_zmx_elements(path)
@@ -179,17 +242,18 @@ def test_reject_mirror(tmp_path: Path) -> None:
 def test_reject_aspheric_coefficients(tmp_path: Path) -> None:
     path = _modern_case(
         tmp_path,
-        [
-            'SURF 1 "STANDARD" STANDARD 0.02 5 N-BK7 12.5 0 1e-4',
-            'SURF 2 "STANDARD" STANDARD -0.02 10 NULL 12.5 0',
-        ],
+        _surf(1, curv=0.02, disz=5.0, glass=N_BK7, parm=1.0e-4)
+        + _surf(2, curv=-0.02, disz=10.0),
     )
     with pytest.raises(UnsupportedZmxError, match="[Aa]spheric"):
         load_zmx_elements(path)
 
 
 def test_reject_unsupported_surface_type(tmp_path: Path) -> None:
-    path = _modern_case(tmp_path, ['SURF 1 "ASP" EVENASPHERE 0.02 5 N-BK7 12.5 0'])
+    path = _modern_case(
+        tmp_path,
+        _surf(1, stype="EVENASPHERE", curv=0.02, disz=5.0, glass=N_BK7),
+    )
     with pytest.raises(UnsupportedZmxError, match="EVENASPHERE"):
         load_zmx_elements(path)
 
@@ -197,10 +261,8 @@ def test_reject_unsupported_surface_type(tmp_path: Path) -> None:
 def test_reject_unknown_glass(tmp_path: Path) -> None:
     path = _modern_case(
         tmp_path,
-        [
-            'SURF 1 "STANDARD" STANDARD 0.02 5 ZGL-1 12.5 0',
-            'SURF 2 "STANDARD" STANDARD -0.02 10 NULL 12.5 0',
-        ],
+        _surf(1, curv=0.02, disz=5.0, glass="ZGL-1")
+        + _surf(2, curv=-0.02, disz=10.0),
     )
     with pytest.raises(UnsupportedZmxError, match="Unknown glass"):
         load_zmx_elements(path)
@@ -209,10 +271,8 @@ def test_reject_unknown_glass(tmp_path: Path) -> None:
 def test_reject_missing_semi_diameter(tmp_path: Path) -> None:
     path = _modern_case(
         tmp_path,
-        [
-            'SURF 1 "STANDARD" STANDARD 0.02 5 N-BK7 0 0',
-            'SURF 2 "STANDARD" STANDARD -0.02 10 NULL 12.5 0',
-        ],
+        _surf(1, curv=0.02, disz=5.0, glass=N_BK7, diam=0.0)
+        + _surf(2, curv=-0.02, disz=10.0),
     )
     with pytest.raises(UnsupportedZmxError, match="semi-diameter"):
         load_zmx_elements(path)
@@ -221,17 +281,15 @@ def test_reject_missing_semi_diameter(tmp_path: Path) -> None:
 def test_reject_glass_after_final_surface(tmp_path: Path) -> None:
     path = _modern_case(
         tmp_path,
-        ['SURF 1 "STANDARD" STANDARD 0.02 5 N-BK7 12.5 0'],
-        last='SURF 9 "STANDARD" STANDARD -0.01 0 N-F2 12.5 0',
+        _surf(1, curv=0.02, disz=5.0, glass=N_BK7),
+        last=_surf(9, curv=-0.01, disz=0.0, glass="N-F2"),
     )
     with pytest.raises(UnsupportedZmxError, match="exit surface"):
         load_zmx_elements(path)
 
 
 def test_reject_no_glass(tmp_path: Path) -> None:
-    path = _modern_case(
-        tmp_path, ['SURF 1 "STANDARD" STANDARD 0.02 5 NULL 12.5 0']
-    )
+    path = _modern_case(tmp_path, _surf(1, curv=0.02, disz=5.0))
     with pytest.raises(UnsupportedZmxError, match="[Nn]o refracting glass"):
         load_zmx_elements(path)
 
@@ -239,11 +297,9 @@ def test_reject_no_glass(tmp_path: Path) -> None:
 def test_curved_dummy_rejected(tmp_path: Path) -> None:
     path = _modern_case(
         tmp_path,
-        [
-            'SURF 1 "STANDARD" STANDARD 0.02 2 N-BK7 12.5 0',
-            'SURF 2 "STANDARD" STANDARD 0.01 1 N-BK7 12.5 0',
-            'SURF 3 "STANDARD" STANDARD -0.02 10 NULL 12.5 0',
-        ],
+        _surf(1, curv=0.02, disz=2.0, glass="N-BK7")
+        + _surf(2, curv=0.01, disz=1.0, glass="N-BK7")
+        + _surf(3, curv=-0.02, disz=10.0),
     )
     with pytest.raises(UnsupportedZmxError, match="single glass"):
         load_zmx_elements(path)
@@ -252,11 +308,9 @@ def test_curved_dummy_rejected(tmp_path: Path) -> None:
 def test_dummy_surface_merged(tmp_path: Path) -> None:
     path = _modern_case(
         tmp_path,
-        [
-            'SURF 1 "STANDARD" STANDARD 0.02 2 N-BK7 12.5 0',
-            'SURF 2 "STANDARD" STANDARD 0 1 N-BK7 12.5 0',
-            'SURF 3 "STANDARD" STANDARD -0.02 10 NULL 12.5 0',
-        ],
+        _surf(1, curv=0.02, disz=2.0, glass=N_BK7)
+        + _surf(2, curv=0.0, disz=1.0, glass=N_BK7)
+        + _surf(3, curv=-0.02, disz=10.0),
     )
     prescription = parse_zmx(path)
     elements, _ = zmx_to_elements(prescription)
